@@ -1,0 +1,3 @@
+C:/Users/afney/Desktop/vulkan/build/CMakeFiles/MekanikTesisatDraw.dir
+C:/Users/afney/Desktop/vulkan/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/afney/Desktop/vulkan/build/CMakeFiles/ZERO_CHECK.dir

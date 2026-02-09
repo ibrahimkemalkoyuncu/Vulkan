@@ -1,0 +1,10 @@
+^C:\USERS\AFNEY\DESKTOP\VULKAN\BUILD\CMAKEFILES\F1286574246DC70494FB5F9220AB84A8\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/afney/Desktop/vulkan -BC:/Users/afney/Desktop/vulkan/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/afney/Desktop/vulkan/build/MekanikTesisatDraw.slnx
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
