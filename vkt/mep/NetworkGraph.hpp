@@ -10,6 +10,7 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <unordered_map>
 #include "geom/Math.hpp"
 
 namespace vkt {
@@ -102,29 +103,54 @@ public:
     void RemoveNode(uint32_t nodeId);
     Node* GetNode(uint32_t nodeId);
     const Node* GetNode(uint32_t nodeId) const;
-    std::vector<Node>& GetNodes() { return m_nodes; }
-    const std::vector<Node>& GetNodes() const { return m_nodes; }
-    
+
+    /// Tüm node'ları vector olarak döndür (backward compat)
+    std::vector<Node> GetNodeList() const;
+    /// Mutable referans — HydraulicSolver gibi yerlerde kullanılır
+    std::unordered_map<uint32_t, Node>& GetNodeMap() { return m_nodeMap; }
+    const std::unordered_map<uint32_t, Node>& GetNodeMap() const { return m_nodeMap; }
+    /// Backward-compat: vector referans döndüren wrapper (her çağrıda yeniden oluşturur)
+    std::vector<Node>& GetNodes();
+    const std::vector<Node>& GetNodes() const;
+
     // Edge işlemleri
     uint32_t AddEdge(const Edge& edge);
     void RemoveEdge(uint32_t edgeId);
     Edge* GetEdge(uint32_t edgeId);
     const Edge* GetEdge(uint32_t edgeId) const;
-    std::vector<Edge>& GetEdges() { return m_edges; }
-    const std::vector<Edge>& GetEdges() const { return m_edges; }
-    
-    // Topolojik sorgular
+
+    /// Tüm edge'leri vector olarak döndür (backward compat)
+    std::vector<Edge> GetEdgeList() const;
+    std::unordered_map<uint32_t, Edge>& GetEdgeMap() { return m_edgeMap; }
+    const std::unordered_map<uint32_t, Edge>& GetEdgeMap() const { return m_edgeMap; }
+    /// Backward-compat: vector referans döndüren wrapper
+    std::vector<Edge>& GetEdges();
+    const std::vector<Edge>& GetEdges() const;
+
+    // Topolojik sorgular — O(degree) adjacency list ile
     std::vector<uint32_t> GetConnectedEdges(uint32_t nodeId) const;
     std::vector<uint32_t> GetUpstreamNodes(uint32_t nodeId) const;
     std::vector<uint32_t> GetDownstreamNodes(uint32_t nodeId) const;
-    
+
+    size_t GetNodeCount() const { return m_nodeMap.size(); }
+    size_t GetEdgeCount() const { return m_edgeMap.size(); }
+
     void Clear();
 
 private:
-    std::vector<Node> m_nodes;
-    std::vector<Edge> m_edges;
+    std::unordered_map<uint32_t, Node> m_nodeMap;
+    std::unordered_map<uint32_t, Edge> m_edgeMap;
+    std::unordered_map<uint32_t, std::vector<uint32_t>> m_adjacency; ///< nodeId → edgeId list
     uint32_t m_nextNodeId = 1;
     uint32_t m_nextEdgeId = 1;
+
+    // Backward-compat cache (lazy rebuild)
+    mutable std::vector<Node> m_nodeCache;
+    mutable std::vector<Edge> m_edgeCache;
+    mutable bool m_nodeCacheDirty = true;
+    mutable bool m_edgeCacheDirty = true;
+    void RebuildNodeCache() const;
+    void RebuildEdgeCache() const;
 };
 
 } // namespace mep

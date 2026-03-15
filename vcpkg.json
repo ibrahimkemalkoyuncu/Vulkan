@@ -1,0 +1,15 @@
+{
+  "name": "vkt-mekanik-tesisat",
+  "version-string": "1.0.0",
+  "description": "Mekanik Tesisat CAD Uygulaması (FINE SANI++ benzeri)",
+  "dependencies": [
+    {
+      "name": "vulkan",
+      "platform": "windows"
+    },
+    {
+      "name": "libredwg",
+      "platform": "windows"
+    }
+  ]
+}

@@ -16,17 +16,24 @@
 #include <memory>
 #include "core/Document.hpp"
 #include "cad/SpaceManager.hpp"
+#include "cad/Viewport.hpp"
 #include "cad/Entity.hpp"
 #include "ui/SpacePanel.hpp"
 
 namespace vkt {
+namespace render { class VulkanWindow; }
 namespace ui {
+
+/// Aktif cizim araci
+enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction };
+enum class DrawState { Idle, WaitingFirstPoint, WaitingSecondPoint };
 
 /**
  * @class MainWindow
  * @brief Ana CAD penceresi (FINE SANI++ özellikleriyle)
- * 
+ *
  * Toolbar, property panel, layer manager içerir.
+ * VulkanWindow üzerinden GPU rendering yapar.
  */
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -37,6 +44,8 @@ public:
 
     void SetDocument(core::Document* doc);
     core::Document* GetDocument() const { return m_document; }
+
+    render::VulkanWindow* GetVulkanWindow() const { return m_vulkanWindow; }
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -94,6 +103,9 @@ private:
 
     core::Document* m_document = nullptr;
 
+    // Vulkan rendering penceresi
+    render::VulkanWindow* m_vulkanWindow = nullptr;
+
     // Toolbars
     QToolBar* m_drawToolbar = nullptr;
     QToolBar* m_editToolbar = nullptr;
@@ -141,6 +153,16 @@ private:
     QAction* m_actRunHydraulics = nullptr;
     QAction* m_actGenerateSchedule = nullptr;
     QAction* m_actExportReport = nullptr;
+
+    // Tool state
+    ToolMode m_currentToolMode = ToolMode::Select;
+    DrawState m_drawState = DrawState::Idle;
+    uint32_t m_firstNodeId = 0; // DrawPipe icin ilk node
+    geom::Vec3 m_firstClickPos; // Ilk tiklama world koordinati
+
+    // Mouse event handler'lari
+    void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
+    void HandleMouseMove(double worldX, double worldY);
 };
 
 } // namespace ui

@@ -55,6 +55,7 @@ set(SOURCES
     src/core/Window.cpp
     src/core/Persistence.cpp
     src/renderer/VulkanRenderer.cpp
+    src/renderer/VulkanWindow.cpp
     src/ui/UI.cpp
     src/ui/MainWindow.cpp
     src/ui/DXFImportDialog.cpp
@@ -77,6 +78,7 @@ set(SOURCES
     src/cad/DXFReader.cpp
     src/cad/DWGReader.cpp  # Placeholder implementation (UI support)
     src/cad/SpaceManager.cpp
+    src/cad/SnapManager.cpp
 )
 
 # Header files
@@ -93,6 +95,7 @@ set(HEADERS
     vkt/mep/Database.hpp
     vkt/mep/ScheduleGenerator.hpp
     vkt/render/VulkanRenderer.hpp
+    vkt/render/VulkanWindow.hpp
     vkt/ui/UI.hpp
     vkt/ui/MainWindow.hpp
     vkt/ui/DXFImportDialog.hpp
@@ -110,6 +113,8 @@ set(HEADERS
     vkt/cad/DXFReader.hpp
     vkt/cad/DWGReader.hpp
     vkt/cad/SpaceManager.hpp
+    vkt/cad/SnapManager.hpp
+    vkt/core/Commands.hpp
 )
 
 # Executable
@@ -132,3 +137,10 @@ endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# Unit Tests (opsiyonel, BUILD_TESTING=ON ile aktif)
+option(BUILD_TESTING "Build unit tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

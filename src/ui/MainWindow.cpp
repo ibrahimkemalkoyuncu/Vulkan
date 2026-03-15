@@ -6,10 +6,14 @@
 #include "ui/MainWindow.hpp"
 #include "ui/DXFImportDialog.hpp"
 #include "ui/SpacePanel.hpp"
+#include "render/VulkanWindow.hpp"
 #include "mep/HydraulicSolver.hpp"
 #include "mep/ScheduleGenerator.hpp"
 #include "mep/Database.hpp"
+#include "core/Persistence.hpp"
+#include "core/Application.hpp"
 #include <QMenuBar>
+#include <fstream>
 #include <QStatusBar>
 #include <QMessageBox>
 #include <QFileDialog>
@@ -25,19 +29,31 @@ namespace ui {
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent) {
-    
+
     setWindowTitle("VKT - Mekanik Tesisat CAD (FINE SANI++)");
     resize(1600, 900);
-    
+
     // Space Manager initialize et
     m_spaceManager = std::make_unique<cad::SpaceManager>();
-    
+
+    // Vulkan rendering penceresi oluştur
+    m_vulkanWindow = new render::VulkanWindow();
+    QWidget* vulkanWidget = QWidget::createWindowContainer(m_vulkanWindow, this);
+    vulkanWidget->setMinimumSize(400, 300);
+    setCentralWidget(vulkanWidget);
+
+    // Mouse callback'lerini bagla
+    m_vulkanWindow->SetMousePressCallback(
+        [this](double wx, double wy, Qt::MouseButton btn) { HandleMousePress(wx, wy, btn); });
+    m_vulkanWindow->SetMouseMoveCallback(
+        [this](double wx, double wy) { HandleMouseMove(wx, wy); });
+
     CreateActions();
     CreateMenus();
     CreateToolbars();
     CreateDockPanels();
-    
-    statusBar()->showMessage("VKT hazır - Mühendislik Modu AÇIK");
+
+    statusBar()->showMessage("VKT hazir - Muhendislik Modu ACIK");
 }
 
 MainWindow::~MainWindow() {
@@ -46,6 +62,9 @@ MainWindow::~MainWindow() {
 
 void MainWindow::SetDocument(core::Document* doc) {
     m_document = doc;
+    if (m_vulkanWindow && doc) {
+        m_vulkanWindow->SetNetwork(&doc->GetNetwork());
+    }
     UpdateUI();
 }
 
@@ -265,21 +284,64 @@ void MainWindow::UpdateUI() {
 
 // Slot implementations
 void MainWindow::OnNew() {
-    std::cout << "Yeni proje oluşturuluyor..." << std::endl;
+    if (m_document && m_document->IsModified()) {
+        auto reply = QMessageBox::question(this, "Yeni Proje",
+            "Mevcut proje kaydedilmedi. Devam edilsin mi?",
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply != QMessageBox::Yes) return;
+    }
+
+    auto& app = core::Application::Instance();
+    auto* doc = app.CreateNewDocument();
+    SetDocument(doc);
+    setWindowTitle("VKT - Mekanik Tesisat CAD (FINE SANI++) - Yeni Proje");
+    statusBar()->showMessage("Yeni proje olusturuldu");
 }
 
 void MainWindow::OnOpen() {
-    std::cout << "Proje açılıyor..." << std::endl;
+    QString filePath = QFileDialog::getOpenFileName(this,
+        "Proje Ac", "", "VKT Projesi (*.vkt);;Tum Dosyalar (*)");
+    if (filePath.isEmpty()) return;
+
+    auto& app = core::Application::Instance();
+    auto* doc = app.OpenDocument(filePath.toStdString());
+    if (doc) {
+        SetDocument(doc);
+        setWindowTitle(QString("VKT - FINE SANI++ - %1").arg(filePath));
+        statusBar()->showMessage(QString("Proje acildi: %1").arg(filePath));
+    } else {
+        QMessageBox::critical(this, "Hata", "Proje dosyasi acilamadi!");
+    }
 }
 
 void MainWindow::OnSave() {
-    if (m_document) {
-        std::cout << "Proje kaydediliyor..." << std::endl;
+    if (!m_document) return;
+
+    if (m_document->GetFilePath().empty()) {
+        OnSaveAs();
+        return;
+    }
+
+    if (m_document->Save(m_document->GetFilePath())) {
+        statusBar()->showMessage("Proje kaydedildi");
+    } else {
+        QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
     }
 }
 
 void MainWindow::OnSaveAs() {
-    std::cout << "Farklı kaydet..." << std::endl;
+    if (!m_document) return;
+
+    QString filePath = QFileDialog::getSaveFileName(this,
+        "Projeyi Kaydet", "", "VKT Projesi (*.vkt)");
+    if (filePath.isEmpty()) return;
+
+    if (m_document->Save(filePath.toStdString())) {
+        setWindowTitle(QString("VKT - FINE SANI++ - %1").arg(filePath));
+        statusBar()->showMessage(QString("Proje kaydedildi: %1").arg(filePath));
+    } else {
+        QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
+    }
 }
 
 void MainWindow::OnImportDXF() {
@@ -349,40 +411,63 @@ void MainWindow::OnRedo() {
 }
 
 void MainWindow::OnDelete() {
-    std::cout << "Silme işlemi..." << std::endl;
+    // TODO: Secili node/edge'leri Command uzerinden sil
+    statusBar()->showMessage("Silme islemi - secim yapilmadi");
 }
 
 void MainWindow::OnDrawPipe() {
-    std::cout << "Boru çizim modu aktif" << std::endl;
-    statusBar()->showMessage("Boru çizimi: İlk noktayı tıklayın");
+    m_currentToolMode = ToolMode::DrawPipe;
+    m_drawState = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Boru cizimi: Ilk noktayi tiklayin");
 }
 
 void MainWindow::OnDrawFixture() {
-    std::cout << "Armatür ekleme modu aktif" << std::endl;
-    statusBar()->showMessage("Armatür: Yerleştirme noktasını tıklayın");
+    m_currentToolMode = ToolMode::PlaceFixture;
+    m_drawState = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Armatur: Yerlestirme noktasini tiklayin");
 }
 
 void MainWindow::OnDrawJunction() {
-    std::cout << "Bağlantı noktası ekleme modu" << std::endl;
+    m_currentToolMode = ToolMode::PlaceJunction;
+    m_drawState = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Baglanti noktasi: Noktayi tiklayin");
 }
 
 void MainWindow::OnSelectMode() {
-    std::cout << "Seçim modu aktif" << std::endl;
-    statusBar()->showMessage("Seçim modu");
+    m_currentToolMode = ToolMode::Select;
+    m_drawState = DrawState::Idle;
+    statusBar()->showMessage("Secim modu");
 }
 
 void MainWindow::OnPlanView() {
-    std::cout << "Plan görünümüne geçiliyor..." << std::endl;
-    statusBar()->showMessage("Plan Görünümü (2D)");
+    if (m_vulkanWindow) {
+        m_vulkanWindow->GetRenderer()->SetViewMode(render::ViewMode::Plan);
+    }
+    statusBar()->showMessage("Plan Gorunumu (2D)");
 }
 
 void MainWindow::OnIsometricView() {
-    std::cout << "İzometrik görünüme geçiliyor..." << std::endl;
-    statusBar()->showMessage("İzometrik Görünüm (3D)");
+    if (m_vulkanWindow) {
+        m_vulkanWindow->GetRenderer()->SetViewMode(render::ViewMode::Isometric);
+    }
+    statusBar()->showMessage("Izometrik Gorunum (3D)");
 }
 
 void MainWindow::OnZoomExtents() {
-    std::cout << "Tümünü göster..." << std::endl;
+    if (m_vulkanWindow && m_document) {
+        auto& network = m_document->GetNetwork();
+        const auto& nodes = network.GetNodes();
+        if (nodes.empty()) return;
+
+        geom::Vec3 minPt(1e9, 1e9, 0), maxPt(-1e9, -1e9, 0);
+        for (const auto& n : nodes) {
+            minPt.x = std::min(minPt.x, n.position.x);
+            minPt.y = std::min(minPt.y, n.position.y);
+            maxPt.x = std::max(maxPt.x, n.position.x);
+            maxPt.y = std::max(maxPt.y, n.position.y);
+        }
+        m_vulkanWindow->GetViewport().ZoomExtents(minPt, maxPt, 0.15);
+    }
 }
 
 void MainWindow::OnRunHydraulics() {
@@ -451,16 +536,28 @@ void MainWindow::OnGenerateSchedule() {
 void MainWindow::OnExportReport() {
     if (!m_document) return;
 
+    QString filePath = QFileDialog::getSaveFileName(this,
+        "Rapor Kaydet", "", "CSV Dosyasi (*.csv);;Metin Dosyasi (*.txt)");
+    if (filePath.isEmpty()) return;
+
     auto& network = m_document->GetNetwork();
     mep::ScheduleGenerator generator(network);
 
-    std::string report = generator.GenerateHydraulicReport();
-    
-    m_logList->clear();
-    m_logList->addItem("Rapor hazırlandı!");
-    m_logList->addItem("CSV export özelliği yakında...");
+    std::string content;
+    if (filePath.endsWith(".csv", Qt::CaseInsensitive)) {
+        content = generator.ExportToCSV();
+    } else {
+        content = generator.GenerateHydraulicReport();
+    }
 
-    statusBar()->showMessage("Rapor dışa aktarıldı!");
+    std::ofstream file(filePath.toStdString());
+    if (file.is_open()) {
+        file << content;
+        file.close();
+        statusBar()->showMessage(QString("Rapor kaydedildi: %1").arg(filePath));
+    } else {
+        QMessageBox::critical(this, "Hata", "Dosya yazilamadi!");
+    }
 }
 
 void MainWindow::OnSelectSpace() {
@@ -567,7 +664,102 @@ void MainWindow::OnZetaChanged(const QString& text) {
 }
 
 void MainWindow::OnSlopeChanged(const QString& text) {
-    std::cout << "Eğim değişti: " << text.toStdString() << std::endl;
+    std::cout << "Egim degisti: " << text.toStdString() << std::endl;
+}
+
+// ============================================================
+// MOUSE EVENT HANDLERS (Cizim Araclari - Adim 6)
+// ============================================================
+
+void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton button) {
+    if (button != Qt::LeftButton || !m_document) return;
+
+    auto& network = m_document->GetNetwork();
+
+    switch (m_currentToolMode) {
+    case ToolMode::DrawPipe: {
+        if (m_drawState == DrawState::WaitingFirstPoint || m_drawState == DrawState::Idle) {
+            // Ilk nokta: Node olustur veya mevcut node'a snap
+            mep::Node node;
+            node.type = mep::NodeType::Junction;
+            node.position = geom::Vec3(worldX, worldY, 0.0);
+            node.label = "J";
+            m_firstNodeId = network.AddNode(node);
+            m_firstClickPos = node.position;
+            m_drawState = DrawState::WaitingSecondPoint;
+            statusBar()->showMessage(QString("Boru: Ikinci noktayi tiklayin (x=%1, y=%2)")
+                .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        } else if (m_drawState == DrawState::WaitingSecondPoint) {
+            // Ikinci nokta: Target node + Edge olustur
+            mep::Node node;
+            node.type = mep::NodeType::Junction;
+            node.position = geom::Vec3(worldX, worldY, 0.0);
+            node.label = "J";
+            uint32_t secondNodeId = network.AddNode(node);
+
+            mep::Edge edge;
+            edge.nodeA = m_firstNodeId;
+            edge.nodeB = secondNodeId;
+            edge.type = mep::EdgeType::Supply;
+            edge.diameter_mm = 20.0;
+            edge.roughness_mm = 0.0015;
+            edge.material = "PVC";
+            edge.length_m = m_firstClickPos.DistanceTo(node.position);
+            network.AddEdge(edge);
+
+            m_document->SetModified(true);
+            UpdateUI();
+
+            // Zincirleme cizim: ikinci nokta sonraki borunun ilk noktasi olur
+            m_firstNodeId = secondNodeId;
+            m_firstClickPos = node.position;
+            statusBar()->showMessage(QString("Boru eklendi (L=%1m). Sonraki noktayi tiklayin veya ESC")
+                .arg(edge.length_m, 0, 'f', 2));
+        }
+        break;
+    }
+    case ToolMode::PlaceFixture: {
+        mep::Node node;
+        node.type = mep::NodeType::Fixture;
+        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.fixtureType = "Lavabo";
+        node.label = "Lavabo";
+        // Database'den varsayilan degerler
+        auto& db = mep::Database::Instance();
+        auto fixture = db.GetFixture("Lavabo");
+        node.loadUnit = fixture.loadUnit;
+        network.AddNode(node);
+        m_document->SetModified(true);
+        UpdateUI();
+        statusBar()->showMessage(QString("Armatur eklendi: %1 (x=%2, y=%3)")
+            .arg("Lavabo").arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        break;
+    }
+    case ToolMode::PlaceJunction: {
+        mep::Node node;
+        node.type = mep::NodeType::Junction;
+        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.label = "J";
+        network.AddNode(node);
+        m_document->SetModified(true);
+        UpdateUI();
+        statusBar()->showMessage(QString("Baglanti noktasi eklendi (x=%1, y=%2)")
+            .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        break;
+    }
+    case ToolMode::Select:
+    default:
+        // TODO: SelectionManager ile entity sec
+        statusBar()->showMessage(QString("Konum: x=%1, y=%2")
+            .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+        break;
+    }
+}
+
+void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    // Status bar'da koordinat goster
+    statusBar()->showMessage(QString("x=%1  y=%2")
+        .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
 }
 
 } // namespace ui

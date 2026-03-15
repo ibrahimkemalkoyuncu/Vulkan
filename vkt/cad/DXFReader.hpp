@@ -220,11 +220,23 @@ private:
     std::string m_filename;
     std::ifstream m_file;
     std::string m_lastError;
+
+    // Pushback mekanizması (entity sınırlarında pozisyon kaybını önler)
+    bool m_hasPendingCode = false;
+    DXFCode m_pendingCode;
+
+    /**
+     * @brief Okunan kodu geri koy (sonraki ReadCode çağrısında döndürülür)
+     */
+    void PushBackCode(const DXFCode& code);
     
     // DXF içerik
     DXFHeader m_header;
     std::map<std::string, Layer> m_layers;
     std::vector<std::unique_ptr<Entity>> m_entities;
+
+    // Block tanımları: blockName → entity listesi
+    std::map<std::string, std::vector<std::unique_ptr<Entity>>> m_blocks;
     
     // Filtreleme
     std::vector<std::string> m_layerFilter;
@@ -282,7 +294,17 @@ private:
     std::unique_ptr<Entity> ReadCircle();
     
     /**
-     * @brief TEXT entity oku (şimdilik skip)
+     * @brief BLOCKS section'ı oku
+     */
+    bool ReadBlocks();
+
+    /**
+     * @brief INSERT entity oku (block instance)
+     */
+    std::unique_ptr<Entity> ReadInsert();
+
+    /**
+     * @brief Desteklenmeyen entity'yi atla
      */
     void SkipEntity();
     

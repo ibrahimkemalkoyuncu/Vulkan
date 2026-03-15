@@ -9,6 +9,7 @@
 
 #include "NetworkGraph.hpp"
 #include <vector>
+#include <unordered_set>
 
 namespace vkt {
 namespace mep {
@@ -32,50 +33,73 @@ struct CriticalPathResult {
  * 1. Besleme (Supply) - Darcy-Weisbach / Haaland
  * 2. Drenaj (Drainage) - EN 12056
  */
+/**
+ * @enum BuildingType
+ * @brief Bina tipi — EN 12056-2 K faktörünü belirler
+ */
+enum class BuildingType {
+    Residential,    ///< Konut (K=0.5)
+    Hotel,          ///< Otel / Hastane (K=0.7)
+    Industrial      ///< Endüstriyel / Laboratuvar (K=1.0)
+};
+
 class HydraulicSolver {
 public:
     explicit HydraulicSolver(NetworkGraph& network);
-    
+
+    /// Bina tipini ayarla (EN 12056-2 K faktörü için)
+    void SetBuildingType(BuildingType type);
+    BuildingType GetBuildingType() const { return m_buildingType; }
+
     /**
      * @brief Besleme şebekesi hesabı (TS EN 806-3)
-     * 
-     * - LoadUnit'lerden debi hesabı
+     *
+     * - Topolojik debi dağılımı (leaf→source kümülatif toplama)
+     * - TS EN 806-3 LU→debi eğrisi
      * - Darcy-Weisbach / Haaland ile sürtünme kaybı
      * - Zeta ile lokal kayıplar
      */
     void Solve();
-    
+
     /**
-     * @brief Drenaj şebekesi hesabı (EN 12056)
-     * 
-     * - DU (Discharge Unit) toplamı
-     * - Eğim ve çapa göre boru boyutlandırma
+     * @brief Drenaj şebekesi hesabı (EN 12056-2)
+     *
+     * - DU toplamı (leaf→drain kümülatif)
+     * - Manning denklemi ile boru boyutlandırma
+     * - K faktörlü debi hesabı
      */
     void SolveDrainage();
-    
+
     /**
      * @brief Kritik devre analizi (Pompa yüksekliği)
-     * 
-     * En uzun / en kayıplı yolu bularak gerekli pompa başını hesaplar.
      */
     CriticalPathResult CalculateCriticalPath();
-    
+
 private:
-    // Besleme yardımcı fonksiyonlar
+    // Topolojik debi dağılımı
+    void DistributeSupplyFlows();
+    void DistributeDrainageFlows();
+
+    // Besleme yardımcı fonksiyonlar — TS EN 806-3
     double CalculateFlowFromLU(double loadUnit) const;
     double CalculateHeadLoss(const Edge& edge);
     double HaalandFriction(double Re, double relativeRoughness) const;
     double CalculateLocalLoss(const Edge& edge);
-    
-    // Drenaj yardımcı fonksiyonlar
+
+    // Drenaj yardımcı fonksiyonlar — EN 12056-2 + Manning
     double CalculateFlowFromDU(double dischargeUnit) const;
-    double SelectDrainPipeDiameter(double flowRate_Ls, double slope) const;
-    
-    // Kritik devre yardımcı fonksiyonlar
-    void DFS(uint32_t nodeId, std::vector<uint32_t>& path, 
-             std::vector<uint32_t>& bestPath, double& maxLoss, double currentLoss);
+    double GetKFactor() const;
+    double SelectDrainPipeDiameter_Manning(double flowRate_Ls, double slope, const std::string& material) const;
+    double ManningCapacity(double diameter_m, double slope, double n, double fillRatio) const;
+    double GetManningN(const std::string& material) const;
+
+    // Kritik devre — visited set ile DFS
+    void DFS(uint32_t nodeId, std::vector<uint32_t>& path,
+             std::vector<uint32_t>& bestPath, double& maxLoss, double currentLoss,
+             std::unordered_set<uint32_t>& visited);
 
     NetworkGraph& m_network;
+    BuildingType m_buildingType = BuildingType::Residential;
 };
 
 } // namespace mep
