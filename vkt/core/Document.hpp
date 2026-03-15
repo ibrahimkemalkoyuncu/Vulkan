@@ -11,6 +11,8 @@
 #include <memory>
 #include <vector>
 #include "mep/NetworkGraph.hpp"
+#include "cad/Entity.hpp"
+#include "geom/Math.hpp"
 #include "Command.hpp"
 
 namespace vkt {
@@ -47,12 +49,18 @@ public:
     mep::NetworkGraph& GetNetwork() { return m_network; }
     const mep::NetworkGraph& GetNetwork() const { return m_network; }
 
+    // CAD entity erişimi (arka plan çizimi)
+    void SetCADEntities(std::vector<std::unique_ptr<cad::Entity>> entities);
+    const std::vector<std::unique_ptr<cad::Entity>>& GetCADEntities() const { return m_cadEntities; }
+    void GetCADExtents(geom::Vec3& outMin, geom::Vec3& outMax) const;
+
 private:
     std::string m_filePath;
     std::string m_title = "Untitled";
     bool m_modified = false;
 
     mep::NetworkGraph m_network;
+    std::vector<std::unique_ptr<cad::Entity>> m_cadEntities;
 
     std::vector<std::unique_ptr<Command>> m_commandHistory;
     size_t m_commandIndex = 0;

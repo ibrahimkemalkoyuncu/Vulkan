@@ -29,6 +29,7 @@
 #include <memory>
 #include <array>
 #include "geom/Math.hpp"
+#include "cad/Entity.hpp"
 #include "mep/NetworkGraph.hpp"
 
 namespace vkt {
@@ -91,6 +92,10 @@ public:
 
     bool IsInitialized() const { return m_initialized; }
 
+    // CAD entity rendering
+    void RenderCADEntities(const std::vector<std::unique_ptr<cad::Entity>>& entities);
+    void InvalidateCADData() { m_cadDirty = true; }
+
 private:
     // Vulkan instance & device
     VkInstance m_instance = VK_NULL_HANDLE;
@@ -147,6 +152,12 @@ private:
     VkDeviceMemory m_gridVertexMemory = VK_NULL_HANDLE;
     uint32_t m_gridVertexCount = 0;
 
+    // CAD entity vertex buffer (arka plan çizimi)
+    VkBuffer m_cadVertexBuffer = VK_NULL_HANDLE;
+    VkDeviceMemory m_cadVertexMemory = VK_NULL_HANDLE;
+    uint32_t m_cadLineVertexCount = 0;
+    bool m_cadDirty = true;
+
     // Scene state
     geom::Camera m_camera;
     geom::Mat4 m_viewProjection;
@@ -193,6 +204,8 @@ private:
     // Draw fonksiyonları
     void DrawGrid(VkCommandBuffer cmd);
     void DrawNetwork(VkCommandBuffer cmd, const mep::NetworkGraph& network);
+    void UpdateCADVertexData(const std::vector<std::unique_ptr<cad::Entity>>& entities);
+    void DrawCAD(VkCommandBuffer cmd);
 
     // Shader
     VkShaderModule CreateShaderModule(const std::vector<uint32_t>& code);
@@ -200,6 +213,7 @@ private:
     // Node renkleri
     static std::array<float, 3> GetNodeColor(mep::NodeType type);
     static std::array<float, 3> GetEdgeColor(mep::EdgeType type);
+    static std::array<float, 3> GetACIColor(int colorIndex);
 };
 
 } // namespace render

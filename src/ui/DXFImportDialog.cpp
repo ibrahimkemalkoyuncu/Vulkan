@@ -507,6 +507,18 @@ std::vector<cad::Entity*> DXFImportDialog::GetImportedEntities() const {
     return {};
 }
 
+std::vector<std::unique_ptr<cad::Entity>> DXFImportDialog::TakeEntities() {
+    if (m_fileType == FileType::DXF && m_dxfReader) {
+        return m_dxfReader->TakeEntities();
+    }
+#ifdef HAVE_LIBREDWG
+    else if (m_fileType == FileType::DWG && m_dwgReader) {
+        return m_dwgReader->TakeEntities();
+    }
+#endif
+    return {};
+}
+
 std::vector<cad::SpaceCandidate> DXFImportDialog::GetAcceptedSpaces() const {
     std::vector<cad::SpaceCandidate> accepted;
     

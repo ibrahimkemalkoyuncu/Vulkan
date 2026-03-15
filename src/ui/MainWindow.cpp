@@ -23,6 +23,16 @@
 #include <QLabel>
 #include <QPushButton>
 #include <iostream>
+#include <fstream>
+
+static void LogCAD(const std::string& msg) {
+    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_debug.log", std::ios::app);
+    if (logFile.is_open()) {
+        logFile << msg << std::endl;
+        logFile.flush();
+    }
+    std::cout << msg << std::endl;
+}
 
 namespace vkt {
 namespace ui {
@@ -350,12 +360,13 @@ void MainWindow::OnImportDXF() {
     
     if (dialog.exec() == QDialog::Accepted) {
         if (dialog.WasSuccessful()) {
-            // Import edilen entity'leri al
-            auto entities = dialog.GetImportedEntities();
-            
+            // Import edilen entity'leri al (non-owning pointers for space detection)
+            auto entityPtrs = dialog.GetImportedEntities();
+            size_t entityCount = entityPtrs.size();
+
             // Onaylanan mahalleri al ve SpaceManager'a ekle
             auto acceptedSpaces = dialog.GetAcceptedSpaces();
-            
+
             int addedCount = 0;
             for (const auto& candidate : acceptedSpaces) {
                 auto* space = m_spaceManager->AcceptCandidate(candidate);
@@ -363,31 +374,45 @@ void MainWindow::OnImportDXF() {
                     addedCount++;
                 }
             }
-            
+
             // Komşulukları tespit et
             if (addedCount > 0) {
                 m_spaceManager->DetectAllAdjacencies(10.0); // 10mm tolerance
             }
-            
+
+            // CAD entity'leri Document'a kaydet (ownership transfer)
+            auto ownedEntities = dialog.TakeEntities();
+            LogCAD("[MainWindow] TakeEntities returned: " + std::to_string(ownedEntities.size())
+                   + " entities, m_document=" + std::string(m_document ? "valid" : "NULL"));
+            if (!ownedEntities.empty() && m_document) {
+                m_document->SetCADEntities(std::move(ownedEntities));
+                LogCAD("[MainWindow] Document now has " + std::to_string(m_document->GetCADEntities().size()) + " CAD entities");
+                if (m_vulkanWindow) {
+                    m_vulkanWindow->SetCADEntities(&m_document->GetCADEntities());
+                    LogCAD("[MainWindow] SetCADEntities on VulkanWindow done");
+                } else {
+                    LogCAD("[MainWindow] ERROR: m_vulkanWindow is NULL!");
+                }
+            } else {
+                LogCAD("[MainWindow] WARNING: ownedEntities empty=" + std::to_string(ownedEntities.empty())
+                       + " m_document=" + std::string(m_document ? "valid" : "NULL"));
+            }
+
             // Space paneli güncelle
             if (m_spacePanel) {
                 m_spacePanel->RefreshList();
             }
-            
+
             m_logList->clear();
             m_logList->addItem(QString("CAD dosyası import başarılı!"));
-            m_logList->addItem(QString("- %1 entity yüklendi").arg(entities.size()));
+            m_logList->addItem(QString("- %1 entity yüklendi").arg(entityCount));
             m_logList->addItem(QString("- %1 mahal eklendi").arg(addedCount));
-            
-            statusBar()->showMessage(QString("%1 mahal başarıyla eklendi!").arg(addedCount));
-            
-            QMessageBox::information(this, "Import Tamamlandı",
-                QString("DXF dosyası başarıyla içe aktarıldı!\n\n"
-                        "%1 entity yüklendi\n"
-                        "%2 mahal tespit edildi ve eklendi\n"
-                        "Komşuluk ilişkileri oluşturuldu")
-                    .arg(entities.size())
-                    .arg(addedCount));
+
+            statusBar()->showMessage(QString("%1 entity, %2 mahal başarıyla yüklendi!")
+                .arg(entityCount).arg(addedCount));
+
+            // Auto zoom to fit imported drawing
+            OnZoomExtents();
         }
     }
 }
@@ -454,18 +479,38 @@ void MainWindow::OnIsometricView() {
 }
 
 void MainWindow::OnZoomExtents() {
-    if (m_vulkanWindow && m_document) {
-        auto& network = m_document->GetNetwork();
-        const auto& nodes = network.GetNodes();
-        if (nodes.empty()) return;
+    if (!m_vulkanWindow || !m_document) return;
 
-        geom::Vec3 minPt(1e9, 1e9, 0), maxPt(-1e9, -1e9, 0);
-        for (const auto& n : nodes) {
-            minPt.x = std::min(minPt.x, n.position.x);
-            minPt.y = std::min(minPt.y, n.position.y);
-            maxPt.x = std::max(maxPt.x, n.position.x);
-            maxPt.y = std::max(maxPt.y, n.position.y);
+    geom::Vec3 minPt(1e9, 1e9, 0), maxPt(-1e9, -1e9, 0);
+    bool hasContent = false;
+
+    // Network node extents
+    auto& network = m_document->GetNetwork();
+    const auto& nodes = network.GetNodes();
+    for (const auto& n : nodes) {
+        minPt.x = std::min(minPt.x, n.position.x);
+        minPt.y = std::min(minPt.y, n.position.y);
+        maxPt.x = std::max(maxPt.x, n.position.x);
+        maxPt.y = std::max(maxPt.y, n.position.y);
+        hasContent = true;
+    }
+
+    // CAD entity extents
+    if (!m_document->GetCADEntities().empty()) {
+        geom::Vec3 cadMin, cadMax;
+        m_document->GetCADExtents(cadMin, cadMax);
+        LogCAD("[OnZoomExtents] CAD extents: min=(" + std::to_string(cadMin.x) + "," + std::to_string(cadMin.y)
+               + ") max=(" + std::to_string(cadMax.x) + "," + std::to_string(cadMax.y) + ")");
+        if (cadMin.x < cadMax.x && cadMin.y < cadMax.y) {
+            minPt.x = std::min(minPt.x, cadMin.x);
+            minPt.y = std::min(minPt.y, cadMin.y);
+            maxPt.x = std::max(maxPt.x, cadMax.x);
+            maxPt.y = std::max(maxPt.y, cadMax.y);
+            hasContent = true;
         }
+    }
+
+    if (hasContent) {
         m_vulkanWindow->GetViewport().ZoomExtents(minPt, maxPt, 0.15);
     }
 }

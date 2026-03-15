@@ -6,10 +6,12 @@
 #include "cad/DWGReader.hpp"
 #include "cad/Line.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Arc.hpp"
 #include "cad/Polyline.hpp"
 #include <sstream>
 #include <chrono>
 #include <cstring>
+#include <iostream>
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -109,13 +111,19 @@ bool DWGReader::Read(const std::string& filepath) {
     
     // Parse entities
     ParseEntities(dwg);
-    
+
     auto end = std::chrono::high_resolution_clock::now();
     m_stats.readTimeMs = std::chrono::duration<double, std::milli>(end - start).count();
     m_stats.entityCount = m_entities.size();
+
+    std::cout << "[DWGReader] Parse complete: " << m_entities.size() << " entities"
+              << " (LINE=" << m_stats.lineCount
+              << " ARC=" << m_stats.arcCount
+              << " CIRCLE=" << m_stats.circleCount
+              << " POLY=" << m_stats.polylineCount << ")" << std::endl;
     
     if (m_stats.entityCount == 0) {
-        m_errorMessage = "DWG dosyası okundu ancak desteklenen entity bulunamadı. Desteklenenler: LINE, CIRCLE, LWPOLYLINE.";
+        m_errorMessage = "DWG dosyası okundu ancak desteklenen entity bulunamadı. Desteklenenler: LINE, ARC, CIRCLE, LWPOLYLINE.";
         return false;
     }
     
@@ -147,11 +155,16 @@ bool DWGReader::ParseEntities(void* dwg_ptr) {
                 if (entity) m_stats.circleCount++;
                 break;
                 
+            case DWG_TYPE_ARC:
+                entity = ParseArc(obj);
+                if (entity) m_stats.arcCount++;
+                break;
+
             case DWG_TYPE_LWPOLYLINE:
                 entity = ParseLWPolyline(obj);
                 if (entity) m_stats.polylineCount++;
                 break;
-                
+
             default:
                 // Other entity types not supported yet
                 break;
@@ -186,8 +199,8 @@ Entity* DWGReader::ParseLWPolyline(void* obj_ptr) {
     
     Dwg_Entity_LWPOLYLINE* lwpoly = obj->tio.entity->tio.LWPOLYLINE;
     
-    // Skip if not enough points
-    if (lwpoly->num_points < 3) return nullptr;
+    // Skip if not enough points (2 is valid — a line segment)
+    if (lwpoly->num_points < 2) return nullptr;
     
     // Create polyline with vertices
     std::vector<Polyline::Vertex> vertices;
@@ -231,7 +244,17 @@ Entity* DWGReader::ParseLWPolyline(void* obj_ptr) {
 }
 
 Entity* DWGReader::ParseArc(void* obj_ptr) {
-    return nullptr; // Not implemented yet
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.ARC) return nullptr;
+
+    Dwg_Entity_ARC* arc = obj->tio.entity->tio.ARC;
+
+    geom::Vec3 center(arc->center.x, arc->center.y, 0.0);
+    double radius = arc->radius;
+    double startAngle = arc->start_angle * (180.0 / M_PI);
+    double endAngle = arc->end_angle * (180.0 / M_PI);
+
+    return new Arc(center, radius, startAngle, endAngle);
 }
 
 Entity* DWGReader::ParseCircle(void* obj_ptr) {
@@ -261,6 +284,11 @@ bool DWGReader::PassesLayerFilter(const std::string& layerName) const {
 
 void DWGReader::ExtractLayers(void* dwg_ptr) {
     // Not implemented yet - using default layer only
+}
+
+std::vector<std::unique_ptr<Entity>> DWGReader::TakeEntities() {
+    std::cout << "[DWGReader::TakeEntities] Moving " << m_entities.size() << " entities" << std::endl;
+    return std::move(m_entities);
 }
 
 std::vector<Entity*> DWGReader::GetEntities() const {
