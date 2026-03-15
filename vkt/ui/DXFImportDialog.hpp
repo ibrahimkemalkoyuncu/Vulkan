@@ -52,6 +52,11 @@ public:
     std::vector<cad::SpaceCandidate> GetAcceptedSpaces() const;
     
     /**
+     * @brief Entity sahipliğini devret (rendering için)
+     */
+    std::vector<std::unique_ptr<cad::Entity>> TakeEntities();
+
+    /**
      * @brief Import başarılı mı?
      */
     bool WasSuccessful() const { return m_importSuccess; }

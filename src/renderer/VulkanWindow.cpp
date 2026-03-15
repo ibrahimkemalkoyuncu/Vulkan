@@ -55,6 +55,18 @@ void VulkanWindow::RenderFrame() {
 
     m_renderer.BeginFrame();
 
+    // CAD entities first (background layer)
+    if (m_cadEntities && !m_cadEntities->empty()) {
+        static bool logOnce = true;
+        if (logOnce) {
+            std::cout << "[VulkanWindow::RenderFrame] Rendering " << m_cadEntities->size()
+                      << " CAD entities" << std::endl;
+            logOnce = false;
+        }
+        m_renderer.RenderCADEntities(*m_cadEntities);
+    }
+
+    // MEP network on top
     if (m_network) {
         m_renderer.Render(*m_network);
     }

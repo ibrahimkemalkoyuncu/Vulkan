@@ -158,6 +158,11 @@ public:
     const std::vector<std::unique_ptr<Entity>>& GetEntities() const { return m_entities; }
     
     /**
+     * @brief Entity sahipliğini devret (move semantics)
+     */
+    std::vector<std::unique_ptr<Entity>> TakeEntities() { return std::move(m_entities); }
+
+    /**
      * @brief Entity sayısı
      */
     size_t GetEntityCount() const { return m_entities.size(); }

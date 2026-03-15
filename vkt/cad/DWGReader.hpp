@@ -119,6 +119,11 @@ public:
     const std::string& GetError() const { return m_errorMessage; }
     
     /**
+     * @brief Entity sahipliğini devret (move semantics)
+     */
+    std::vector<std::unique_ptr<Entity>> TakeEntities();
+
+    /**
      * @brief Bellek temizle
      */
     void Clear();

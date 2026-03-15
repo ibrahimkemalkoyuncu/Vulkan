@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <functional>
 #include "cad/Viewport.hpp"
+#include "cad/Entity.hpp"
 #include "render/VulkanRenderer.hpp"
 #include "mep/NetworkGraph.hpp"
 
@@ -43,6 +44,12 @@ public:
     /// Aktif network referansı (render için)
     void SetNetwork(const mep::NetworkGraph* network) { m_network = network; }
 
+    /// CAD entity referansı (arka plan çizimi)
+    void SetCADEntities(const std::vector<std::unique_ptr<cad::Entity>>* entities) {
+        m_cadEntities = entities;
+        if (m_initialized) m_renderer.InvalidateCADData();
+    }
+
     /// Mouse callback'leri (DrawTool/SelectionManager bağlantısı için)
     using MouseCallback = std::function<void(double worldX, double worldY, Qt::MouseButton button)>;
     using MoveCallback = std::function<void(double worldX, double worldY)>;
@@ -70,6 +77,7 @@ private:
     VulkanRenderer m_renderer;
     cad::Viewport m_viewport;
     const mep::NetworkGraph* m_network = nullptr;
+    const std::vector<std::unique_ptr<cad::Entity>>* m_cadEntities = nullptr;
 
     QTimer m_renderTimer;
     bool m_initialized = false;

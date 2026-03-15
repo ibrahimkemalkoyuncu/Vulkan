@@ -4,11 +4,31 @@
  */
 
 #include "render/VulkanRenderer.hpp"
+#include "cad/Line.hpp"
+#include "cad/Arc.hpp"
+#include "cad/Circle.hpp"
+#include "cad/Polyline.hpp"
 #include <iostream>
+#include <fstream>
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
+
+// File-based diagnostic logging for CAD rendering pipeline
+static void LogCAD(const std::string& msg) {
+    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_debug.log", std::ios::app);
+    if (logFile.is_open()) {
+        logFile << msg << std::endl;
+        logFile.flush();
+    }
+    std::cout << msg << std::endl;
+}
+
+#define _USE_MATH_DEFINES
 #include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -208,6 +228,7 @@ void VulkanRenderer::Shutdown() {
     // Vertex buffers
     DestroyBuffer(m_vertexBuffer, m_vertexMemory);
     DestroyBuffer(m_gridVertexBuffer, m_gridVertexMemory);
+    DestroyBuffer(m_cadVertexBuffer, m_cadVertexMemory);
 
     // Sync objects
     for (auto sem : m_imageAvailableSemaphores) vkDestroySemaphore(m_device, sem, nullptr);
@@ -1205,6 +1226,263 @@ void VulkanRenderer::DrawNetwork(VkCommandBuffer cmd, const mep::NetworkGraph& /
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_trianglePipeline);
         vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
         vkCmdDraw(cmd, m_triangleVertexCount, 1, m_triangleVertexOffset, 0);
+    }
+}
+
+// ============================================================
+// CAD ENTITY RENDERING
+// ============================================================
+
+void VulkanRenderer::RenderCADEntities(const std::vector<std::unique_ptr<cad::Entity>>& entities) {
+    if (!m_initialized || entities.empty()) {
+        static bool warned = false;
+        if (!warned) {
+            LogCAD("[RenderCADEntities] SKIP: initialized=" + std::to_string(m_initialized)
+                   + " entities.size=" + std::to_string(entities.size()));
+            warned = true;
+        }
+        return;
+    }
+
+    if (m_cadDirty) {
+        LogCAD("[RenderCADEntities] m_cadDirty=true, updating vertex data for "
+               + std::to_string(entities.size()) + " entities");
+        UpdateCADVertexData(entities);
+        m_cadDirty = false;
+        LogCAD("[RenderCADEntities] After update: vertexCount=" + std::to_string(m_cadLineVertexCount)
+               + " buffer=" + std::string(m_cadVertexBuffer ? "valid" : "NULL"));
+    }
+
+    VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
+    DrawCAD(cmd);
+}
+
+void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::Entity>>& entities) {
+    std::vector<geom::Vertex> vertices;
+    vertices.reserve(entities.size() * 8); // rough estimate
+
+    int lineCount = 0, arcCount = 0, circleCount = 0, polyCount = 0, skipCount = 0;
+
+    for (const auto& entity : entities) {
+        if (!entity) { skipCount++; continue; }
+
+        size_t prevSize = vertices.size();
+
+        // Determine color from entity
+        cad::Color col = entity->GetColor();
+        float r, g, b;
+        if (col.a == 0) {
+            // ByLayer — default to white
+            r = 1.0f; g = 1.0f; b = 1.0f;
+        } else {
+            r = col.r / 255.0f;
+            g = col.g / 255.0f;
+            b = col.b / 255.0f;
+        }
+
+        auto addVertex = [&](double x, double y, double z = 0.0) {
+            geom::Vertex v{};
+            v.pos[0] = static_cast<float>(x);
+            v.pos[1] = static_cast<float>(y);
+            v.pos[2] = static_cast<float>(z);
+            v.color[0] = r; v.color[1] = g; v.color[2] = b;
+            vertices.push_back(v);
+        };
+
+        switch (entity->GetType()) {
+        case cad::EntityType::Line: {
+            const auto* line = static_cast<const cad::Line*>(entity.get());
+            auto s = line->GetStart();
+            auto e = line->GetEnd();
+            addVertex(s.x, s.y, s.z);
+            addVertex(e.x, e.y, e.z);
+            lineCount++;
+            break;
+        }
+        case cad::EntityType::Arc: {
+            const auto* arc = static_cast<const cad::Arc*>(entity.get());
+            double sweep = arc->GetSweepAngleRadians();
+            int segments = std::max(4, static_cast<int>(std::abs(sweep) / (M_PI / 16.0)));
+            for (int i = 0; i < segments; ++i) {
+                double t0 = static_cast<double>(i) / segments;
+                double t1 = static_cast<double>(i + 1) / segments;
+                auto p0 = arc->GetPointAt(t0);
+                auto p1 = arc->GetPointAt(t1);
+                addVertex(p0.x, p0.y, p0.z);
+                addVertex(p1.x, p1.y, p1.z);
+            }
+            arcCount++;
+            break;
+        }
+        case cad::EntityType::Circle: {
+            const auto* circle = static_cast<const cad::Circle*>(entity.get());
+            constexpr int segments = 32;
+            auto center = circle->GetCenter();
+            double radius = circle->GetRadius();
+            for (int i = 0; i < segments; ++i) {
+                double a0 = (2.0 * M_PI * i) / segments;
+                double a1 = (2.0 * M_PI * (i + 1)) / segments;
+                addVertex(center.x + radius * std::cos(a0),
+                          center.y + radius * std::sin(a0));
+                addVertex(center.x + radius * std::cos(a1),
+                          center.y + radius * std::sin(a1));
+            }
+            circleCount++;
+            break;
+        }
+        case cad::EntityType::Polyline: {
+            const auto* poly = static_cast<const cad::Polyline*>(entity.get());
+            const auto& verts = poly->GetVertices();
+            if (verts.size() < 2) break;
+
+            size_t segCount = poly->IsClosed() ? verts.size() : verts.size() - 1;
+            for (size_t i = 0; i < segCount; ++i) {
+                const auto& v0 = verts[i];
+                const auto& v1 = verts[(i + 1) % verts.size()];
+
+                if (std::abs(v0.bulge) < 1e-9) {
+                    // Straight segment
+                    addVertex(v0.pos.x, v0.pos.y, v0.pos.z);
+                    addVertex(v1.pos.x, v1.pos.y, v1.pos.z);
+                } else {
+                    // Arc segment from bulge
+                    double dx = v1.pos.x - v0.pos.x;
+                    double dy = v1.pos.y - v0.pos.y;
+                    double chord = std::sqrt(dx * dx + dy * dy);
+                    if (chord < 1e-9) continue;
+
+                    double sagitta = std::abs(v0.bulge) * chord / 2.0;
+                    double radius = (chord * chord / 4.0 + sagitta * sagitta) / (2.0 * sagitta);
+                    double halfAngle = 2.0 * std::atan(std::abs(v0.bulge));
+                    double sweepAngle = 4.0 * halfAngle;
+
+                    // Center of arc
+                    double mx = (v0.pos.x + v1.pos.x) / 2.0;
+                    double my = (v0.pos.y + v1.pos.y) / 2.0;
+                    double nx = -dy / chord;
+                    double ny = dx / chord;
+                    double d = radius - sagitta;
+                    double sign = (v0.bulge > 0) ? 1.0 : -1.0;
+                    double cx = mx + sign * d * nx;
+                    double cy = my + sign * d * ny;
+
+                    // Start angle
+                    double startAngle = std::atan2(v0.pos.y - cy, v0.pos.x - cx);
+
+                    int arcSegs = std::max(4, static_cast<int>(sweepAngle / (M_PI / 16.0)));
+                    double dir = (v0.bulge > 0) ? 1.0 : -1.0;
+                    for (int s = 0; s < arcSegs; ++s) {
+                        double a0 = startAngle + dir * sweepAngle * s / arcSegs;
+                        double a1 = startAngle + dir * sweepAngle * (s + 1) / arcSegs;
+                        addVertex(cx + radius * std::cos(a0),
+                                  cy + radius * std::sin(a0));
+                        addVertex(cx + radius * std::cos(a1),
+                                  cy + radius * std::sin(a1));
+                    }
+                }
+            }
+            polyCount++;
+            break;
+        }
+        default:
+            skipCount++;
+            break;
+        }
+
+        // Log first few entities' coordinates for debugging
+        if (lineCount + arcCount + circleCount + polyCount <= 5) {
+            LogCAD("[UpdateCAD] Entity type=" + std::to_string(static_cast<int>(entity->GetType()))
+                   + " generated " + std::to_string(vertices.size() - prevSize) + " vertices");
+            if (vertices.size() >= 2) {
+                auto& v = vertices[vertices.size()-2];
+                LogCAD("  vertex pair: (" + std::to_string(v.pos[0]) + "," + std::to_string(v.pos[1]) + ")"
+                       + " -> (" + std::to_string(vertices.back().pos[0]) + "," + std::to_string(vertices.back().pos[1]) + ")"
+                       + " color=(" + std::to_string(v.color[0]) + "," + std::to_string(v.color[1]) + "," + std::to_string(v.color[2]) + ")");
+            }
+        }
+    }
+
+    LogCAD("[UpdateCAD] Summary: LINE=" + std::to_string(lineCount) + " ARC=" + std::to_string(arcCount)
+           + " CIRCLE=" + std::to_string(circleCount) + " POLY=" + std::to_string(polyCount)
+           + " skip=" + std::to_string(skipCount) + " totalVerts=" + std::to_string(vertices.size()));
+
+    m_cadLineVertexCount = static_cast<uint32_t>(vertices.size());
+    if (m_cadLineVertexCount == 0) return;
+
+    // Rebuild vertex buffer
+    DestroyBuffer(m_cadVertexBuffer, m_cadVertexMemory);
+
+    VkDeviceSize bufferSize = sizeof(geom::Vertex) * m_cadLineVertexCount;
+    CreateBuffer(bufferSize,
+                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 m_cadVertexBuffer, m_cadVertexMemory);
+
+    void* data;
+    vkMapMemory(m_device, m_cadVertexMemory, 0, bufferSize, 0, &data);
+    memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
+    vkUnmapMemory(m_device, m_cadVertexMemory);
+
+    LogCAD("[UpdateCAD] Buffer created, " + std::to_string(m_cadLineVertexCount) + " vertices uploaded");
+
+    // Log bounding box of all vertices
+    float minX = 1e9f, minY = 1e9f, maxX = -1e9f, maxY = -1e9f;
+    for (const auto& v : vertices) {
+        if (v.pos[0] < minX) minX = v.pos[0];
+        if (v.pos[1] < minY) minY = v.pos[1];
+        if (v.pos[0] > maxX) maxX = v.pos[0];
+        if (v.pos[1] > maxY) maxY = v.pos[1];
+    }
+    LogCAD("[UpdateCAD] Vertex bounds: (" + std::to_string(minX) + "," + std::to_string(minY)
+           + ") -> (" + std::to_string(maxX) + "," + std::to_string(maxY) + ")");
+}
+
+void VulkanRenderer::DrawCAD(VkCommandBuffer cmd) {
+    if (m_cadLineVertexCount == 0 || !m_cadVertexBuffer) {
+        static bool warned = false;
+        if (!warned) {
+            LogCAD("[DrawCAD] SKIP: vertexCount=" + std::to_string(m_cadLineVertexCount)
+                   + " buffer=" + std::string(m_cadVertexBuffer ? "valid" : "NULL"));
+            warned = true;
+        }
+        return;
+    }
+
+    // Log MVP matrix once
+    static bool mvpLogged = false;
+    if (!mvpLogged) {
+        LogCAD("[DrawCAD] Drawing " + std::to_string(m_cadLineVertexCount) + " vertices");
+        LogCAD("[DrawCAD] MVP[0]=" + std::to_string(m_viewProjection.data[0])
+               + " MVP[5]=" + std::to_string(m_viewProjection.data[5])
+               + " MVP[12]=" + std::to_string(m_viewProjection.data[12])
+               + " MVP[13]=" + std::to_string(m_viewProjection.data[13]));
+        LogCAD("[DrawCAD] m_linePipeline=" + std::to_string(reinterpret_cast<uint64_t>(m_linePipeline)));
+        mvpLogged = true;
+    }
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_linePipeline);
+
+    PushConstants pc;
+    pc.mvp = m_viewProjection;
+    vkCmdPushConstants(cmd, m_pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstants), &pc);
+
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, &m_cadVertexBuffer, offsets);
+    vkCmdDraw(cmd, m_cadLineVertexCount, 1, 0, 0);
+}
+
+std::array<float, 3> VulkanRenderer::GetACIColor(int colorIndex) {
+    switch (colorIndex) {
+        case 1: return {1.0f, 0.0f, 0.0f};   // Red
+        case 2: return {1.0f, 1.0f, 0.0f};   // Yellow
+        case 3: return {0.0f, 1.0f, 0.0f};   // Green
+        case 4: return {0.0f, 1.0f, 1.0f};   // Cyan
+        case 5: return {0.0f, 0.0f, 1.0f};   // Blue
+        case 6: return {1.0f, 0.0f, 1.0f};   // Magenta
+        case 7: return {1.0f, 1.0f, 1.0f};   // White
+        case 8: return {0.5f, 0.5f, 0.5f};   // Dark gray
+        case 9: return {0.75f, 0.75f, 0.75f}; // Light gray
+        default: return {1.0f, 1.0f, 1.0f};  // White fallback
     }
 }
 
