@@ -34,3 +34,6 @@ Desktop.ini
 
 # vcpkg local
 vcpkg_installed/
+
+# Orphaned files from previous sessions
+_orphaned_files/

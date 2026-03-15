@@ -1,0 +1,65 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 20,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "Default (Ninja - Debug)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "C:/Qt/6.10.1/msvc2022_64",
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release (Ninja)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_PREFIX_PATH": "C:/Qt/6.10.1/msvc2022_64",
+                "CMAKE_CXX_COMPILER": "cl.exe",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
+            "name": "vs2022",
+            "displayName": "Visual Studio 2022 (Multi-config)",
+            "generator": "Visual Studio 18 2026",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "C:/Qt/6.10.1/msvc2022_64",
+                "BUILD_TESTING": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default-build",
+            "configurePreset": "default"
+        },
+        {
+            "name": "release-build",
+            "configurePreset": "release"
+        },
+        {
+            "name": "vs2022-debug",
+            "configurePreset": "vs2022",
+            "configuration": "Debug"
+        },
+        {
+            "name": "vs2022-release",
+            "configurePreset": "vs2022",
+            "configuration": "Release"
+        }
+    ]
+}

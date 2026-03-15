@@ -182,24 +182,26 @@ void HydraulicSolver::SolveDrainage() {
 
 void HydraulicSolver::DistributeDrainageFlows() {
     // Fixture'lardan drain'e doğru kümülatif DU toplama
-    // Edge yönü: nodeA (fixture) → nodeB (drain)
+    // Edge yönü: nodeA (upstream/fixture) → nodeB (downstream/drain)
+    // BFS: upstream leaf'lerden başla, downstream'e doğru DU aktar
 
-    std::unordered_map<uint32_t, int> outDegree;
+    std::unordered_map<uint32_t, int> inDegree;  // incoming drainage edge count
     std::unordered_map<uint32_t, double> cumulativeDU;
 
     for (auto& [id, node] : m_network.GetNodeMap()) {
-        outDegree[id] = 0;
+        inDegree[id] = 0;
         cumulativeDU[id] = node.loadUnit; // Fixture ise DU değeri
     }
 
+    // inDegree: her node'a kaç drainage edge GİRİYOR (nodeB tarafı)
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
         if (edge.type != EdgeType::Drainage) continue;
-        outDegree[edge.nodeA]++;
+        inDegree[edge.nodeB]++;
     }
 
-    // Leaf node'lar (outDegree == 0, downstream'i yok)
+    // Upstream leaf node'lar (inDegree == 0, hiç gelen drainage edge yok)
     std::queue<uint32_t> queue;
-    for (auto& [nodeId, degree] : outDegree) {
+    for (auto& [nodeId, degree] : inDegree) {
         if (degree == 0) {
             queue.push(nodeId);
         }
@@ -212,19 +214,20 @@ void HydraulicSolver::DistributeDrainageFlows() {
         if (processed.count(nodeId)) continue;
         processed.insert(nodeId);
 
+        // Bu node'dan çıkan drainage edge'leri bul
         auto edgeIds = m_network.GetConnectedEdges(nodeId);
         for (uint32_t eid : edgeIds) {
             auto* edge = m_network.GetEdge(eid);
             if (!edge || edge->type != EdgeType::Drainage) continue;
 
-            if (edge->nodeB == nodeId) {
-                // nodeA → nodeB yönünde, nodeB'nin DU'sunu edge'e ata
+            if (edge->nodeA == nodeId) {
+                // nodeA → nodeB yönünde, nodeA'nın kümülatif DU'sunu edge'e ata
                 edge->cumulativeDU = cumulativeDU[nodeId];
-                cumulativeDU[edge->nodeA] += cumulativeDU[nodeId];
+                cumulativeDU[edge->nodeB] += cumulativeDU[nodeId];
 
-                outDegree[edge->nodeA]--;
-                if (outDegree[edge->nodeA] <= 0) {
-                    queue.push(edge->nodeA);
+                inDegree[edge->nodeB]--;
+                if (inDegree[edge->nodeB] <= 0) {
+                    queue.push(edge->nodeB);
                 }
             }
         }
