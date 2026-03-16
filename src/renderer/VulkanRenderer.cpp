@@ -16,13 +16,14 @@
 
 // File-based diagnostic logging for CAD rendering pipeline
 static void LogCAD(const std::string& msg) {
-    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_debug.log", std::ios::app);
+    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_debug.log", std::ios::trunc);
     if (logFile.is_open()) {
         logFile << msg << std::endl;
         logFile.flush();
     }
     std::cout << msg << std::endl;
 }
+static int g_cadFrameCounter = 0;
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -266,6 +267,7 @@ void VulkanRenderer::OnResize(int width, int height) {
 // ============================================================
 
 void VulkanRenderer::BeginFrame() {
+    m_frameActive = false;
     if (!m_initialized) return;
 
     vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
@@ -316,10 +318,12 @@ void VulkanRenderer::BeginFrame() {
     scissor.offset = {0, 0};
     scissor.extent = m_swapchainExtent;
     vkCmdSetScissor(m_commandBuffers[m_currentFrame], 0, 1, &scissor);
+
+    m_frameActive = true;
 }
 
 void VulkanRenderer::Render(const mep::NetworkGraph& network) {
-    if (!m_initialized) return;
+    if (!m_initialized || !m_frameActive) return;
 
     VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
 
@@ -332,7 +336,8 @@ void VulkanRenderer::Render(const mep::NetworkGraph& network) {
 }
 
 void VulkanRenderer::EndFrame() {
-    if (!m_initialized) return;
+    if (!m_initialized || !m_frameActive) return;
+    m_frameActive = false;
 
     VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
 
@@ -1234,7 +1239,7 @@ void VulkanRenderer::DrawNetwork(VkCommandBuffer cmd, const mep::NetworkGraph& /
 // ============================================================
 
 void VulkanRenderer::RenderCADEntities(const std::vector<std::unique_ptr<cad::Entity>>& entities) {
-    if (!m_initialized || entities.empty()) {
+    if (!m_initialized || !m_frameActive || entities.empty()) {
         static bool warned = false;
         if (!warned) {
             LogCAD("[RenderCADEntities] SKIP: initialized=" + std::to_string(m_initialized)
@@ -1438,26 +1443,33 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
 }
 
 void VulkanRenderer::DrawCAD(VkCommandBuffer cmd) {
+    g_cadFrameCounter++;
+
     if (m_cadLineVertexCount == 0 || !m_cadVertexBuffer) {
-        static bool warned = false;
-        if (!warned) {
-            LogCAD("[DrawCAD] SKIP: vertexCount=" + std::to_string(m_cadLineVertexCount)
+        if (g_cadFrameCounter <= 5) {
+            LogCAD("[DrawCAD] SKIP frame=" + std::to_string(g_cadFrameCounter)
+                   + " vertexCount=" + std::to_string(m_cadLineVertexCount)
                    + " buffer=" + std::string(m_cadVertexBuffer ? "valid" : "NULL"));
-            warned = true;
         }
         return;
     }
 
-    // Log MVP matrix once
-    static bool mvpLogged = false;
-    if (!mvpLogged) {
-        LogCAD("[DrawCAD] Drawing " + std::to_string(m_cadLineVertexCount) + " vertices");
-        LogCAD("[DrawCAD] MVP[0]=" + std::to_string(m_viewProjection.data[0])
+    if (!m_linePipeline) {
+        LogCAD("[DrawCAD] ERROR: m_linePipeline is NULL!");
+        return;
+    }
+
+    // Log first 5 frames + every 60th frame
+    if (g_cadFrameCounter <= 5 || g_cadFrameCounter % 60 == 0) {
+        LogCAD("[DrawCAD] frame=" + std::to_string(g_cadFrameCounter)
+               + " verts=" + std::to_string(m_cadLineVertexCount)
+               + " MVP[0]=" + std::to_string(m_viewProjection.data[0])
                + " MVP[5]=" + std::to_string(m_viewProjection.data[5])
                + " MVP[12]=" + std::to_string(m_viewProjection.data[12])
-               + " MVP[13]=" + std::to_string(m_viewProjection.data[13]));
-        LogCAD("[DrawCAD] m_linePipeline=" + std::to_string(reinterpret_cast<uint64_t>(m_linePipeline)));
-        mvpLogged = true;
+               + " MVP[13]=" + std::to_string(m_viewProjection.data[13])
+               + " swapExtent=" + std::to_string(m_swapchainExtent.width) + "x" + std::to_string(m_swapchainExtent.height)
+               + " pipeline=" + std::to_string(reinterpret_cast<uint64_t>(m_linePipeline))
+               + " buffer=" + std::to_string(reinterpret_cast<uint64_t>(m_cadVertexBuffer)));
     }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_linePipeline);

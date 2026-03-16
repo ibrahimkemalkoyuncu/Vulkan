@@ -164,6 +164,7 @@ private:
     ViewMode m_viewMode = ViewMode::Plan;
 
     bool m_initialized = false;
+    bool m_frameActive = false;       // true only between successful BeginFrame..EndFrame
     bool m_framebufferResized = false;
     void* m_windowHandle = nullptr;
     int m_width = 800;

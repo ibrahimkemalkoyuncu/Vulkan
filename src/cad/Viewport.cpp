@@ -7,13 +7,13 @@ namespace vkt::cad {
 Viewport::Viewport()
     : m_width(1920), m_height(1080),
       m_center(), m_zoom(1.0),
-      m_minZoom(0.01), m_maxZoom(1000.0),
+      m_minZoom(1e-6), m_maxZoom(1000.0),
       m_smoothFactor(0.2) {}
 
 Viewport::Viewport(int width, int height)
     : m_width(width), m_height(height),
       m_center(), m_zoom(1.0),
-      m_minZoom(0.01), m_maxZoom(1000.0),
+      m_minZoom(1e-6), m_maxZoom(1000.0),
       m_smoothFactor(0.2) {}
 
 void Viewport::SetSize(int width, int height) {
