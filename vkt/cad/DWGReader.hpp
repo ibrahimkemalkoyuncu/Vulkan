@@ -133,7 +133,8 @@ private:
     // Entity parsing helpers
     bool ParseEntities(void* dwg_data);
     Entity* ParseEntityByType(void* obj_ptr);
-    void ExpandInsert(void* obj_ptr, void* dwg_ptr);
+    void ExpandInsert(void* obj_ptr, void* dwg_ptr,
+                       std::vector<struct InsertTransform>& transformChain, int depth);
     Entity* ParseLine(void* ent);
     Entity* ParsePolyline(void* ent);
     Entity* ParseLWPolyline(void* ent);

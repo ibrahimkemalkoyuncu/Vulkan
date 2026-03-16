@@ -130,20 +130,51 @@ bool DWGReader::Read(const std::string& filepath) {
     return true;
 }
 
-// Transform a point by INSERT parameters (scale, rotate, translate)
-static geom::Vec3 TransformInsertPoint(const geom::Vec3& pt,
-                                        const geom::Vec3& insPoint,
-                                        double xScale, double yScale,
-                                        double rotation) {
-    double x = pt.x * xScale;
-    double y = pt.y * yScale;
-    double cosR = std::cos(rotation);
-    double sinR = std::sin(rotation);
+// Compound INSERT transform: base_pt subtraction, scale, rotate, translate
+struct InsertTransform {
+    geom::Vec3 insPoint;
+    geom::Vec3 basePt;   // block base point to subtract before transform
+    double xScale = 1.0;
+    double yScale = 1.0;
+    double rotation = 0.0; // radians
+};
+
+// Apply a single INSERT transform to a point
+static geom::Vec3 ApplyTransform(const geom::Vec3& pt, const InsertTransform& t) {
+    // Subtract block base point
+    double x = (pt.x - t.basePt.x) * t.xScale;
+    double y = (pt.y - t.basePt.y) * t.yScale;
+    double cosR = std::cos(t.rotation);
+    double sinR = std::sin(t.rotation);
     return geom::Vec3(
-        insPoint.x + x * cosR - y * sinR,
-        insPoint.y + x * sinR + y * cosR,
+        t.insPoint.x + x * cosR - y * sinR,
+        t.insPoint.y + x * sinR + y * cosR,
         pt.z
     );
+}
+
+// Apply a chain of transforms: innermost (back) first, then outer (front)
+static geom::Vec3 ApplyTransformChain(const geom::Vec3& pt,
+                                       const std::vector<InsertTransform>& chain) {
+    geom::Vec3 result = pt;
+    for (int i = static_cast<int>(chain.size()) - 1; i >= 0; --i) {
+        result = ApplyTransform(result, chain[i]);
+    }
+    return result;
+}
+
+// Compute effective uniform scale from transform chain
+static double GetChainScale(const std::vector<InsertTransform>& chain) {
+    double s = 1.0;
+    for (const auto& t : chain) s *= std::abs(t.xScale);
+    return s;
+}
+
+// Compute effective rotation from transform chain
+static double GetChainRotation(const std::vector<InsertTransform>& chain) {
+    double r = 0.0;
+    for (const auto& t : chain) r += t.rotation;
+    return r;
 }
 
 // Parse a single entity object into an Entity*, returns nullptr if unsupported
@@ -174,23 +205,26 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
     return entity;
 }
 
-// Expand INSERT entity: parse block entities and transform to world coordinates
-void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
+// Expand INSERT entity recursively with accumulated transform chain
+void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
+                              std::vector<InsertTransform>& transformChain, int depth) {
+    if (depth > 8) return; // Max nesting depth
+
     Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
     Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
 
     if (!obj->tio.entity || !obj->tio.entity->tio.INSERT) return;
     Dwg_Entity_INSERT* ins = obj->tio.entity->tio.INSERT;
 
-    // Get insertion parameters
-    geom::Vec3 insPoint(ins->ins_pt.x, ins->ins_pt.y, 0.0);
-    double xScale = ins->scale.x;
-    double yScale = ins->scale.y;
-    double rotation = ins->rotation; // radians
+    // Build transform for this INSERT
+    InsertTransform xform;
+    xform.insPoint = geom::Vec3(ins->ins_pt.x, ins->ins_pt.y, 0.0);
+    xform.xScale = ins->scale.x;
+    xform.yScale = ins->scale.y;
+    xform.rotation = ins->rotation; // radians
 
-    // Default scale if zero
-    if (std::abs(xScale) < 1e-12) xScale = 1.0;
-    if (std::abs(yScale) < 1e-12) yScale = 1.0;
+    if (std::abs(xform.xScale) < 1e-12) xform.xScale = 1.0;
+    if (std::abs(xform.yScale) < 1e-12) xform.yScale = 1.0;
 
     // Resolve block header
     if (!ins->block_header || !ins->block_header->obj) return;
@@ -198,7 +232,13 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
     if (blockObj->type != DWG_TYPE_BLOCK_HEADER) return;
     if (!blockObj->tio.object || !blockObj->tio.object->tio.BLOCK_HEADER) return;
 
+    Dwg_Object_BLOCK_HEADER* bh = blockObj->tio.object->tio.BLOCK_HEADER;
+    xform.basePt = geom::Vec3(bh->base_pt.x, bh->base_pt.y, 0.0);
+
     unsigned long blockHandle = blockObj->handle.value;
+
+    // Push this transform onto the chain (innermost = back)
+    transformChain.push_back(xform);
 
     // Find entities owned by this block
     for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
@@ -206,42 +246,47 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
         if (!child || child->supertype != DWG_SUPERTYPE_ENTITY) continue;
         if (!child->tio.entity) continue;
 
-        // Check if entity belongs to this block
         unsigned long ownerHandle = child->tio.entity->ownerhandle ?
                                      child->tio.entity->ownerhandle->absolute_ref : 0;
         if (ownerHandle != blockHandle) continue;
 
-        // Skip nested INSERTs for now (avoid infinite recursion)
-        if (child->type == DWG_TYPE_INSERT) continue;
+        // Recurse into nested INSERTs
+        if (child->type == DWG_TYPE_INSERT) {
+            ExpandInsert(child, dwg, transformChain, depth + 1);
+            continue;
+        }
 
         // Parse entity in block-local coords
         Entity* entity = ParseEntityByType(child);
         if (!entity) continue;
 
-        // Transform entity to world coordinates based on type
+        // Transform entity through the full chain to world coordinates
+        double chainScale = GetChainScale(transformChain);
+        double chainRotation = GetChainRotation(transformChain);
+
         switch (entity->GetType()) {
             case EntityType::Line: {
                 Line* line = static_cast<Line*>(entity);
-                geom::Vec3 s = TransformInsertPoint(line->GetStart(), insPoint, xScale, yScale, rotation);
-                geom::Vec3 e = TransformInsertPoint(line->GetEnd(), insPoint, xScale, yScale, rotation);
+                geom::Vec3 s = ApplyTransformChain(line->GetStart(), transformChain);
+                geom::Vec3 e = ApplyTransformChain(line->GetEnd(), transformChain);
                 delete entity;
                 entity = new Line(s, e);
                 break;
             }
             case EntityType::Circle: {
                 Circle* circle = static_cast<Circle*>(entity);
-                geom::Vec3 c = TransformInsertPoint(circle->GetCenter(), insPoint, xScale, yScale, rotation);
-                double r = circle->GetRadius() * std::abs(xScale);
+                geom::Vec3 c = ApplyTransformChain(circle->GetCenter(), transformChain);
+                double r = circle->GetRadius() * chainScale;
                 delete entity;
                 entity = new Circle(c, r);
                 break;
             }
             case EntityType::Arc: {
                 Arc* arc = static_cast<Arc*>(entity);
-                geom::Vec3 c = TransformInsertPoint(arc->GetCenter(), insPoint, xScale, yScale, rotation);
-                double r = arc->GetRadius() * std::abs(xScale);
-                double sa = arc->GetStartAngle() + rotation * (180.0 / M_PI);
-                double ea = arc->GetEndAngle() + rotation * (180.0 / M_PI);
+                geom::Vec3 c = ApplyTransformChain(arc->GetCenter(), transformChain);
+                double r = arc->GetRadius() * chainScale;
+                double sa = arc->GetStartAngle() + chainRotation * (180.0 / M_PI);
+                double ea = arc->GetEndAngle() + chainRotation * (180.0 / M_PI);
                 delete entity;
                 entity = new Arc(c, r, sa, ea);
                 break;
@@ -253,9 +298,9 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
                 newVerts.reserve(verts.size());
                 for (const auto& v : verts) {
                     Polyline::Vertex nv;
-                    nv.pos = TransformInsertPoint(v.pos, insPoint, xScale, yScale, rotation);
+                    nv.pos = ApplyTransformChain(v.pos, transformChain);
                     nv.bulge = v.bulge;
-                    nv.width = v.width * std::abs(xScale);
+                    nv.width = v.width * chainScale;
                     newVerts.push_back(nv);
                 }
                 bool closed = poly->IsClosed();
@@ -272,6 +317,9 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
             m_stats.insertExpanded++;
         }
     }
+
+    // Pop this transform when leaving this INSERT level
+    transformChain.pop_back();
 }
 
 bool DWGReader::ParseEntities(void* dwg_ptr) {
@@ -317,7 +365,8 @@ bool DWGReader::ParseEntities(void* dwg_ptr) {
 
         if (obj->type == DWG_TYPE_INSERT) {
             // Expand INSERT: flatten block entities to world coordinates
-            ExpandInsert(obj, dwg);
+            std::vector<InsertTransform> chain;
+            ExpandInsert(obj, dwg, chain, 0);
             insertCount++;
         } else {
             Entity* entity = ParseEntityByType(obj);
