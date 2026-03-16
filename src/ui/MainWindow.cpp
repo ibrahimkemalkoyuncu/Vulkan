@@ -26,7 +26,7 @@
 #include <fstream>
 
 static void LogCAD(const std::string& msg) {
-    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_debug.log", std::ios::app);
+    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_import.log", std::ios::trunc);
     if (logFile.is_open()) {
         logFile << msg << std::endl;
         logFile.flush();
@@ -512,6 +512,12 @@ void MainWindow::OnZoomExtents() {
 
     if (hasContent) {
         m_vulkanWindow->GetViewport().ZoomExtents(minPt, maxPt, 0.15);
+        auto& vp = m_vulkanWindow->GetViewport();
+        LogCAD("[OnZoomExtents] Final bounds: min=(" + std::to_string(minPt.x) + "," + std::to_string(minPt.y)
+               + ") max=(" + std::to_string(maxPt.x) + "," + std::to_string(maxPt.y) + ")");
+        LogCAD("[OnZoomExtents] Viewport zoom=" + std::to_string(vp.GetZoom())
+               + " center=(" + std::to_string(vp.GetCenter().x) + "," + std::to_string(vp.GetCenter().y)
+               + ") size=" + std::to_string(vp.GetWidth()) + "x" + std::to_string(vp.GetHeight()));
     }
 }
 
