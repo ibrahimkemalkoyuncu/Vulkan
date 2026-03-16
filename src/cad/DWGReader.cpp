@@ -130,50 +130,208 @@ bool DWGReader::Read(const std::string& filepath) {
     return true;
 }
 
-bool DWGReader::ParseEntities(void* dwg_ptr) {
+// Transform a point by INSERT parameters (scale, rotate, translate)
+static geom::Vec3 TransformInsertPoint(const geom::Vec3& pt,
+                                        const geom::Vec3& insPoint,
+                                        double xScale, double yScale,
+                                        double rotation) {
+    double x = pt.x * xScale;
+    double y = pt.y * yScale;
+    double cosR = std::cos(rotation);
+    double sinR = std::sin(rotation);
+    return geom::Vec3(
+        insPoint.x + x * cosR - y * sinR,
+        insPoint.y + x * sinR + y * cosR,
+        pt.z
+    );
+}
+
+// Parse a single entity object into an Entity*, returns nullptr if unsupported
+Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    Entity* entity = nullptr;
+
+    switch (obj->type) {
+        case DWG_TYPE_LINE:
+            entity = ParseLine(obj);
+            if (entity) m_stats.lineCount++;
+            break;
+        case DWG_TYPE_CIRCLE:
+            entity = ParseCircle(obj);
+            if (entity) m_stats.circleCount++;
+            break;
+        case DWG_TYPE_ARC:
+            entity = ParseArc(obj);
+            if (entity) m_stats.arcCount++;
+            break;
+        case DWG_TYPE_LWPOLYLINE:
+            entity = ParseLWPolyline(obj);
+            if (entity) m_stats.polylineCount++;
+            break;
+        default:
+            break;
+    }
+    return entity;
+}
+
+// Expand INSERT entity: parse block entities and transform to world coordinates
+void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
     Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
-    
-    // Iterate all objects
+
+    if (!obj->tio.entity || !obj->tio.entity->tio.INSERT) return;
+    Dwg_Entity_INSERT* ins = obj->tio.entity->tio.INSERT;
+
+    // Get insertion parameters
+    geom::Vec3 insPoint(ins->ins_pt.x, ins->ins_pt.y, 0.0);
+    double xScale = ins->scale.x;
+    double yScale = ins->scale.y;
+    double rotation = ins->rotation; // radians
+
+    // Default scale if zero
+    if (std::abs(xScale) < 1e-12) xScale = 1.0;
+    if (std::abs(yScale) < 1e-12) yScale = 1.0;
+
+    // Resolve block header
+    if (!ins->block_header || !ins->block_header->obj) return;
+    Dwg_Object* blockObj = ins->block_header->obj;
+    if (blockObj->type != DWG_TYPE_BLOCK_HEADER) return;
+    if (!blockObj->tio.object || !blockObj->tio.object->tio.BLOCK_HEADER) return;
+
+    unsigned long blockHandle = blockObj->handle.value;
+
+    // Find entities owned by this block
     for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
-        Dwg_Object* obj = &dwg->object[i];
-        if (!obj) continue;
-        
-        // Check if it's an entity
-        if (obj->supertype != DWG_SUPERTYPE_ENTITY) continue;
-        
-        Entity* entity = nullptr;
-        
-        // Parse only simple entities
-        switch (obj->type) {
-            case DWG_TYPE_LINE:
-                entity = ParseLine(obj);
-                if (entity) m_stats.lineCount++;
-                break;
-                
-            case DWG_TYPE_CIRCLE:
-                entity = ParseCircle(obj);
-                if (entity) m_stats.circleCount++;
-                break;
-                
-            case DWG_TYPE_ARC:
-                entity = ParseArc(obj);
-                if (entity) m_stats.arcCount++;
-                break;
+        Dwg_Object* child = &dwg->object[i];
+        if (!child || child->supertype != DWG_SUPERTYPE_ENTITY) continue;
+        if (!child->tio.entity) continue;
 
-            case DWG_TYPE_LWPOLYLINE:
-                entity = ParseLWPolyline(obj);
-                if (entity) m_stats.polylineCount++;
-                break;
+        // Check if entity belongs to this block
+        unsigned long ownerHandle = child->tio.entity->ownerhandle ?
+                                     child->tio.entity->ownerhandle->absolute_ref : 0;
+        if (ownerHandle != blockHandle) continue;
 
+        // Skip nested INSERTs for now (avoid infinite recursion)
+        if (child->type == DWG_TYPE_INSERT) continue;
+
+        // Parse entity in block-local coords
+        Entity* entity = ParseEntityByType(child);
+        if (!entity) continue;
+
+        // Transform entity to world coordinates based on type
+        switch (entity->GetType()) {
+            case EntityType::Line: {
+                Line* line = static_cast<Line*>(entity);
+                geom::Vec3 s = TransformInsertPoint(line->GetStart(), insPoint, xScale, yScale, rotation);
+                geom::Vec3 e = TransformInsertPoint(line->GetEnd(), insPoint, xScale, yScale, rotation);
+                delete entity;
+                entity = new Line(s, e);
+                break;
+            }
+            case EntityType::Circle: {
+                Circle* circle = static_cast<Circle*>(entity);
+                geom::Vec3 c = TransformInsertPoint(circle->GetCenter(), insPoint, xScale, yScale, rotation);
+                double r = circle->GetRadius() * std::abs(xScale);
+                delete entity;
+                entity = new Circle(c, r);
+                break;
+            }
+            case EntityType::Arc: {
+                Arc* arc = static_cast<Arc*>(entity);
+                geom::Vec3 c = TransformInsertPoint(arc->GetCenter(), insPoint, xScale, yScale, rotation);
+                double r = arc->GetRadius() * std::abs(xScale);
+                double sa = arc->GetStartAngle() + rotation * (180.0 / M_PI);
+                double ea = arc->GetEndAngle() + rotation * (180.0 / M_PI);
+                delete entity;
+                entity = new Arc(c, r, sa, ea);
+                break;
+            }
+            case EntityType::Polyline: {
+                Polyline* poly = static_cast<Polyline*>(entity);
+                const auto& verts = poly->GetVertices();
+                std::vector<Polyline::Vertex> newVerts;
+                newVerts.reserve(verts.size());
+                for (const auto& v : verts) {
+                    Polyline::Vertex nv;
+                    nv.pos = TransformInsertPoint(v.pos, insPoint, xScale, yScale, rotation);
+                    nv.bulge = v.bulge;
+                    nv.width = v.width * std::abs(xScale);
+                    newVerts.push_back(nv);
+                }
+                bool closed = poly->IsClosed();
+                delete entity;
+                entity = new Polyline(newVerts, closed);
+                break;
+            }
             default:
-                // Other entity types not supported yet
                 break;
         }
-        
+
         if (entity) {
             m_entities.push_back(std::unique_ptr<Entity>(entity));
+            m_stats.insertExpanded++;
         }
     }
+}
+
+bool DWGReader::ParseEntities(void* dwg_ptr) {
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
+
+    // Phase 1: Find model space block header handle
+    unsigned long modelSpaceHandle = 0;
+    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+        Dwg_Object* obj = &dwg->object[i];
+        if (!obj || obj->type != DWG_TYPE_BLOCK_HEADER) continue;
+        if (!obj->tio.object || !obj->tio.object->tio.BLOCK_HEADER) continue;
+
+        Dwg_Object_BLOCK_HEADER* bh = obj->tio.object->tio.BLOCK_HEADER;
+        if (bh->name && (strcmp(bh->name, "*Model_Space") == 0 ||
+                          strcmp(bh->name, "*MODEL_SPACE") == 0)) {
+            modelSpaceHandle = obj->handle.value;
+            std::cout << "[DWGReader] Model space handle: " << modelSpaceHandle << std::endl;
+            break;
+        }
+    }
+
+    if (modelSpaceHandle == 0) {
+        std::cout << "[DWGReader] WARNING: Model space not found, parsing all entities" << std::endl;
+    }
+
+    // Phase 2: Parse only model space entities
+    int insertCount = 0, directCount = 0, skippedCount = 0;
+
+    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+        Dwg_Object* obj = &dwg->object[i];
+        if (!obj || obj->supertype != DWG_SUPERTYPE_ENTITY) continue;
+        if (!obj->tio.entity) continue;
+
+        // Filter: only model space entities
+        if (modelSpaceHandle != 0) {
+            unsigned long ownerHandle = obj->tio.entity->ownerhandle ?
+                                         obj->tio.entity->ownerhandle->absolute_ref : 0;
+            if (ownerHandle != modelSpaceHandle) {
+                skippedCount++;
+                continue;
+            }
+        }
+
+        if (obj->type == DWG_TYPE_INSERT) {
+            // Expand INSERT: flatten block entities to world coordinates
+            ExpandInsert(obj, dwg);
+            insertCount++;
+        } else {
+            Entity* entity = ParseEntityByType(obj);
+            if (entity) {
+                m_entities.push_back(std::unique_ptr<Entity>(entity));
+                directCount++;
+            }
+        }
+    }
+
+    std::cout << "[DWGReader] Model space: " << directCount << " direct, "
+              << insertCount << " INSERTs expanded (" << m_stats.insertExpanded << " entities), "
+              << skippedCount << " block-definition entities skipped" << std::endl;
+
     return true;
 }
 
