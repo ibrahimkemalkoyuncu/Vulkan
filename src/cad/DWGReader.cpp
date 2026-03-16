@@ -33,7 +33,12 @@ std::string DWGStatistics::ToString() const {
     oss << "DWG Version: " << dwgVersion << "\n"
         << "Total Entities: " << entityCount << "\n"
         << "  Lines: " << lineCount << "\n"
+        << "  Polylines: " << polylineCount << "\n"
+        << "  Arcs: " << arcCount << "\n"
         << "  Circles: " << circleCount << "\n"
+        << "  Ellipses: " << ellipseCount << "\n"
+        << "  Splines: " << splineCount << "\n"
+        << "  INSERT expanded: " << insertExpanded << "\n"
         << "Layers: " << layerCount << "\n"
         << "Read Time: " << readTimeMs << " ms";
     return oss.str();
@@ -109,7 +114,10 @@ bool DWGReader::Read(const std::string& filepath) {
     m_layers["0"] = defaultLayer;
     m_stats.layerCount = 1;
     
-    // Parse entities
+    // Layer bilgilerini çıkar (entity parse'dan ÖNCE — renk çözümlemesi için)
+    ExtractLayers(dwg);
+
+    // Entity'leri parse et
     ParseEntities(dwg);
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -120,7 +128,11 @@ bool DWGReader::Read(const std::string& filepath) {
               << " (LINE=" << m_stats.lineCount
               << " ARC=" << m_stats.arcCount
               << " CIRCLE=" << m_stats.circleCount
-              << " POLY=" << m_stats.polylineCount << ")" << std::endl;
+              << " POLY=" << m_stats.polylineCount
+              << " ELLIPSE=" << m_stats.ellipseCount
+              << " SPLINE=" << m_stats.splineCount
+              << " INSERT_EXP=" << m_stats.insertExpanded
+              << " LAYERS=" << m_stats.layerCount << ")" << std::endl;
     
     if (m_stats.entityCount == 0) {
         m_errorMessage = "DWG dosyası okundu ancak desteklenen entity bulunamadı. Desteklenenler: LINE, ARC, CIRCLE, LWPOLYLINE.";
@@ -177,6 +189,27 @@ static double GetChainRotation(const std::vector<InsertTransform>& chain) {
     return r;
 }
 
+// Entity'den renk bilgisini çıkar ve ata
+static void ExtractEntityColor(void* obj_ptr, Entity* entity) {
+    if (!entity) return;
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity) return;
+
+    Dwg_Color& c = obj->tio.entity->color;
+
+    if (c.method == 0xc3 && c.rgb != 0) {
+        // Truecolor: RGB doğrudan
+        float r = ((c.rgb >> 16) & 0xFF) / 255.0f;
+        float g = ((c.rgb >> 8) & 0xFF) / 255.0f;
+        float b = (c.rgb & 0xFF) / 255.0f;
+        entity->SetColor(Color(r, g, b));
+    } else if (c.index >= 1 && c.index <= 255) {
+        // ACI renk indeksi
+        entity->SetColor(Color::FromACI(c.index));
+    }
+    // index==256 (BYLAYER) veya 0 (BYBLOCK) → varsayılan renk kalır
+}
+
 // Parse a single entity object into an Entity*, returns nullptr if unsupported
 Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
     Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
@@ -199,9 +232,30 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
             entity = ParseLWPolyline(obj);
             if (entity) m_stats.polylineCount++;
             break;
+        case DWG_TYPE_POLYLINE_2D:
+        case DWG_TYPE_POLYLINE_3D:
+            entity = ParsePolyline(obj);
+            if (entity) m_stats.polylineCount++;
+            break;
+        case DWG_TYPE_ELLIPSE:
+            entity = ParseEllipse(obj);
+            if (entity) m_stats.ellipseCount++;
+            break;
+        case DWG_TYPE_SPLINE:
+            entity = ParseSpline(obj);
+            if (entity) m_stats.splineCount++;
+            break;
+        case DWG_TYPE_POINT:
+            entity = ParsePoint(obj);
+            if (entity) m_stats.lineCount += 2; // çapraz = 2 çizgi
+            break;
         default:
             break;
     }
+
+    // Entity'ye renk bilgisi ata
+    ExtractEntityColor(obj_ptr, entity);
+
     return entity;
 }
 
@@ -250,8 +304,15 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
                                      child->tio.entity->ownerhandle->absolute_ref : 0;
         if (ownerHandle != blockHandle) continue;
 
-        // Recurse into nested INSERTs
+        // İç içe INSERT/MINSERT'lere recursion
         if (child->type == DWG_TYPE_INSERT) {
+            ExpandInsert(child, dwg, transformChain, depth + 1);
+            continue;
+        }
+        if (child->type == DWG_TYPE_MINSERT) {
+            // İç içe MINSERT: önce transform chain'i pop sonra tekrar push yapılacak
+            // Basitlik için: MINSERT'i ExpandInsert olarak genişlet (dizi offsetleri yoksay)
+            // TODO: Tam MINSERT desteği nested olarak
             ExpandInsert(child, dwg, transformChain, depth + 1);
             continue;
         }
@@ -364,9 +425,13 @@ bool DWGReader::ParseEntities(void* dwg_ptr) {
         }
 
         if (obj->type == DWG_TYPE_INSERT) {
-            // Expand INSERT: flatten block entities to world coordinates
+            // INSERT: blok referansını world koordinatlarına aç
             std::vector<InsertTransform> chain;
             ExpandInsert(obj, dwg, chain, 0);
+            insertCount++;
+        } else if (obj->type == DWG_TYPE_MINSERT) {
+            // MINSERT: dizi INSERT — satır×sütun grid olarak aç
+            ExpandMInsert(obj, dwg);
             insertCount++;
         } else {
             Entity* entity = ParseEntityByType(obj);
@@ -396,8 +461,71 @@ Entity* DWGReader::ParseLine(void* obj_ptr) {
     return new Line(start, end);
 }
 
+/**
+ * @brief Klasik POLYLINE_2D/3D entity parse
+ *
+ * LWPOLYLINE'dan farklı olarak vertex'ler ayrı sub-entity olarak saklanır.
+ * vertex[] handle dizisi üzerinden iterate ederek Polyline oluşturur.
+ */
 Entity* DWGReader::ParsePolyline(void* obj_ptr) {
-    return nullptr; // Not implemented yet
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity) return nullptr;
+
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(m_dwgData);
+    if (!dwg) return nullptr;
+
+    bool is3D = (obj->type == DWG_TYPE_POLYLINE_3D);
+    BITCODE_BL num_owned = 0;
+    BITCODE_H* vertex_handles = nullptr;
+    BITCODE_BS flag = 0;
+
+    if (is3D) {
+        if (!obj->tio.entity->tio.POLYLINE_3D) return nullptr;
+        Dwg_Entity_POLYLINE_3D* poly3d = obj->tio.entity->tio.POLYLINE_3D;
+        num_owned = poly3d->num_owned;
+        vertex_handles = poly3d->vertex;
+        flag = poly3d->flag;
+    } else {
+        if (!obj->tio.entity->tio.POLYLINE_2D) return nullptr;
+        Dwg_Entity_POLYLINE_2D* poly2d = obj->tio.entity->tio.POLYLINE_2D;
+        num_owned = poly2d->num_owned;
+        vertex_handles = poly2d->vertex;
+        flag = poly2d->flag;
+    }
+
+    if (num_owned < 2 || !vertex_handles) return nullptr;
+
+    std::vector<Polyline::Vertex> vertices;
+    vertices.reserve(num_owned);
+
+    for (BITCODE_BL i = 0; i < num_owned; ++i) {
+        if (!vertex_handles[i] || !vertex_handles[i]->obj) continue;
+        Dwg_Object* vObj = vertex_handles[i]->obj;
+
+        // VERTEX_2D ve VERTEX_3D aynı ilk alanları paylaşır
+        if (vObj->type == DWG_TYPE_VERTEX_2D) {
+            if (!vObj->tio.entity || !vObj->tio.entity->tio.VERTEX_2D) continue;
+            Dwg_Entity_VERTEX_2D* v = vObj->tio.entity->tio.VERTEX_2D;
+            Polyline::Vertex pv;
+            pv.pos = geom::Vec3(v->point.x, v->point.y, 0.0);
+            pv.bulge = v->bulge;
+            pv.width = v->start_width;
+            vertices.push_back(pv);
+        } else if (vObj->type == DWG_TYPE_VERTEX_3D ||
+                   vObj->type == 0x0c /* VERTEX_MESH */ ||
+                   vObj->type == 0x0d /* VERTEX_PFACE */) {
+            if (!vObj->tio.entity || !vObj->tio.entity->tio.VERTEX_3D) continue;
+            Dwg_Entity_VERTEX_3D* v = vObj->tio.entity->tio.VERTEX_3D;
+            Polyline::Vertex pv;
+            pv.pos = geom::Vec3(v->point.x, v->point.y, 0.0);
+            vertices.push_back(pv);
+        }
+    }
+
+    if (vertices.size() < 2) return nullptr;
+
+    bool closed = (flag & 0x01) != 0;
+    return new Polyline(vertices, closed);
 }
 
 Entity* DWGReader::ParseLWPolyline(void* obj_ptr) {
@@ -477,7 +605,313 @@ Entity* DWGReader::ParseCircle(void* obj_ptr) {
 }
 
 Entity* DWGReader::ParseText(void* obj_ptr) {
-    return nullptr; // Not implemented yet
+    return nullptr; // Henüz implementasyon yok — Faz 5'te eklenecek
+}
+
+/**
+ * @brief ELLIPSE entity parse — Polyline olarak tessellate eder
+ *
+ * LibreDWG: center, sm_axis (yarı-büyük eksen vektörü), axis_ratio, start/end_angle
+ * Tam ellips veya kısmi ellips (elliptical arc) desteklenir.
+ */
+Entity* DWGReader::ParseEllipse(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.ELLIPSE) return nullptr;
+
+    Dwg_Entity_ELLIPSE* ell = obj->tio.entity->tio.ELLIPSE;
+
+    geom::Vec3 center(ell->center.x, ell->center.y, 0.0);
+    double semiMajor = std::sqrt(ell->sm_axis.x * ell->sm_axis.x +
+                                  ell->sm_axis.y * ell->sm_axis.y);
+    if (semiMajor < 1e-12) return nullptr;
+
+    double semiMinor = semiMajor * ell->axis_ratio;
+    double rotAngle = std::atan2(ell->sm_axis.y, ell->sm_axis.x);
+
+    double startParam = ell->start_angle;
+    double endParam = ell->end_angle;
+
+    // Tam ellips kontrolü
+    bool fullEllipse = (std::abs(endParam - startParam) < 1e-10) ||
+                       (std::abs(endParam - startParam - 2.0 * M_PI) < 1e-10);
+    if (fullEllipse) {
+        startParam = 0.0;
+        endParam = 2.0 * M_PI;
+    }
+
+    // Parametrik noktalar ile tessellate et
+    int segments = 64;
+    double sweep = endParam - startParam;
+    if (sweep < 0) sweep += 2.0 * M_PI;
+
+    std::vector<Polyline::Vertex> vertices;
+    vertices.reserve(segments + 1);
+
+    double cosR = std::cos(rotAngle);
+    double sinR = std::sin(rotAngle);
+
+    for (int i = 0; i <= segments; ++i) {
+        double t = startParam + sweep * i / segments;
+        double lx = semiMajor * std::cos(t);
+        double ly = semiMinor * std::sin(t);
+        // Rotate by ellipse rotation
+        double wx = center.x + lx * cosR - ly * sinR;
+        double wy = center.y + lx * sinR + ly * cosR;
+
+        Polyline::Vertex pv;
+        pv.pos = geom::Vec3(wx, wy, 0.0);
+        vertices.push_back(pv);
+    }
+
+    return new Polyline(vertices, fullEllipse);
+}
+
+/**
+ * @brief SPLINE entity parse — Polyline olarak tessellate eder
+ *
+ * Fit noktaları varsa doğrudan kullanılır, yoksa kontrol noktaları ve
+ * knot vektörü ile De Boor algoritması uygulanır.
+ */
+Entity* DWGReader::ParseSpline(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.SPLINE) return nullptr;
+
+    Dwg_Entity_SPLINE* spl = obj->tio.entity->tio.SPLINE;
+
+    std::vector<Polyline::Vertex> vertices;
+
+    // Yöntem 1: Fit noktaları varsa doğrudan kullan
+    if (spl->num_fit_pts > 1 && spl->fit_pts) {
+        vertices.reserve(spl->num_fit_pts);
+        for (BITCODE_BS i = 0; i < spl->num_fit_pts; ++i) {
+            Polyline::Vertex pv;
+            pv.pos = geom::Vec3(spl->fit_pts[i].x, spl->fit_pts[i].y, 0.0);
+            vertices.push_back(pv);
+        }
+    }
+    // Yöntem 2: Kontrol noktaları ile De Boor B-spline evaluation
+    else if (spl->num_ctrl_pts > 1 && spl->ctrl_pts && spl->num_knots > 0 && spl->knots) {
+        int n = spl->num_ctrl_pts;
+        int p = spl->degree;
+        int numKnots = spl->num_knots;
+
+        // Parametrik aralık: [knots[p], knots[n]]
+        double tStart = spl->knots[p];
+        double tEnd = spl->knots[n]; // knots[num_ctrl_pts]
+        if (tEnd <= tStart) return nullptr;
+
+        int segments = std::max(32, n * 8);
+        vertices.reserve(segments + 1);
+
+        for (int i = 0; i <= segments; ++i) {
+            double t = tStart + (tEnd - tStart) * i / segments;
+
+            // De Boor algoritması
+            // Knot aralığını bul: t ∈ [knots[k], knots[k+1])
+            int k = p;
+            for (int j = p; j < numKnots - 1; ++j) {
+                if (t >= spl->knots[j] && t < spl->knots[j + 1]) { k = j; break; }
+            }
+            if (i == segments) k = n - 1; // son nokta
+
+            // Kontrol noktalarını kopyala (De Boor geçici dizi)
+            std::vector<double> dx(p + 1), dy(p + 1);
+            for (int j = 0; j <= p; ++j) {
+                int idx = k - p + j;
+                if (idx < 0) idx = 0;
+                if (idx >= n) idx = n - 1;
+                dx[j] = spl->ctrl_pts[idx].x;
+                dy[j] = spl->ctrl_pts[idx].y;
+            }
+
+            // Triangular computation
+            for (int r = 1; r <= p; ++r) {
+                for (int j = p; j >= r; --j) {
+                    int knotIdx = k - p + j;
+                    if (knotIdx < 0) knotIdx = 0;
+                    int knotIdx2 = knotIdx + p - r + 1;
+                    if (knotIdx2 >= numKnots) knotIdx2 = numKnots - 1;
+
+                    double denom = spl->knots[knotIdx2] - spl->knots[knotIdx];
+                    double alpha = (denom > 1e-12) ?
+                        (t - spl->knots[knotIdx]) / denom : 0.0;
+
+                    dx[j] = (1.0 - alpha) * dx[j - 1] + alpha * dx[j];
+                    dy[j] = (1.0 - alpha) * dy[j - 1] + alpha * dy[j];
+                }
+            }
+
+            Polyline::Vertex pv;
+            pv.pos = geom::Vec3(dx[p], dy[p], 0.0);
+            vertices.push_back(pv);
+        }
+    }
+
+    if (vertices.size() < 2) return nullptr;
+
+    bool closed = spl->closed_b != 0;
+    return new Polyline(vertices, closed);
+}
+
+/**
+ * @brief POINT entity parse — küçük çapraz (×) olarak 2 Line oluşturur
+ */
+Entity* DWGReader::ParsePoint(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.POINT) return nullptr;
+
+    Dwg_Entity_POINT* pt = obj->tio.entity->tio.POINT;
+    double armLength = 25.0; // 25mm kol
+
+    geom::Vec3 center(pt->x, pt->y, 0.0);
+
+    // Çapraz: iki çizgi. İlk çizgiyi döndür, ikincisini m_entities'e ekle
+    auto* line1 = new Line(
+        geom::Vec3(center.x - armLength, center.y, 0.0),
+        geom::Vec3(center.x + armLength, center.y, 0.0)
+    );
+    auto* line2 = new Line(
+        geom::Vec3(center.x, center.y - armLength, 0.0),
+        geom::Vec3(center.x, center.y + armLength, 0.0)
+    );
+
+    // İkinci çizgiyi doğrudan entities'e ekle
+    m_entities.push_back(std::unique_ptr<Entity>(line2));
+    return line1; // İlk çizgi ParseEntityByType tarafından eklenir
+}
+
+/**
+ * @brief MINSERT (dizi INSERT) genişletme
+ *
+ * INSERT parametreleri + num_rows × num_cols grid olarak genişletir.
+ * Her grid hücresi için ayrı ExpandInsert çağrısı yapılır.
+ */
+void DWGReader::ExpandMInsert(void* obj_ptr, void* dwg_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
+
+    if (!obj->tio.entity || !obj->tio.entity->tio.MINSERT) return;
+    Dwg_Entity_MINSERT* mins = obj->tio.entity->tio.MINSERT;
+
+    int numRows = std::max((int)mins->num_rows, 1);
+    int numCols = std::max((int)mins->num_cols, 1);
+    double rowSpacing = mins->row_spacing;
+    double colSpacing = mins->col_spacing;
+
+    double cosR = std::cos(mins->rotation);
+    double sinR = std::sin(mins->rotation);
+
+    for (int row = 0; row < numRows; ++row) {
+        for (int col = 0; col < numCols; ++col) {
+            // Grid offset hesapla (MINSERT rotasyonuna göre döndür)
+            double dx = col * colSpacing;
+            double dy = row * rowSpacing;
+            double worldDx = dx * cosR - dy * sinR;
+            double worldDy = dx * sinR + dy * cosR;
+
+            // Geçici INSERT nesnesi simüle et: InsertTransform oluştur
+            InsertTransform xform;
+            xform.insPoint = geom::Vec3(
+                mins->ins_pt.x + worldDx,
+                mins->ins_pt.y + worldDy, 0.0);
+            xform.xScale = mins->scale.x;
+            xform.yScale = mins->scale.y;
+            xform.rotation = mins->rotation;
+
+            if (std::abs(xform.xScale) < 1e-12) xform.xScale = 1.0;
+            if (std::abs(xform.yScale) < 1e-12) xform.yScale = 1.0;
+
+            // Block header çözümle
+            if (!mins->block_header || !mins->block_header->obj) return;
+            Dwg_Object* blockObj = mins->block_header->obj;
+            if (blockObj->type != DWG_TYPE_BLOCK_HEADER) return;
+            if (!blockObj->tio.object || !blockObj->tio.object->tio.BLOCK_HEADER) return;
+
+            Dwg_Object_BLOCK_HEADER* bh = blockObj->tio.object->tio.BLOCK_HEADER;
+            xform.basePt = geom::Vec3(bh->base_pt.x, bh->base_pt.y, 0.0);
+
+            unsigned long blockHandle = blockObj->handle.value;
+
+            // Transform chain başlat ve blok entity'lerini genişlet
+            std::vector<InsertTransform> chain;
+            chain.push_back(xform);
+
+            for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+                Dwg_Object* child = &dwg->object[i];
+                if (!child || child->supertype != DWG_SUPERTYPE_ENTITY) continue;
+                if (!child->tio.entity) continue;
+
+                unsigned long ownerHandle = child->tio.entity->ownerhandle ?
+                                             child->tio.entity->ownerhandle->absolute_ref : 0;
+                if (ownerHandle != blockHandle) continue;
+
+                if (child->type == DWG_TYPE_INSERT) {
+                    ExpandInsert(child, dwg, chain, 1);
+                    continue;
+                }
+
+                Entity* entity = ParseEntityByType(child);
+                if (!entity) continue;
+
+                // Transform zinciri uygula
+                double chainScale = GetChainScale(chain);
+                double chainRotation = GetChainRotation(chain);
+
+                switch (entity->GetType()) {
+                    case EntityType::Line: {
+                        Line* line = static_cast<Line*>(entity);
+                        geom::Vec3 s = ApplyTransformChain(line->GetStart(), chain);
+                        geom::Vec3 e = ApplyTransformChain(line->GetEnd(), chain);
+                        delete entity;
+                        entity = new Line(s, e);
+                        break;
+                    }
+                    case EntityType::Circle: {
+                        Circle* circle = static_cast<Circle*>(entity);
+                        geom::Vec3 c = ApplyTransformChain(circle->GetCenter(), chain);
+                        double r = circle->GetRadius() * chainScale;
+                        delete entity;
+                        entity = new Circle(c, r);
+                        break;
+                    }
+                    case EntityType::Arc: {
+                        Arc* arc = static_cast<Arc*>(entity);
+                        geom::Vec3 c = ApplyTransformChain(arc->GetCenter(), chain);
+                        double r = arc->GetRadius() * chainScale;
+                        double sa = arc->GetStartAngle() + chainRotation * (180.0 / M_PI);
+                        double ea = arc->GetEndAngle() + chainRotation * (180.0 / M_PI);
+                        delete entity;
+                        entity = new Arc(c, r, sa, ea);
+                        break;
+                    }
+                    case EntityType::Polyline: {
+                        Polyline* poly = static_cast<Polyline*>(entity);
+                        const auto& verts = poly->GetVertices();
+                        std::vector<Polyline::Vertex> newVerts;
+                        newVerts.reserve(verts.size());
+                        for (const auto& v : verts) {
+                            Polyline::Vertex nv;
+                            nv.pos = ApplyTransformChain(v.pos, chain);
+                            nv.bulge = v.bulge;
+                            nv.width = v.width * chainScale;
+                            newVerts.push_back(nv);
+                        }
+                        bool cl = poly->IsClosed();
+                        delete entity;
+                        entity = new Polyline(newVerts, cl);
+                        break;
+                    }
+                    default:
+                        break;
+                }
+
+                if (entity) {
+                    m_entities.push_back(std::unique_ptr<Entity>(entity));
+                    m_stats.insertExpanded++;
+                }
+            }
+        }
+    }
 }
 
 void DWGReader::SetLayerFilter(const std::unordered_set<std::string>& layers) {
@@ -489,8 +923,47 @@ bool DWGReader::PassesLayerFilter(const std::string& layerName) const {
     return m_layerFilter.find(layerName) != m_layerFilter.end();
 }
 
+/**
+ * @brief DWG dosyasından layer bilgilerini çıkarır
+ *
+ * DWG_TYPE_LAYER objelerini iterate eder, her layer için:
+ * isim, ACI renk, frozen/on/locked durumları okunur.
+ */
 void DWGReader::ExtractLayers(void* dwg_ptr) {
-    // Not implemented yet - using default layer only
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
+    if (!dwg) return;
+
+    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+        Dwg_Object* obj = &dwg->object[i];
+        if (!obj || obj->type != DWG_TYPE_LAYER) continue;
+        if (!obj->tio.object || !obj->tio.object->tio.LAYER) continue;
+
+        Dwg_Object_LAYER* lay = obj->tio.object->tio.LAYER;
+        if (!lay->name) continue;
+
+        std::string name(lay->name);
+        Layer layer(name, Color::White());
+
+        // ACI renk indeksi (negatif = layer kapalı)
+        int colorIndex = lay->color.index;
+        if (colorIndex < 0) {
+            layer.SetVisible(false);
+            colorIndex = -colorIndex;
+        }
+        if (colorIndex >= 1 && colorIndex <= 255) {
+            layer.SetColorIndex(colorIndex);
+        }
+
+        // Layer durumları
+        layer.SetFrozen(lay->frozen != 0);
+        layer.SetLocked(lay->locked != 0);
+        if (!lay->on) layer.SetVisible(false);
+
+        m_layers[name] = layer;
+    }
+
+    m_stats.layerCount = m_layers.size();
+    std::cout << "[DWGReader] " << m_stats.layerCount << " layer extracted" << std::endl;
 }
 
 std::vector<std::unique_ptr<Entity>> DWGReader::TakeEntities() {
