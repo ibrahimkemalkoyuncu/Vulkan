@@ -8,6 +8,7 @@
 #include <QWheelEvent>
 #include <QKeyEvent>
 #include <iostream>
+#include <cmath>
 
 namespace vkt {
 namespace render {
@@ -132,9 +133,18 @@ void VulkanWindow::mouseMoveEvent(QMouseEvent* event) {
     }
 }
 
+/**
+ * @brief Mouse tekerleği ile zoom — AutoCAD benzeri hassasiyet
+ *
+ * angleDelta 120'ye bölünerek kademeli scroll desteği sağlanır.
+ * Trackpad'ler ve yüksek çözünürlüklü fare tekerlekleri doğru çalışır.
+ */
 void VulkanWindow::wheelEvent(QWheelEvent* event) {
     double delta = event->angleDelta().y();
-    double factor = (delta > 0) ? 1.15 : (1.0 / 1.15);
+    // 120 birim = 1 standart scroll notch, trackpad'ler daha küçük delta gönderir
+    double scrollUnits = delta / 120.0;
+    // AutoCAD benzeri: her notch ~%15 zoom, kademeli
+    double factor = std::pow(1.15, scrollUnits);
 
     QPointF pos = event->position();
     m_viewport.ZoomAt(factor, pos.x(), pos.y());

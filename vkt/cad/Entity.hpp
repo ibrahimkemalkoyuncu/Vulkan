@@ -165,7 +165,12 @@ struct BoundingBox {
  */
 struct Color {
     uint8_t r = 255, g = 255, b = 255, a = 255;
-    
+
+    Color() = default;
+    Color(uint8_t r_, uint8_t g_, uint8_t b_, uint8_t a_ = 255) : r(r_), g(g_), b(b_), a(a_) {}
+    Color(float rf, float gf, float bf) : r(static_cast<uint8_t>(rf * 255)),
+        g(static_cast<uint8_t>(gf * 255)), b(static_cast<uint8_t>(bf * 255)), a(255) {}
+
     static Color Red()      { return {255, 0, 0, 255}; }
     static Color Green()    { return {0, 255, 0, 255}; }
     static Color Blue()     { return {0, 0, 255, 255}; }
@@ -175,6 +180,9 @@ struct Color {
     static Color Cyan()     { return {0, 255, 255, 255}; }
     static Color Magenta()  { return {255, 0, 255, 255}; }
     static Color ByLayer()  { return {0, 0, 0, 0}; } ///< Layer rengini kullan (alpha=0 flag)
+
+    /// ACI renk indeksinden Color oluştur (AutoCAD Color Index 1-255)
+    static Color FromACI(int index);
 };
 
 /**

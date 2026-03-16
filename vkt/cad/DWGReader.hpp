@@ -54,6 +54,8 @@ struct DWGStatistics {
     size_t polylineCount = 0;
     size_t arcCount = 0;
     size_t circleCount = 0;
+    size_t ellipseCount = 0;
+    size_t splineCount = 0;
     size_t textCount = 0;
     size_t insertExpanded = 0;
     double readTimeMs = 0.0;
@@ -141,6 +143,10 @@ private:
     Entity* ParseArc(void* ent);
     Entity* ParseCircle(void* ent);
     Entity* ParseText(void* ent);
+    Entity* ParseEllipse(void* ent);
+    Entity* ParseSpline(void* ent);
+    Entity* ParsePoint(void* ent);
+    void ExpandMInsert(void* obj_ptr, void* dwg_ptr);
     
     // Layer management
     void ExtractLayers(void* dwg_data);
