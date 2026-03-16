@@ -6,6 +6,8 @@
 #include "core/Document.hpp"
 #include "core/Persistence.hpp"
 #include <iostream>
+#include <algorithm>
+#include <vector>
 
 namespace vkt {
 namespace core {
@@ -97,15 +99,41 @@ void Document::GetCADExtents(geom::Vec3& outMin, geom::Vec3& outMax) const {
     outMin = geom::Vec3(1e9, 1e9, 0);
     outMax = geom::Vec3(-1e9, -1e9, 0);
 
+    // Collect all entity center points for percentile-based bounds
+    // This filters outlier entities that stretch the bounding box
+    std::vector<double> xVals, yVals;
+    xVals.reserve(m_cadEntities.size() * 2);
+    yVals.reserve(m_cadEntities.size() * 2);
+
     for (const auto& entity : m_cadEntities) {
         if (!entity) continue;
         auto bounds = entity->GetBounds();
         if (!bounds.IsValid()) continue;
-        if (bounds.min.x < outMin.x) outMin.x = bounds.min.x;
-        if (bounds.min.y < outMin.y) outMin.y = bounds.min.y;
-        if (bounds.max.x > outMax.x) outMax.x = bounds.max.x;
-        if (bounds.max.y > outMax.y) outMax.y = bounds.max.y;
+        xVals.push_back(bounds.min.x);
+        xVals.push_back(bounds.max.x);
+        yVals.push_back(bounds.min.y);
+        yVals.push_back(bounds.max.y);
     }
+
+    if (xVals.empty()) return;
+
+    // Sort and use 2nd-98th percentile to exclude outliers
+    std::sort(xVals.begin(), xVals.end());
+    std::sort(yVals.begin(), yVals.end());
+
+    size_t lo = static_cast<size_t>(xVals.size() * 0.02);
+    size_t hi = static_cast<size_t>(xVals.size() * 0.98);
+    if (hi <= lo) { lo = 0; hi = xVals.size() - 1; }
+
+    outMin.x = xVals[lo];
+    outMax.x = xVals[hi];
+
+    lo = static_cast<size_t>(yVals.size() * 0.02);
+    hi = static_cast<size_t>(yVals.size() * 0.98);
+    if (hi <= lo) { lo = 0; hi = yVals.size() - 1; }
+
+    outMin.y = yVals[lo];
+    outMax.y = yVals[hi];
 }
 
 } // namespace core
