@@ -1422,37 +1422,6 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
     LogCAD("[UpdateCAD] Vertex bounds: (" + std::to_string(minX) + "," + std::to_string(minY)
            + ") -> (" + std::to_string(maxX) + "," + std::to_string(maxY) + ")");
 
-    // === DEBUG TEST PATTERN: bright red/green X at center of drawing ===
-    {
-        float cx = (minX + maxX) / 2.0f;
-        float cy = (minY + maxY) / 2.0f;
-        float hw = (maxX - minX) / 4.0f;
-        float hh = (maxY - minY) / 4.0f;
-
-        auto addTestVertex = [&](float x, float y, float cr, float cg, float cb) {
-            geom::Vertex v{};
-            v.pos[0] = x; v.pos[1] = y; v.pos[2] = 0.0f;
-            v.color[0] = cr; v.color[1] = cg; v.color[2] = cb;
-            vertices.push_back(v);
-        };
-
-        // Red diagonal line
-        addTestVertex(cx - hw, cy - hh, 1, 0, 0);
-        addTestVertex(cx + hw, cy + hh, 1, 0, 0);
-        // Green diagonal line
-        addTestVertex(cx - hw, cy + hh, 0, 1, 0);
-        addTestVertex(cx + hw, cy - hh, 0, 1, 0);
-        // Blue horizontal line
-        addTestVertex(cx - hw, cy, 0, 0, 1);
-        addTestVertex(cx + hw, cy, 0, 0, 1);
-        // Yellow vertical line
-        addTestVertex(cx, cy - hh, 1, 1, 0);
-        addTestVertex(cx, cy + hh, 1, 1, 0);
-
-        LogCAD("[UpdateCAD] TEST PATTERN added: center=(" + std::to_string(cx) + "," + std::to_string(cy)
-               + ") half=(" + std::to_string(hw) + "," + std::to_string(hh) + ")");
-    }
-
     m_cadLineVertexCount = static_cast<uint32_t>(vertices.size());
     if (m_cadLineVertexCount == 0) return;
 
@@ -1481,23 +1450,14 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
     memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
     vkUnmapMemory(m_device, m_cadVertexMemory);
 
-    // Verify: read back first 3 vertices
+    // Verify: read back first 2 vertices
     void* readback;
     if (vkMapMemory(m_device, m_cadVertexMemory, 0, bufferSize, 0, &readback) == VK_SUCCESS) {
         const geom::Vertex* vb = static_cast<const geom::Vertex*>(readback);
-        for (int i = 0; i < std::min(3u, m_cadLineVertexCount); ++i) {
+        for (uint32_t i = 0; i < std::min(2u, m_cadLineVertexCount); ++i) {
             LogCAD("[UpdateCAD] READBACK[" + std::to_string(i) + "] pos=("
-                   + std::to_string(vb[i].pos[0]) + "," + std::to_string(vb[i].pos[1]) + "," + std::to_string(vb[i].pos[2])
+                   + std::to_string(vb[i].pos[0]) + "," + std::to_string(vb[i].pos[1])
                    + ") color=(" + std::to_string(vb[i].color[0]) + "," + std::to_string(vb[i].color[1]) + "," + std::to_string(vb[i].color[2]) + ")");
-        }
-        // Also check the test pattern vertices (last 8)
-        if (m_cadLineVertexCount >= 8) {
-            uint32_t testStart = m_cadLineVertexCount - 8;
-            for (uint32_t i = testStart; i < m_cadLineVertexCount; ++i) {
-                LogCAD("[UpdateCAD] READBACK[" + std::to_string(i) + "] pos=("
-                       + std::to_string(vb[i].pos[0]) + "," + std::to_string(vb[i].pos[1])
-                       + ") color=(" + std::to_string(vb[i].color[0]) + "," + std::to_string(vb[i].color[1]) + "," + std::to_string(vb[i].color[2]) + ")");
-            }
         }
         vkUnmapMemory(m_device, m_cadVertexMemory);
     }
