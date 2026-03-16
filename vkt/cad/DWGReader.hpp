@@ -55,6 +55,7 @@ struct DWGStatistics {
     size_t arcCount = 0;
     size_t circleCount = 0;
     size_t textCount = 0;
+    size_t insertExpanded = 0;
     double readTimeMs = 0.0;
     std::string dwgVersion;
     
@@ -131,6 +132,8 @@ public:
 private:
     // Entity parsing helpers
     bool ParseEntities(void* dwg_data);
+    Entity* ParseEntityByType(void* obj_ptr);
+    void ExpandInsert(void* obj_ptr, void* dwg_ptr);
     Entity* ParseLine(void* ent);
     Entity* ParsePolyline(void* ent);
     Entity* ParseLWPolyline(void* ent);
