@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QListWidget>
+#include <QKeyEvent>
 #include <memory>
 #include "core/Document.hpp"
 #include "cad/SpaceManager.hpp"
@@ -54,6 +55,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
     // Dosya menüsü
@@ -82,6 +84,7 @@ private slots:
 
     // Analiz
     void OnRunHydraulics();
+    void OnAutoSizeDN();
     void OnGenerateSchedule();
     void OnExportReport();
 
@@ -184,6 +187,7 @@ private:
     QAction* m_actIsometricView = nullptr;
     QAction* m_actZoomExtents = nullptr;
     QAction* m_actRunHydraulics = nullptr;
+    QAction* m_actAutoSizeDN = nullptr;
     QAction* m_actGenerateSchedule = nullptr;
     QAction* m_actExportReport = nullptr;
 
@@ -191,7 +195,12 @@ private:
     ToolMode m_currentToolMode = ToolMode::Select;
     DrawState m_drawState = DrawState::Idle;
     uint32_t m_firstNodeId = 0;       // DrawPipe icin ilk node
+    bool     m_firstNodeInGraph = false; // true = m_firstNodeId zaten graph'ta
     geom::Vec3 m_firstClickPos;       // Ilk tiklama world koordinati
+    QPoint   m_firstClickScreen;      // Rubber-band için ekran koordinatı
+
+    // Armatür tipi (PlaceFixture modu)
+    QString m_selectedFixtureType = "Lavabo";
 
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok

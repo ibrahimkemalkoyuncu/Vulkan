@@ -26,6 +26,7 @@
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QInputDialog>
 #include <iostream>
 #include <string>
 #include <cmath>
@@ -166,6 +167,11 @@ void MainWindow::CreateActions() {
     m_actRunHydraulics->setShortcut(Qt::Key_F5);
     connect(m_actRunHydraulics, &QAction::triggered, this, &MainWindow::OnRunHydraulics);
 
+    m_actAutoSizeDN = new QAction("DN Boyutlandır", this);
+    m_actAutoSizeDN->setShortcut(Qt::Key_F6);
+    m_actAutoSizeDN->setToolTip("Çizilen ağı EN 806-3'e göre otomatik boyutlandır (F6)");
+    connect(m_actAutoSizeDN, &QAction::triggered, this, &MainWindow::OnAutoSizeDN);
+
     m_actGenerateSchedule = new QAction("Metraj Oluştur", this);
     connect(m_actGenerateSchedule, &QAction::triggered, this, &MainWindow::OnGenerateSchedule);
 
@@ -236,6 +242,8 @@ void MainWindow::CreateToolbars() {
     // Analiz toolbar
     m_analysisToolbar = addToolBar("Analiz (FINE SANI++)");
     m_analysisToolbar->addAction(m_actRunHydraulics);
+    m_analysisToolbar->addAction(m_actAutoSizeDN);
+    m_analysisToolbar->addSeparator();
     m_analysisToolbar->addAction(m_actGenerateSchedule);
 }
 
@@ -565,9 +573,23 @@ void MainWindow::OnDrawPipe() {
 }
 
 void MainWindow::OnDrawFixture() {
+    // Fixture tipi seçici
+    auto& db = mep::Database::Instance();
+    QStringList types;
+    for (const auto& n : db.GetFixtureNames())
+        types << QString::fromStdString(n);
+    if (types.isEmpty()) types << "Lavabo";
+
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(this, "Armatür Tipi",
+        "Yerleştirilecek armatürü seçin:", types,
+        types.indexOf(m_selectedFixtureType), false, &ok);
+    if (!ok) return;
+
+    m_selectedFixtureType = chosen;
     m_currentToolMode = ToolMode::PlaceFixture;
     m_drawState = DrawState::WaitingFirstPoint;
-    statusBar()->showMessage("Armatur: Yerlestirme noktasini tiklayin");
+    statusBar()->showMessage(QString("Armatür [%1]: Yerlestirme noktasını tıklayın").arg(m_selectedFixtureType));
 }
 
 void MainWindow::OnDrawJunction() {
@@ -577,10 +599,11 @@ void MainWindow::OnDrawJunction() {
 }
 
 void MainWindow::OnSelectMode() {
-    m_currentToolMode = ToolMode::Select;
-    m_drawState = DrawState::Idle;
-    if (m_snapOverlay) m_snapOverlay->Hide();
-    statusBar()->showMessage("Secim modu");
+    m_currentToolMode  = ToolMode::Select;
+    m_drawState        = DrawState::Idle;
+    m_firstNodeInGraph = false;
+    if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+    statusBar()->showMessage("Seçim modu");
 }
 
 void MainWindow::OnPlanView() {
@@ -680,6 +703,97 @@ void MainWindow::OnRunHydraulics() {
     m_logList->addItem("═══════════════════════════════════════");
 
     statusBar()->showMessage("Hidrolik analiz tamamlandı!");
+}
+
+// ============================================================
+//  DN OTOMATİK BOYUTLANDIRMA (EN 806-3)
+// ============================================================
+void MainWindow::OnAutoSizeDN() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        statusBar()->showMessage("DN boyutlandırma: önce boru çizin.");
+        return;
+    }
+
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    solver.SolveDrainage();
+
+    // EN 806-3: v_max=3 m/s → D_min = sqrt(4Q/π/v_max) mm
+    // Solver flow_rate_lps yazılmışsa kullan, yoksa LU→Q tahmin
+    const double v_max = 2.5; // m/s (konforlu)
+    int sized = 0;
+
+    // Standart DN serileri (PVC/PP mm OD → iç çap yaklaşık)
+    static const double kDN[] = {16,20,25,32,40,50,63,75,90,110,125,160,200,0};
+
+    auto selectDN = [&](double Q_lps) -> double {
+        double Q_m3s = Q_lps / 1000.0;
+        double d_m   = std::sqrt(4.0 * Q_m3s / M_PI / v_max);
+        double d_mm  = d_m * 1000.0;
+        for (int i = 0; kDN[i] > 0; ++i)
+            if (kDN[i] >= d_mm) return kDN[i];
+        return 200.0;
+    };
+
+    m_logList->clear();
+    m_logList->addItem("── DN Otomatik Boyutlandırma (EN 806-3) ──");
+
+    // Toplam LU: tüm fixture'lar (EN 806-3 Tablo 3 yaklaşımı)
+    double totalLU = 0.0;
+    for (const auto& [nid, node] : network.GetNodeMap())
+        if (node.type == mep::NodeType::Fixture) totalLU += node.loadUnit;
+    totalLU = std::max(totalLU, 0.1);
+
+    int edgeCount = static_cast<int>(network.GetEdgeMap().size());
+
+    for (auto& [eid, edge] : network.GetEdgeMap()) {
+        // Önce solver sonucunu kullan, yoksa LU'dan tahmin et
+        double Q_m3s = edge.flowRate_m3s;
+        double Q_lps;
+        if (Q_m3s > 1e-9) {
+            Q_lps = Q_m3s * 1000.0;
+        } else {
+            // EN 806-3: Q = 0.682 * LU^0.45  (l/s), eşit dağılım varsayımı
+            double edgeLU = totalLU / std::max(edgeCount, 1);
+            Q_lps = 0.682 * std::pow(edgeLU, 0.45);
+        }
+        Q_lps = std::max(Q_lps, 0.05);
+        double newDN = selectDN(Q_lps);
+        if (std::abs(newDN - edge.diameter_mm) > 0.5) {
+            m_logList->addItem(QString("Boru #%1: DN%2 → DN%3 (Q=%4 l/s)")
+                .arg(eid).arg(edge.diameter_mm, 0, 'f', 0)
+                .arg(newDN, 0, 'f', 0).arg(Q_lps, 0, 'f', 3));
+        }
+        edge.diameter_mm = newDN;
+        edge.label = "DN" + std::to_string(static_cast<int>(newDN));
+        sized++;
+    }
+
+    m_logList->addItem(QString("✅ %1 boru boyutlandırıldı").arg(sized));
+    m_document->SetModified(true);
+    UpdateUI();
+    statusBar()->showMessage(QString("DN boyutlandırma tamamlandı: %1 boru güncellendi").arg(sized));
+}
+
+// ============================================================
+//  ESC — ÇİZİM MODU İPTAL
+// ============================================================
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        if (m_currentToolMode != ToolMode::Select) {
+            m_currentToolMode = ToolMode::Select;
+            m_drawState       = DrawState::Idle;
+            m_firstNodeInGraph = false;
+            if (m_snapOverlay) m_snapOverlay->ClearRubberBand();
+            if (m_snapOverlay) m_snapOverlay->Hide();
+            statusBar()->showMessage("Çizim iptal edildi — Seçim modu");
+        }
+        event->accept();
+        return;
+    }
+    QMainWindow::keyPressEvent(event);
 }
 
 void MainWindow::OnGenerateSchedule() {
@@ -855,42 +969,79 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     switch (m_currentToolMode) {
     case ToolMode::DrawPipe: {
         if (m_drawState == DrawState::WaitingFirstPoint || m_drawState == DrawState::Idle) {
-            // Ilk nokta: Node olustur veya mevcut node'a snap
-            mep::Node node;
-            node.type = mep::NodeType::Junction;
-            node.position = geom::Vec3(worldX, worldY, 0.0);
-            node.label = "J";
-            m_firstNodeId = network.AddNode(node);
-            m_firstClickPos = node.position;
+            // İlk nokta: sadece konumu kaydet, henüz graph'a ekleme
+            m_firstClickPos = geom::Vec3(worldX, worldY, 0.0);
+            m_firstNodeInGraph = false;
             m_drawState = DrawState::WaitingSecondPoint;
-            statusBar()->showMessage(QString("Boru: Ikinci noktayi tiklayin (x=%1, y=%2)")
-                .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+            // Rubber-band başlangıcı için ekran koordinatı
+            const auto& vp = m_vulkanWindow->GetViewport();
+            geom::Vec3 sp = vp.WorldToScreen(m_firstClickPos);
+            m_firstClickScreen = QPoint(static_cast<int>(sp.x), static_cast<int>(sp.y));
+            statusBar()->showMessage(QString("Boru: İkinci noktayı tıklayın (ESC = iptal)"));
         } else if (m_drawState == DrawState::WaitingSecondPoint) {
-            // Ikinci nokta: Target node + Edge olustur
-            mep::Node node;
-            node.type = mep::NodeType::Junction;
-            node.position = geom::Vec3(worldX, worldY, 0.0);
-            node.label = "J";
-            uint32_t secondNodeId = network.AddNode(node);
+            // Mevcut boru malzeme ayarları
+            const std::string material = "PVC";
+            const double roughness = 0.0015;
+            const double diameter  = 20.0;
 
+            geom::Vec3 secondPos(worldX, worldY, 0.0);
+            double length_m = m_firstClickPos.DistanceTo(secondPos) / 1000.0; // mm → m
+            if (length_m < 1e-6) length_m = 0.001;
+
+            // CompositeCommand: atomic undo/redo
+            auto composite = std::make_unique<core::CompositeCommand>();
+
+            // Eğer ilk node daha graph'ta değilse ekle
+            if (!m_firstNodeInGraph) {
+                mep::Node firstNode;
+                firstNode.type = mep::NodeType::Junction;
+                firstNode.position = m_firstClickPos;
+                firstNode.label = "J";
+                auto addFirst = std::make_unique<core::AddNodeCommand>(network, firstNode);
+                addFirst->Execute();                // ID almak için hemen çalıştır
+                m_firstNodeId = addFirst->GetNodeId();
+                composite->AddCommand(std::move(addFirst));
+                m_firstNodeInGraph = true;
+            }
+
+            // İkinci node
+            mep::Node secondNode;
+            secondNode.type = mep::NodeType::Junction;
+            secondNode.position = secondPos;
+            secondNode.label = "J";
+            auto addSecond = std::make_unique<core::AddNodeCommand>(network, secondNode);
+            addSecond->Execute();
+            uint32_t secondNodeId = addSecond->GetNodeId();
+            composite->AddCommand(std::move(addSecond));
+
+            // Edge
             mep::Edge edge;
             edge.nodeA = m_firstNodeId;
             edge.nodeB = secondNodeId;
             edge.type = mep::EdgeType::Supply;
-            edge.diameter_mm = 20.0;
-            edge.roughness_mm = 0.0015;
-            edge.material = "PVC";
-            edge.length_m = m_firstClickPos.DistanceTo(node.position);
-            network.AddEdge(edge);
+            edge.diameter_mm = diameter;
+            edge.roughness_mm = roughness;
+            edge.material = material;
+            edge.length_m = length_m;
+            auto addEdge = std::make_unique<core::AddEdgeCommand>(network, edge);
+            addEdge->Execute();
+            composite->AddCommand(std::move(addEdge));
 
+            // Composite'i stack'e kaydet (Execute zaten yapıldı, sadece track et)
+            m_document->TrackExecuted(std::move(composite));
             m_document->SetModified(true);
             UpdateUI();
 
-            // Zincirleme cizim: ikinci nokta sonraki borunun ilk noktasi olur
+            // Zincirleme: ikinci nokta bir sonraki borunun başlangıcı
             m_firstNodeId = secondNodeId;
-            m_firstClickPos = node.position;
-            statusBar()->showMessage(QString("Boru eklendi (L=%1m). Sonraki noktayi tiklayin veya ESC")
-                .arg(edge.length_m, 0, 'f', 2));
+            m_firstNodeInGraph = true;
+            m_firstClickPos = secondPos;
+            const auto& vp2 = m_vulkanWindow->GetViewport();
+            geom::Vec3 sp2 = vp2.WorldToScreen(secondPos);
+            m_firstClickScreen = QPoint(static_cast<int>(sp2.x), static_cast<int>(sp2.y));
+
+            statusBar()->showMessage(QString("Boru eklendi (L=%1m). Sonraki noktayı tıklayın veya ESC")
+                .arg(length_m, 0, 'f', 2));
         }
         break;
     }
@@ -898,17 +1049,18 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         mep::Node node;
         node.type = mep::NodeType::Fixture;
         node.position = geom::Vec3(worldX, worldY, 0.0);
-        node.fixtureType = "Lavabo";
-        node.label = "Lavabo";
-        // Database'den varsayilan degerler
+        std::string typeName = m_selectedFixtureType.toStdString();
+        node.fixtureType = typeName;
+        node.label = typeName;
         auto& db = mep::Database::Instance();
-        auto fixture = db.GetFixture("Lavabo");
+        auto fixture = db.GetFixture(typeName);
         node.loadUnit = fixture.loadUnit;
-        network.AddNode(node);
+        auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+        m_document->ExecuteCommand(std::move(cmd));
         m_document->SetModified(true);
         UpdateUI();
-        statusBar()->showMessage(QString("Armatur eklendi: %1 (x=%2, y=%3)")
-            .arg("Lavabo").arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        statusBar()->showMessage(QString("Armatür eklendi: %1 (x=%2, y=%3)")
+            .arg(m_selectedFixtureType).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;
     }
     case ToolMode::PlaceJunction: {
@@ -1036,6 +1188,14 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
     }
 
     m_snapOverlay->Update(screenPos, snap);
+
+    // Rubber-band: DrawPipe ikinci nokta bekliyorsa çizgi göster
+    if (m_currentToolMode == ToolMode::DrawPipe &&
+        m_drawState == DrawState::WaitingSecondPoint) {
+        m_snapOverlay->SetRubberBand(m_firstClickScreen, screenPos, true);
+    } else {
+        m_snapOverlay->ClearRubberBand();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -83,6 +83,24 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
         p.restore();
     }
 
+    // ── Rubber-band önizleme çizgisi ────────────────────────
+    if (m_rubberActive) {
+        QPen rbPen(QColor(80, 200, 255, 200), 1.5f, Qt::DashLine);
+        p.setPen(rbPen);
+        p.drawLine(m_rubberFrom, m_rubberTo);
+        // Mesafe etiketi
+        double dx = m_rubberTo.x() - m_rubberFrom.x();
+        double dy = m_rubberTo.y() - m_rubberFrom.y();
+        double pxLen = std::sqrt(dx*dx + dy*dy);
+        if (pxLen > 20.0) {
+            QFont lf("Consolas", 8);
+            p.setFont(lf);
+            p.setPen(QColor(160, 230, 255, 220));
+            QPoint mid = (m_rubberFrom + m_rubberTo) / 2;
+            p.drawText(mid.x() + 4, mid.y() - 4, QString("~%1px").arg((int)pxLen));
+        }
+    }
+
     if (!m_visible) return;
 
     const int   cx    = m_screenPos.x();

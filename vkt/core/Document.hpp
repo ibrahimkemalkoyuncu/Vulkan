@@ -43,6 +43,7 @@ public:
 
     // Command pattern
     void ExecuteCommand(std::unique_ptr<Command> cmd);
+    void TrackExecuted(std::unique_ptr<Command> cmd); // Zaten execute edilmiş komutu history'ye ekle
     void Undo();
     void Redo();
     bool CanUndo() const;

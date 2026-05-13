@@ -66,6 +66,17 @@ void Document::ExecuteCommand(std::unique_ptr<Command> cmd) {
     m_modified = true;
 }
 
+void Document::TrackExecuted(std::unique_ptr<Command> cmd) {
+    if (!cmd) return;
+    m_commandHistory.erase(
+        m_commandHistory.begin() + m_commandIndex,
+        m_commandHistory.end()
+    );
+    m_commandHistory.push_back(std::move(cmd));
+    m_commandIndex = m_commandHistory.size();
+    m_modified = true;
+}
+
 void Document::Undo() {
     if (!CanUndo()) return;
     

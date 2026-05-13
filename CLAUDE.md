@@ -289,6 +289,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - Entity sistemi (serialization dahil)
 - DXF import + DXF export (DXFWriter)
 - DWG import (LibreDWG — temel entity'ler, MINSERT expand, arc/circle fit)
+- **DWG renk doğruluğu**: UTF-16LE layer isimleri (`Utf16LeToUtf8`), method=0xC3 ACI index fix, INSERT/MINSERT layer mirası, DXFReader `SetLayerName` düzeltmesi
 - Vulkan render — G-Buffer + SSAO + PBR composite (3 görünüm modu)
 - PBR malzeme sistemi (GGX Cook-Torrance, MaterialProperties lookup tablosu)
 - 3D transform gizmo (Translate + Rotate, silindir/ring hit-test, Quaternion)
@@ -305,37 +306,39 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - Riser diyagramı (RiserDiagram modülü)
 - Çok katlı bina desteği (FloorManager)
 - Snap overlay (SnapOverlay UI)
-- Komut satırı (CommandBar)
+- Komut satırı (CommandBar — PIPE/FIXTURE/JUNCTION/SOURCE/DRAIN/VALVE/PUMP)
 - Armatür özellik paneli (FixturePropertiesPanel)
 - Baskı düzeni (PrintLayout)
 - Boyut/ölçü entity'leri (Dimension)
 - Metin entity'leri (Text)
 - Armatür sembol kütüphanesi (FixtureSymbolLibrary)
-- Catch2 birim testleri (cad, dxf_import, hydraulic, persistence, riser)
+- Catch2 birim testleri (cad, dxf_import, hydraulic, persistence, riser, dwg_colors)
 - SpaceManager segment birleştirme — LINE'lardan oda tespiti (planar half-edge face traversal)
-- DXF `$INSUNITS` okuma + `DXFHeader::GetScaleToMM()` / `GetAreaToM2()` — alan mm²/m²/cm² dönüşümü
-- `SpaceDetectionOptions::drawingUnitsToM2` — birim-bağımsız alan eşiği karşılaştırması
-- `SpaceManager::RemoveOverlappingCandidates()` — dış çerçeve/iç oda çakışma eleme
-- `SpaceManager::DetectNameFromText` iyileştirme — boyut yazıları (sayısal) filtreleme
-- `DXFReader::GetOrCreateLayer` düzeltme — layer ismi artık `Layer(name)` ile set ediliyor
-- DWG TEXT / MTEXT / HATCH entity desteği — `ParseText`, `ParseMText` (`StripMTextFormatting`), `ParseHatch` (4 curve tip tessellation)
-- SSAO fine-tune: rangeCheck düzeltme (`smoothstep(0,1,1-d/r)`), simetrik 4×4 blur, arka plan bleeding engelleme, randomize kernel scale, radius=0.35/bias=0.015/power=1.8
-- Akıllı snap sistemi — kesişim (line-line, polyline), dik iz düşüm (Perpendicular), adaptive grid spacing (zoom bağımlı nice-values), öncelik tabanlı seçim (Endpoint > Center > Intersection > Midpoint > Perpendicular > Nearest > Grid)
-- Clash detection GPU compute shader — `shaders/clash_detection.comp`, `VulkanRenderer::RunClashDetectionGPU()`, SSBO tabanlı paralel hard/soft clash tespiti
-- PBR Malzeme Editörü UI paneli — `PBRMaterialEditor` (preset combo, renk picker, roughness/metalness/ambient/lightDir slider'ları, gerçek zamanlı renderer sync)
+- DXF `$INSUNITS` okuma + birim dönüşümü
+- Akıllı snap sistemi — öncelik tabanlı (Endpoint > Center > Intersection > Midpoint > Perpendicular > Nearest > Grid)
+- Clash detection GPU compute shader (SSBO, atomic counter)
+- PBR Malzeme Editörü UI paneli
+- MEP boru çizim tool — state machine, iki noktalı boru + zincir çizim, NetworkGraph entegrasyonu
+- **Rubber-band önizleme** — çizerken ikinci tıklamadan önce canlı önizleme çizgisi
+- **ESC iptal** — aktif çizim modunu tuş ile iptal etme
+- **DrawPipeCommand (Command Pattern)** — boru/armatür/kavşak işlemleri undo/redo stack'e kaydediliyor
+- **Armatür tipi seçici** — Lavabo/Duş/WC/Mutfak/Bataryolu combo ile fixture tip seçimi
+- **DN otomatik boyutlandırma UI** — çizilen ağdan tek tıkla EN 806-3 hesabı, sonuçları boru label olarak render
 
 ### Devam Eden
 - (tüm planlanan özellikler tamamlandı)
 
 ### Planlanan
-- (boş — tüm planlanan özellikler tamamlandı)
+- DWG xref zinciri (nested external reference tam desteği)
+- Multi-threading: GPU Vulkan senkronizasyonu ayrı thread
+- GPU Clash: device-local + staging buffer ile büyük proje performansı
 
 ---
 
 ## Bilinen Kısıtlar
 
-1. **DWG desteği**: LibreDWG HATCH/TEXT/MTEXT artık destekleniyor; xref ve karmaşık nested block zincirleri hâlâ yok
-2. **Mahal tespiti**: Ayrı LINE segment graflarından oda tespiti çalışıyor; T-kesişim ve iç bölme duvarı geometrilerinde planar embedding bozulabilir
+1. **DWG xref**: `ExpandXref()` temel desteği var; karmaşık nested xref zincirleri ve döngüsel referans koruması eksik
+2. **Mahal tespiti**: T-kesişim ve iç bölme duvarı geometrilerinde planar embedding bozulabilir
 3. **Undo/Redo**: Disk'e yazılmıyor, session bazlı
 4. **Shader**: SPIR-V `.spv` dosyaları runtime derleniyor, dinamik GLSL derleme yok
 5. **Multi-threading**: UI ve Vulkan senkronizasyonu tek thread

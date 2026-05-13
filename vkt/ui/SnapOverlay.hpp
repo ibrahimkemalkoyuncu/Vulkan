@@ -57,6 +57,15 @@ public:
         update();
     }
 
+    /** @brief Boru çizimi sırasında birinci noktadan imlece uzanan önizleme çizgisi */
+    void SetRubberBand(QPoint from, QPoint to, bool active) {
+        m_rubberFrom   = from;
+        m_rubberTo     = to;
+        m_rubberActive = active;
+        update();
+    }
+    void ClearRubberBand() { m_rubberActive = false; update(); }
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
@@ -69,6 +78,11 @@ private:
     bool           m_visible     = false;
     QColor         m_crosshairColor{80, 160, 255, 180};
     int            m_crosshairSize = 20;
+
+    // Rubber-band önizleme çizgisi
+    QPoint m_rubberFrom;
+    QPoint m_rubberTo;
+    bool   m_rubberActive = false;
 
     std::vector<TextLabel> m_textLabels;
 };
