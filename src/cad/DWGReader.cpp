@@ -8,10 +8,14 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Polyline.hpp"
+#include "cad/Hatch.hpp"
+#include "cad/Text.hpp"
 #include <sstream>
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <algorithm>
+#include <filesystem>
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -38,6 +42,9 @@ std::string DWGStatistics::ToString() const {
         << "  Circles: " << circleCount << "\n"
         << "  Ellipses: " << ellipseCount << "\n"
         << "  Splines: " << splineCount << "\n"
+        << "  Texts: " << textCount << "\n"
+        << "  MTexts: " << mtextCount << "\n"
+        << "  Hatches: " << hatchCount << "\n"
         << "  INSERT expanded: " << insertExpanded << "\n"
         << "Layers: " << layerCount << "\n"
         << "Read Time: " << readTimeMs << " ms";
@@ -62,7 +69,8 @@ void DWGReader::Clear() {
 
 bool DWGReader::Read(const std::string& filepath) {
     Clear();
-    
+    m_filePath = filepath;
+
     auto start = std::chrono::high_resolution_clock::now();
     
     // Allocate and initialize DWG data structure
@@ -142,6 +150,30 @@ bool DWGReader::Read(const std::string& filepath) {
     return true;
 }
 
+// UTF-16LE char* → UTF-8 std::string dönüşümü (LibreDWG R2007+ DWG için)
+static std::string Utf16LeToUtf8(const char* p) {
+    if (!p) return "";
+    // İlk iki byte'a bakarak UTF-16 mi yoksa ASCII/UTF-8 mi belirle
+    bool isUtf16 = (p[0] != '\0' && p[1] == '\0');
+    if (!isUtf16) return std::string(p);
+    std::string out;
+    const uint16_t* wp = reinterpret_cast<const uint16_t*>(p);
+    while (*wp) {
+        uint16_t ch = *wp++;
+        if (ch < 0x80) {
+            out += static_cast<char>(ch);
+        } else if (ch < 0x800) {
+            out += static_cast<char>(0xC0 | (ch >> 6));
+            out += static_cast<char>(0x80 | (ch & 0x3F));
+        } else {
+            out += static_cast<char>(0xE0 | (ch >> 12));
+            out += static_cast<char>(0x80 | ((ch >> 6) & 0x3F));
+            out += static_cast<char>(0x80 | (ch & 0x3F));
+        }
+    }
+    return out;
+}
+
 // Compound INSERT transform: base_pt subtraction, scale, rotate, translate
 struct InsertTransform {
     geom::Vec3 insPoint;
@@ -189,25 +221,116 @@ static double GetChainRotation(const std::vector<InsertTransform>& chain) {
     return r;
 }
 
-// Entity'den renk bilgisini çıkar ve ata
-static void ExtractEntityColor(void* obj_ptr, Entity* entity) {
+/**
+ * @brief Entity'den renk ve layer bilgisini çıkar ve ata
+ *
+ * Renk çözümleme önceliği:
+ * 1. Truecolor (method 0xc3): RGB doğrudan
+ * 2. ACI indeksi (1-255): ACI→RGB dönüşümü
+ * 3. BYLAYER (256): Entity'nin layer'ının rengini kullan
+ * 4. BYBLOCK (0): Beyaz fallback
+ *
+ * Ayrıca entity'nin layer adını DWG handle'ından çözümler.
+ */
+void DWGReader::ExtractEntityColorAndLayer(void* obj_ptr, Entity* entity) {
     if (!entity) return;
     Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
     if (!obj->tio.entity) return;
 
+    // Layer adını çıkar — UTF-16LE → UTF-8 dönüşümü ile
+    std::string layerName = "0";
+    if (obj->tio.entity->layer) {
+        Dwg_Object* layerObj = obj->tio.entity->layer->obj;
+        if (layerObj && layerObj->tio.object && layerObj->tio.object->tio.LAYER) {
+            const char* p = layerObj->tio.object->tio.LAYER->name;
+            if (p) {
+                bool isUtf16 = (p[0] != '\0' && p[1] == '\0');
+                if (isUtf16) {
+                    layerName.clear();
+                    const uint16_t* wp = reinterpret_cast<const uint16_t*>(p);
+                    while (*wp) {
+                        uint16_t ch = *wp++;
+                        if (ch < 0x80) {
+                            layerName += static_cast<char>(ch);
+                        } else if (ch < 0x800) {
+                            layerName += static_cast<char>(0xC0 | (ch >> 6));
+                            layerName += static_cast<char>(0x80 | (ch & 0x3F));
+                        } else {
+                            layerName += static_cast<char>(0xE0 | (ch >> 12));
+                            layerName += static_cast<char>(0x80 | ((ch >> 6) & 0x3F));
+                            layerName += static_cast<char>(0x80 | (ch & 0x3F));
+                        }
+                    }
+                } else {
+                    layerName = p;
+                }
+            }
+        }
+    }
+    entity->SetLayerName(layerName);
+
+    // Renk çözümleme
+    // DWG method byte: 0xC2=truecolor RGB, 0xC3=ACAD color number (ACI idx in low byte)
     Dwg_Color& c = obj->tio.entity->color;
 
-    if (c.method == 0xc3 && c.rgb != 0) {
-        // Truecolor: RGB doğrudan
+    if (c.method == 0xc2 && c.rgb != 0) {
+        // True RGB (24-bit): 0x00RRGGBB
         float r = ((c.rgb >> 16) & 0xFF) / 255.0f;
         float g = ((c.rgb >> 8) & 0xFF) / 255.0f;
         float b = (c.rgb & 0xFF) / 255.0f;
         entity->SetColor(Color(r, g, b));
+    } else if (c.method == 0xc3 && (c.rgb & 0xFF) >= 1) {
+        // ACAD Color Number: ACI index in low byte of rgb
+        entity->SetColor(Color::FromACI(static_cast<int>(c.rgb & 0xFF)));
+    } else if (c.index == 0) {
+        // ByBlock: INSERT rengini INSERT expand aşamasında atanacak
+        entity->SetColor(Color::ByBlock());
     } else if (c.index >= 1 && c.index <= 255) {
-        // ACI renk indeksi
+        // ACI renk indeksi (1-255)
         entity->SetColor(Color::FromACI(c.index));
+    } else {
+        // BYLAYER (index==256 veya belirsiz): Color::ByLayer() varsayılanı kalır.
+        // Renderer m_layerMap üzerinden entity->GetLayerName() ile çözümler.
     }
-    // index==256 (BYLAYER) veya 0 (BYBLOCK) → varsayılan renk kalır
+
+    // Linetype çıkar (ltype_flags: 0=ByLayer, 1=ByBlock, 2=Continuous, 3=entity-specific)
+    {
+        BITCODE_BB ltFlags = obj->tio.entity->ltype_flags;
+        if (ltFlags == 2) {
+            entity->SetLinetype("CONTINUOUS");
+        } else if (ltFlags == 3 && obj->tio.entity->ltype) {
+            Dwg_Object* ltObj = obj->tio.entity->ltype->obj;
+            if (ltObj && ltObj->tio.object && ltObj->tio.object->tio.LTYPE) {
+                const char* name = ltObj->tio.object->tio.LTYPE->name;
+                if (name) {
+                    std::string lt = name;
+                    for (auto& ch : lt) ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+                    entity->SetLinetype(lt);
+                }
+            }
+        }
+        // ltFlags 0/1 → ByLayer/ByBlock → default CONTINUOUS (rendered solid, layer may override)
+    }
+
+    // Lineweight çıkar (linewt: 0=ByLayer, 1=ByBlock, 2=Default, 3-24=specific widths via dxf_cvt_lweight)
+    {
+        // dxf_cvt_lweight converts encoded byte to mm*100: 0=0.05mm, 1=0.09mm, ...
+        // index 0 special: entity inherits from layer
+        int8_t linewt = static_cast<int8_t>(obj->tio.entity->linewt);
+        if (linewt > 2) {
+            // Convert encoded value to mm using standard AutoCAD lineweight table
+            static const float kLwTable[] = {
+                0.05f, 0.09f, 0.13f, 0.15f, 0.18f, 0.20f, 0.25f,
+                0.30f, 0.35f, 0.40f, 0.50f, 0.53f, 0.60f, 0.70f,
+                0.80f, 0.90f, 1.00f, 1.06f, 1.20f, 1.40f, 1.58f,
+                2.00f, 2.11f
+            };
+            int idx = linewt - 3;
+            if (idx >= 0 && idx < (int)(sizeof(kLwTable)/sizeof(kLwTable[0])))
+                entity->SetLineweight(kLwTable[idx]);
+        }
+        // else ByLayer / ByBlock / Default → m_lineweight stays -1.0
+    }
 }
 
 // Parse a single entity object into an Entity*, returns nullptr if unsupported
@@ -247,14 +370,26 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
             break;
         case DWG_TYPE_POINT:
             entity = ParsePoint(obj);
-            if (entity) m_stats.lineCount += 2; // çapraz = 2 çizgi
+            if (entity) m_stats.lineCount += 2;
+            break;
+        case DWG_TYPE_TEXT:
+            entity = ParseText(obj);
+            if (entity) m_stats.textCount++;
+            break;
+        case DWG_TYPE_MTEXT:
+            entity = ParseMText(obj);
+            if (entity) m_stats.mtextCount++;
+            break;
+        case DWG_TYPE_HATCH:
+            entity = ParseHatch(obj);
+            if (entity) m_stats.hatchCount++;
             break;
         default:
             break;
     }
 
-    // Entity'ye renk bilgisi ata
-    ExtractEntityColor(obj_ptr, entity);
+    // Entity'ye renk ve layer bilgisi ata
+    ExtractEntityColorAndLayer(obj_ptr, entity);
 
     return entity;
 }
@@ -269,6 +404,35 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
 
     if (!obj->tio.entity || !obj->tio.entity->tio.INSERT) return;
     Dwg_Entity_INSERT* ins = obj->tio.entity->tio.INSERT;
+
+    // INSERT'in kendi rengi — ByBlock entity'lere aktarılacak
+    Color insertColor = Color::ByLayer(); // fallback: INSERT ByLayer ise child'lar da ByLayer olsun
+    {
+        Dwg_Color& ic = obj->tio.entity->color;
+        if (ic.method == 0xc2 && ic.rgb != 0) {
+            float ir = ((ic.rgb >> 16) & 0xFF) / 255.0f;
+            float ig = ((ic.rgb >> 8) & 0xFF) / 255.0f;
+            float ib = (ic.rgb & 0xFF) / 255.0f;
+            insertColor = Color(ir, ig, ib);
+        } else if (ic.method == 0xc3 && (ic.rgb & 0xFF) >= 1) {
+            insertColor = Color::FromACI(static_cast<int>(ic.rgb & 0xFF));
+        } else if (ic.index >= 1 && ic.index <= 255) {
+            insertColor = Color::FromACI(ic.index);
+        }
+        // else: ByLayer INSERT → insertColor kalır ByLayer
+    }
+
+    // INSERT'in kendi layer ismi — layer "0" child entity'leri bunu miras alır
+    std::string insertLayerName = "0";
+    {
+        if (obj->tio.entity->layer) {
+            Dwg_Object* layerObj = obj->tio.entity->layer->obj;
+            if (layerObj && layerObj->tio.object && layerObj->tio.object->tio.LAYER) {
+                const char* p = layerObj->tio.object->tio.LAYER->name;
+                if (p) insertLayerName = Utf16LeToUtf8(p);
+            }
+        }
+    }
 
     // Build transform for this INSERT
     InsertTransform xform;
@@ -288,6 +452,15 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
 
     Dwg_Object_BLOCK_HEADER* bh = blockObj->tio.object->tio.BLOCK_HEADER;
     xform.basePt = geom::Vec3(bh->base_pt.x, bh->base_pt.y, 0.0);
+
+    // Xref detection: if this block is an external reference, load the referenced file
+    if (bh->blkisxref && bh->xref_pname && bh->xref_pname[0]) {
+        transformChain.push_back(xform);
+        std::string xrefPath = bh->xref_pname;
+        ExpandXref(xrefPath, transformChain, depth);
+        transformChain.pop_back();
+        return;
+    }
 
     unsigned long blockHandle = blockObj->handle.value;
 
@@ -310,10 +483,8 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
             continue;
         }
         if (child->type == DWG_TYPE_MINSERT) {
-            // İç içe MINSERT: önce transform chain'i pop sonra tekrar push yapılacak
-            // Basitlik için: MINSERT'i ExpandInsert olarak genişlet (dizi offsetleri yoksay)
-            // TODO: Tam MINSERT desteği nested olarak
-            ExpandInsert(child, dwg, transformChain, depth + 1);
+            // Nested MINSERT: pass the current transform chain as parent context
+            ExpandMInsertNested(child, dwg, &transformChain, depth + 1);
             continue;
         }
 
@@ -324,6 +495,10 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
         // Transform entity through the full chain to world coordinates
         double chainScale = GetChainScale(transformChain);
         double chainRotation = GetChainRotation(transformChain);
+
+        // Preserve color and layer before rebuilding the transformed entity
+        Color  savedColor     = entity->GetColor();
+        std::string savedLayer = entity->GetLayerName();
 
         switch (entity->GetType()) {
             case EntityType::Line: {
@@ -373,6 +548,16 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
                 break;
         }
 
+        // Restore color and layer on the rebuilt entity
+        // ByBlock entity'ler INSERT rengini alır; layer "0" entity'ler INSERT layer'ını miras alır
+        if (entity) {
+            Color resolvedColor = savedColor.IsByBlock() ? insertColor : savedColor;
+            entity->SetColor(resolvedColor);
+            // DXF/DWG standardı: blok içi layer "0" entity'ler INSERT'in layer'ını miras alır
+            std::string finalLayer = (savedLayer == "0" || savedLayer.empty()) ? insertLayerName : savedLayer;
+            entity->SetLayerName(finalLayer);
+        }
+
         if (entity) {
             m_entities.push_back(std::unique_ptr<Entity>(entity));
             m_stats.insertExpanded++;
@@ -381,6 +566,110 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
 
     // Pop this transform when leaving this INSERT level
     transformChain.pop_back();
+}
+
+// Load an external xref DWG and apply the transform chain to all its model-space entities
+void DWGReader::ExpandXref(const std::string& xrefPath,
+                            std::vector<InsertTransform>& transformChain, int depth) {
+    if (depth > 6) return; // guard against circular xrefs
+
+    // Resolve path: try absolute, then relative to current file's directory
+    namespace fs = std::filesystem;
+    std::string resolved;
+    if (fs::path(xrefPath).is_absolute() && fs::exists(xrefPath)) {
+        resolved = xrefPath;
+    } else {
+        fs::path base = fs::path(m_filePath).parent_path();
+        fs::path candidate = base / fs::path(xrefPath).filename();
+        if (fs::exists(candidate)) {
+            resolved = candidate.string();
+        } else {
+            // Try with .dwg extension
+            candidate.replace_extension(".dwg");
+            if (fs::exists(candidate))
+                resolved = candidate.string();
+        }
+    }
+
+    if (resolved.empty()) {
+        std::cout << "[DWGReader] xref not found: " << xrefPath << std::endl;
+        return;
+    }
+
+    // Load the external file with a separate reader
+    DWGReader sub;
+    sub.m_filePath = resolved;
+    sub.m_layerFilter = m_layerFilter;
+    if (!sub.Read(resolved)) {
+        std::cout << "[DWGReader] xref load failed: " << resolved << std::endl;
+        return;
+    }
+
+    // Take entities from sub-reader and apply transform chain
+    auto subEnts = sub.TakeEntities();
+    double chainScale = GetChainScale(transformChain);
+    double chainRotation = GetChainRotation(transformChain);
+
+    for (auto& ent : subEnts) {
+        if (!ent) continue;
+        Entity* e = ent.release();
+        Color savedColor = e->GetColor();
+        std::string savedLayer = e->GetLayerName();
+
+        switch (e->GetType()) {
+            case EntityType::Line: {
+                Line* l = static_cast<Line*>(e);
+                geom::Vec3 s = ApplyTransformChain(l->GetStart(), transformChain);
+                geom::Vec3 en = ApplyTransformChain(l->GetEnd(), transformChain);
+                delete e; e = new Line(s, en);
+                break;
+            }
+            case EntityType::Circle: {
+                Circle* c = static_cast<Circle*>(e);
+                geom::Vec3 ctr = ApplyTransformChain(c->GetCenter(), transformChain);
+                double r = c->GetRadius() * chainScale;
+                delete e; e = new Circle(ctr, r);
+                break;
+            }
+            case EntityType::Arc: {
+                Arc* a = static_cast<Arc*>(e);
+                geom::Vec3 ctr = ApplyTransformChain(a->GetCenter(), transformChain);
+                double r = a->GetRadius() * chainScale;
+                double sa = a->GetStartAngle() + chainRotation * (180.0 / M_PI);
+                double ea = a->GetEndAngle() + chainRotation * (180.0 / M_PI);
+                delete e; e = new Arc(ctr, r, sa, ea);
+                break;
+            }
+            case EntityType::Polyline: {
+                Polyline* p = static_cast<Polyline*>(e);
+                auto verts = p->GetVertices();
+                for (auto& v : verts) {
+                    v.pos = ApplyTransformChain(v.pos, transformChain);
+                    v.width *= chainScale;
+                }
+                bool cl = p->IsClosed();
+                delete e; e = new Polyline(verts, cl);
+                break;
+            }
+            default: break;
+        }
+
+        if (e) {
+            e->SetColor(savedColor);
+            e->SetLayerName(savedLayer);
+            m_entities.push_back(std::unique_ptr<Entity>(e));
+            m_stats.insertExpanded++;
+        }
+    }
+
+    // Merge layers from xref
+    for (auto& [name, layer] : sub.m_layers) {
+        if (m_layers.find(name) == m_layers.end())
+            m_layers[name] = layer;
+    }
+
+    std::cout << "[DWGReader] xref expanded: " << resolved
+              << " → " << subEnts.size() << " entities" << std::endl;
 }
 
 bool DWGReader::ParseEntities(void* dwg_ptr) {
@@ -605,7 +894,160 @@ Entity* DWGReader::ParseCircle(void* obj_ptr) {
 }
 
 Entity* DWGReader::ParseText(void* obj_ptr) {
-    return nullptr; // Henüz implementasyon yok — Faz 5'te eklenecek
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.TEXT) return nullptr;
+
+    Dwg_Entity_TEXT* txt = obj->tio.entity->tio.TEXT;
+    if (!txt->text_value || txt->text_value[0] == '\0') return nullptr;
+
+    geom::Vec3 insertPt(txt->ins_pt.x, txt->ins_pt.y, 0.0);
+    double height   = (txt->height > 0.0) ? txt->height : 2.5;
+    double rotation = txt->rotation * (180.0 / M_PI); // rad → deg
+
+    return new Text(insertPt, std::string(txt->text_value), height, rotation);
+}
+
+// MTEXT format kodlarını temizle: {\fFont;}, \P, {\H2.5;} → düz metin
+static std::string StripMTextFormatting(const char* raw) {
+    if (!raw) return "";
+    std::string out;
+    out.reserve(std::strlen(raw));
+    const char* p = raw;
+    while (*p) {
+        if (*p == '\\' && *(p + 1)) {
+            char next = *(p + 1);
+            if (next == 'P' || next == 'p') { out += '\n'; p += 2; continue; }
+            if (next == '~')               { out += ' ';  p += 2; continue; }
+            if (next == '\\')              { out += '\\'; p += 2; continue; }
+            if (next == '{' || next == '}') { out += next; p += 2; continue; }
+            // Kontrol kelimesi: \X... ; şeklinde — `;` ye kadar atla
+            p += 2;
+            while (*p && *p != ';' && *p != ' ') p++;
+            if (*p == ';') p++;
+            continue;
+        }
+        if (*p == '{' || *p == '}') { p++; continue; }
+        out += *p++;
+    }
+    // Trim
+    size_t f = out.find_first_not_of(" \t\r\n");
+    if (f == std::string::npos) return "";
+    size_t l = out.find_last_not_of(" \t\r\n");
+    return out.substr(f, l - f + 1);
+}
+
+Entity* DWGReader::ParseMText(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.MTEXT) return nullptr;
+
+    Dwg_Entity_MTEXT* mtext = obj->tio.entity->tio.MTEXT;
+    if (!mtext->text || mtext->text[0] == '\0') return nullptr;
+
+    geom::Vec3 insertPt(mtext->ins_pt.x, mtext->ins_pt.y, 0.0);
+    double height = (mtext->text_height > 0.0) ? mtext->text_height : 2.5;
+
+    std::string clean = StripMTextFormatting(mtext->text);
+    if (clean.empty()) return nullptr;
+
+    return new Text(insertPt, clean, height, 0.0);
+}
+
+// HATCH → Hatch entity (SOLID pattern: fan-fill; diğerleri: sınır çizgisi)
+Entity* DWGReader::ParseHatch(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.HATCH) return nullptr;
+
+    Dwg_Entity_HATCH* hatch = obj->tio.entity->tio.HATCH;
+    if (!hatch->num_paths || !hatch->paths) return nullptr;
+
+    // Pattern ismi
+    std::string patternName = (hatch->name && hatch->name[0]) ? hatch->name : "SOLID";
+
+    // Dışa açık olmayan ilk path'i dış sınır kabul et
+    Dwg_HATCH_Path* outerPath = nullptr;
+    for (BITCODE_BL pi = 0; pi < hatch->num_paths; ++pi) {
+        if (!(hatch->paths[pi].flag & 0x20)) {
+            outerPath = &hatch->paths[pi];
+            break;
+        }
+    }
+    if (!outerPath) outerPath = &hatch->paths[0];
+
+    std::vector<Hatch::BoundaryVertex> vertices;
+
+    auto addPt = [&](double x, double y, double bulge = 0.0) {
+        Hatch::BoundaryVertex v;
+        v.pos = geom::Vec3(x, y, 0.0);
+        v.bulge = bulge;
+        vertices.push_back(v);
+    };
+
+    if (outerPath->flag & 0x02) {
+        if (!outerPath->polyline_paths) return nullptr;
+        for (BITCODE_BL si = 0; si < outerPath->num_segs_or_paths; ++si) {
+            const auto& pp = outerPath->polyline_paths[si];
+            addPt(pp.point.x, pp.point.y, pp.bulge);
+        }
+    } else {
+        if (!outerPath->segs) return nullptr;
+        for (BITCODE_BL si = 0; si < outerPath->num_segs_or_paths; ++si) {
+            const Dwg_HATCH_PathSeg& seg = outerPath->segs[si];
+            switch (seg.curve_type) {
+                case 1: // LINE
+                    addPt(seg.first_endpoint.x, seg.first_endpoint.y);
+                    break;
+                case 2: { // CIRCULAR ARC
+                    double sweep = seg.end_angle - seg.start_angle;
+                    if (!seg.is_ccw) sweep = -sweep;
+                    if (sweep <= 0) sweep += 2.0 * M_PI;
+                    int steps = std::max(8, (int)(sweep / (M_PI / 8)));
+                    for (int k = 0; k < steps; ++k) {
+                        double t = seg.start_angle + sweep * k / steps;
+                        if (!seg.is_ccw) t = seg.start_angle - sweep * k / steps;
+                        addPt(seg.center.x + seg.radius * std::cos(t),
+                              seg.center.y + seg.radius * std::sin(t));
+                    }
+                    break;
+                }
+                case 3: { // ELLIPTIC ARC
+                    double majorLen = std::sqrt(seg.endpoint.x*seg.endpoint.x +
+                                                seg.endpoint.y*seg.endpoint.y);
+                    if (majorLen < 1e-12) break;
+                    double minorLen = majorLen * seg.minor_major_ratio;
+                    double rotA = std::atan2(seg.endpoint.y, seg.endpoint.x);
+                    double sweep = seg.end_angle - seg.start_angle;
+                    if (sweep <= 0) sweep += 2.0 * M_PI;
+                    for (int k = 0; k < 16; ++k) {
+                        double t  = seg.start_angle + sweep * k / 16;
+                        double lx = majorLen * std::cos(t);
+                        double ly = minorLen * std::sin(t);
+                        addPt(seg.center.x + lx*std::cos(rotA) - ly*std::sin(rotA),
+                              seg.center.y + lx*std::sin(rotA) + ly*std::cos(rotA));
+                    }
+                    break;
+                }
+                case 4: { // SPLINE
+                    if (seg.num_fitpts > 0 && seg.fitpts) {
+                        for (BITCODE_BL fi = 0; fi < seg.num_fitpts; ++fi)
+                            addPt(seg.fitpts[fi].x, seg.fitpts[fi].y);
+                    } else if (seg.num_control_points > 0 && seg.control_points) {
+                        for (BITCODE_BL ci = 0; ci < seg.num_control_points; ++ci)
+                            addPt(seg.control_points[ci].point.x, seg.control_points[ci].point.y);
+                    }
+                    break;
+                }
+                default: break;
+            }
+        }
+    }
+
+    if (vertices.size() < 3) return nullptr;
+    auto* h = new Hatch();
+    h->SetPatternName(patternName);
+    h->SetBoundary(std::move(vertices));
+    h->SetPatternAngle(hatch->angle * 180.0 / M_PI); // radians → degrees
+    h->SetPatternScale(hatch->scale_spacing > 0 ? hatch->scale_spacing : 1.0);
+    return h;
 }
 
 /**
@@ -801,6 +1243,18 @@ void DWGReader::ExpandMInsert(void* obj_ptr, void* dwg_ptr) {
     double cosR = std::cos(mins->rotation);
     double sinR = std::sin(mins->rotation);
 
+    // MINSERT'in kendi layer ismi — layer "0" child entity'leri bunu miras alır
+    std::string minsLayerName = "0";
+    {
+        if (obj->tio.entity->layer) {
+            Dwg_Object* layerObj = obj->tio.entity->layer->obj;
+            if (layerObj && layerObj->tio.object && layerObj->tio.object->tio.LAYER) {
+                const char* p = layerObj->tio.object->tio.LAYER->name;
+                if (p) minsLayerName = Utf16LeToUtf8(p);
+            }
+        }
+    }
+
     for (int row = 0; row < numRows; ++row) {
         for (int col = 0; col < numCols; ++col) {
             // Grid offset hesapla (MINSERT rotasyonuna göre döndür)
@@ -852,6 +1306,9 @@ void DWGReader::ExpandMInsert(void* obj_ptr, void* dwg_ptr) {
 
                 Entity* entity = ParseEntityByType(child);
                 if (!entity) continue;
+
+                Color       savedColor = entity->GetColor();
+                std::string savedLayer = entity->GetLayerName();
 
                 // Transform zinciri uygula
                 double chainScale = GetChainScale(chain);
@@ -906,6 +1363,130 @@ void DWGReader::ExpandMInsert(void* obj_ptr, void* dwg_ptr) {
                 }
 
                 if (entity) {
+                    // ByBlock → MINSERT color (ByBlock rengi desteklenmiyorsa ByLayer kalır)
+                    // Layer "0" → MINSERT layer miras al
+                    entity->SetColor(savedColor); // ByLayer veya explicit renk
+                    std::string finalLayer = (savedLayer == "0" || savedLayer.empty()) ? minsLayerName : savedLayer;
+                    entity->SetLayerName(finalLayer);
+                    m_entities.push_back(std::unique_ptr<Entity>(entity));
+                    m_stats.insertExpanded++;
+                }
+            }
+        }
+    }
+}
+
+void DWGReader::ExpandMInsertNested(void* obj_ptr, void* dwg_ptr,
+                                    void* parentChain_ptr, int depth) {
+    if (depth > 8) return;
+
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    Dwg_Data*   dwg = static_cast<Dwg_Data*>(dwg_ptr);
+    auto* parentChain = static_cast<std::vector<InsertTransform>*>(parentChain_ptr);
+
+    if (!obj->tio.entity || !obj->tio.entity->tio.MINSERT) return;
+    Dwg_Entity_MINSERT* mins = obj->tio.entity->tio.MINSERT;
+
+    int    numRows    = std::max((int)mins->num_rows, 1);
+    int    numCols    = std::max((int)mins->num_cols, 1);
+    double rowSpacing = mins->row_spacing;
+    double colSpacing = mins->col_spacing;
+    double cosR       = std::cos(mins->rotation);
+    double sinR       = std::sin(mins->rotation);
+
+    if (!mins->block_header || !mins->block_header->obj) return;
+    Dwg_Object* blockObj = mins->block_header->obj;
+    if (blockObj->type != DWG_TYPE_BLOCK_HEADER) return;
+    if (!blockObj->tio.object || !blockObj->tio.object->tio.BLOCK_HEADER) return;
+    Dwg_Object_BLOCK_HEADER* bh = blockObj->tio.object->tio.BLOCK_HEADER;
+    unsigned long blockHandle = blockObj->handle.value;
+
+    for (int row = 0; row < numRows; ++row) {
+        for (int col = 0; col < numCols; ++col) {
+            double dx      = col * colSpacing;
+            double dy      = row * rowSpacing;
+            double worldDx = dx * cosR - dy * sinR;
+            double worldDy = dx * sinR + dy * cosR;
+
+            InsertTransform xform;
+            xform.insPoint = geom::Vec3(mins->ins_pt.x + worldDx,
+                                        mins->ins_pt.y + worldDy, 0.0);
+            xform.xScale   = mins->scale.x;
+            xform.yScale   = mins->scale.y;
+            xform.rotation = mins->rotation;
+            xform.basePt   = geom::Vec3(bh->base_pt.x, bh->base_pt.y, 0.0);
+            if (std::abs(xform.xScale) < 1e-12) xform.xScale = 1.0;
+            if (std::abs(xform.yScale) < 1e-12) xform.yScale = 1.0;
+
+            // Build chain: parent chain + this cell's transform
+            std::vector<InsertTransform> chain = *parentChain;
+            chain.push_back(xform);
+
+            for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+                Dwg_Object* child = &dwg->object[i];
+                if (!child || child->supertype != DWG_SUPERTYPE_ENTITY) continue;
+                if (!child->tio.entity) continue;
+                unsigned long ownerHandle = child->tio.entity->ownerhandle ?
+                                             child->tio.entity->ownerhandle->absolute_ref : 0;
+                if (ownerHandle != blockHandle) continue;
+
+                if (child->type == DWG_TYPE_INSERT) {
+                    ExpandInsert(child, dwg, chain, depth + 1);
+                    continue;
+                }
+                if (child->type == DWG_TYPE_MINSERT) {
+                    ExpandMInsertNested(child, dwg, &chain, depth + 1);
+                    continue;
+                }
+
+                Entity* entity = ParseEntityByType(child);
+                if (!entity) continue;
+
+                Color       savedColor = entity->GetColor();
+                std::string savedLayer = entity->GetLayerName();
+
+                double chainScale    = GetChainScale(chain);
+                double chainRotation = GetChainRotation(chain);
+
+                switch (entity->GetType()) {
+                    case EntityType::Line: {
+                        Line* ln = static_cast<Line*>(entity);
+                        geom::Vec3 s = ApplyTransformChain(ln->GetStart(), chain);
+                        geom::Vec3 e = ApplyTransformChain(ln->GetEnd(), chain);
+                        delete entity; entity = new Line(s, e);
+                        break;
+                    }
+                    case EntityType::Circle: {
+                        Circle* ci = static_cast<Circle*>(entity);
+                        geom::Vec3 c = ApplyTransformChain(ci->GetCenter(), chain);
+                        delete entity; entity = new Circle(c, ci->GetRadius() * chainScale);
+                        break;
+                    }
+                    case EntityType::Arc: {
+                        Arc* ar = static_cast<Arc*>(entity);
+                        geom::Vec3 c = ApplyTransformChain(ar->GetCenter(), chain);
+                        double sa = ar->GetStartAngle() + chainRotation * (180.0 / M_PI);
+                        double ea = ar->GetEndAngle()   + chainRotation * (180.0 / M_PI);
+                        delete entity; entity = new Arc(c, ar->GetRadius() * chainScale, sa, ea);
+                        break;
+                    }
+                    case EntityType::Polyline: {
+                        Polyline* po = static_cast<Polyline*>(entity);
+                        std::vector<Polyline::Vertex> nv;
+                        for (const auto& v : po->GetVertices()) {
+                            nv.push_back({ApplyTransformChain(v.pos, chain),
+                                          v.bulge, v.width * chainScale});
+                        }
+                        bool cl = po->IsClosed();
+                        delete entity; entity = new Polyline(nv, cl);
+                        break;
+                    }
+                    default: break;
+                }
+
+                if (entity) {
+                    entity->SetColor(savedColor);
+                    entity->SetLayerName(savedLayer);
                     m_entities.push_back(std::unique_ptr<Entity>(entity));
                     m_stats.insertExpanded++;
                 }
@@ -941,17 +1522,67 @@ void DWGReader::ExtractLayers(void* dwg_ptr) {
         Dwg_Object_LAYER* lay = obj->tio.object->tio.LAYER;
         if (!lay->name) continue;
 
-        std::string name(lay->name);
+        // R2007+ DWG: name alanı UTF-16LE char* olarak saklanır.
+        // std::string(char*) ilk null byte'ta durur → tek karakter alınır.
+        // Düzeltme: her iki byte'tan birini al (UTF-16LE → Latin/ASCII).
+        std::string name;
+        {
+            const char* p = lay->name;
+            // İlk iki byte kontrol: UTF-16 ise ikinci byte 0x00 olur
+            bool isUtf16 = (p[0] != '\0' && p[1] == '\0');
+            if (isUtf16) {
+                // UTF-16LE → UTF-8 basit dönüşüm (BMP karakterler için)
+                const uint16_t* wp = reinterpret_cast<const uint16_t*>(p);
+                while (*wp) {
+                    uint16_t ch = *wp++;
+                    if (ch < 0x80) {
+                        name += static_cast<char>(ch);
+                    } else if (ch < 0x800) {
+                        name += static_cast<char>(0xC0 | (ch >> 6));
+                        name += static_cast<char>(0x80 | (ch & 0x3F));
+                    } else {
+                        name += static_cast<char>(0xE0 | (ch >> 12));
+                        name += static_cast<char>(0x80 | ((ch >> 6) & 0x3F));
+                        name += static_cast<char>(0x80 | (ch & 0x3F));
+                    }
+                }
+            } else {
+                name = p; // zaten UTF-8 / ASCII
+            }
+        }
+        if (name.empty()) continue;
+
         Layer layer(name, Color::White());
 
-        // ACI renk indeksi (negatif = layer kapalı)
-        int colorIndex = lay->color.index;
-        if (colorIndex < 0) {
-            layer.SetVisible(false);
-            colorIndex = -colorIndex;
+        // Renk çözümleme
+        // DWG method byte: 0xC2=truecolor RGB, 0xC3=ACAD color number (ACI idx in low byte)
+        const Dwg_Color& lc = lay->color;
+        bool colorSet = false;
+        if (lc.method == 0xC2 && lc.rgb != 0) {
+            // True RGB (24-bit): 0x00RRGGBB
+            uint8_t cr = (lc.rgb >> 16) & 0xFF;
+            uint8_t cg = (lc.rgb >> 8)  & 0xFF;
+            uint8_t cb =  lc.rgb        & 0xFF;
+            layer.SetColor(Color(cr, cg, cb));
+            colorSet = true;
+        } else if (lc.method == 0xC3) {
+            // ACAD Color Number: ACI index in low byte of rgb
+            int aci = static_cast<int>(lc.rgb & 0xFF);
+            if (aci >= 1 && aci <= 255) {
+                layer.SetColorIndex(aci);
+                colorSet = true;
+            }
         }
-        if (colorIndex >= 1 && colorIndex <= 255) {
-            layer.SetColorIndex(colorIndex);
+        if (!colorSet) {
+            // Standard ACI via index field (negatif = layer kapalı)
+            int colorIndex = lc.index;
+            if (colorIndex < 0) {
+                layer.SetVisible(false);
+                colorIndex = -colorIndex;
+            }
+            if (colorIndex >= 1 && colorIndex <= 255) {
+                layer.SetColorIndex(colorIndex);
+            }
         }
 
         // Layer durumları

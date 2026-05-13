@@ -3,17 +3,38 @@
  * @brief DXF okuyucu implementasyonu
  */
 
+#define _USE_MATH_DEFINES
+#include <cmath>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include "cad/DXFReader.hpp"
 #include "cad/Line.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Text.hpp"
+#include "cad/Hatch.hpp"
 #include <sstream>
 #include <algorithm>
 #include <chrono>
 #include <cctype>
 
 namespace vkt::cad {
+
+// DXFHeader implementation
+double DXFHeader::GetScaleToMM() const {
+    switch (insUnits) {
+        case 1:  return 25.4;    // inches
+        case 2:  return 304.8;   // feet
+        case 3:  return 1609344; // miles
+        case 4:  return 1.0;     // millimeters
+        case 5:  return 10.0;    // centimeters
+        case 6:  return 1000.0;  // meters
+        case 14: return 100.0;   // decimeters
+        default: return 1.0;     // unitless — assume mm
+    }
+}
 
 // DXFCode implementation
 double DXFCode::AsDouble() const {
@@ -162,6 +183,12 @@ bool DXFReader::ReadHeader() {
             if (varName == "$ACADVER") {
                 ReadCode(code);
                 m_header.version = code.value;
+            } else if (varName == "$INSUNITS") {
+                if (ReadCode(code) && code.code == 70)
+                    m_header.insUnits = code.AsInt();
+            } else if (varName == "$LTSCALE") {
+                if (ReadCode(code) && code.code == 40)
+                    m_header.ltscale = code.AsDouble();
             } else if (varName == "$EXTMIN") {
                 // Extent minimum
                 if (ReadCode(code) && code.code == 10) m_header.extMin.x = code.AsDouble();
@@ -270,186 +297,317 @@ bool DXFReader::ReadEntities() {
 }
 
 std::unique_ptr<Entity> DXFReader::ReadEntity(const std::string& entityType) {
-    if (entityType == "LWPOLYLINE") {
-        return ReadLWPolyline();
-    } else if (entityType == "LINE") {
-        return ReadLine();
-    } else if (entityType == "ARC") {
-        return ReadArc();
-    } else if (entityType == "CIRCLE") {
-        return ReadCircle();
-    } else if (entityType == "INSERT") {
-        return ReadInsert();
-    } else {
-        SkipEntity();
-        return nullptr;
+    if      (entityType == "LWPOLYLINE") return ReadLWPolyline();
+    else if (entityType == "LINE")       return ReadLine();
+    else if (entityType == "ARC")        return ReadArc();
+    else if (entityType == "CIRCLE")     return ReadCircle();
+    else if (entityType == "INSERT")     return ReadInsert();
+    else if (entityType == "TEXT")       return ReadText();
+    else if (entityType == "MTEXT")      return ReadMText();
+    else if (entityType == "HATCH")      return ReadHatch();
+    else { SkipEntity(); return nullptr; }
+}
+
+std::unique_ptr<Entity> DXFReader::ReadText() {
+    DXFCode code;
+    EntityProps props;
+    geom::Vec3 insertPt, alignPt;
+    double height = 2.5, rotation = 0.0;
+    std::string content;
+    int hAlign = 0, vAlign = 0;
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 1)  content    = code.value;
+        else if (code.code == 10) insertPt.x = code.AsDouble();
+        else if (code.code == 20) insertPt.y = code.AsDouble();
+        else if (code.code == 30) insertPt.z = code.AsDouble();
+        else if (code.code == 11) alignPt.x  = code.AsDouble();
+        else if (code.code == 21) alignPt.y  = code.AsDouble();
+        else if (code.code == 31) alignPt.z  = code.AsDouble();
+        else if (code.code == 40) height     = code.AsDouble();
+        else if (code.code == 50) rotation   = code.AsDouble();
+        else if (code.code == 72) hAlign     = code.AsInt();
+        else if (code.code == 73) vAlign     = code.AsInt();
     }
+
+    if (content.empty()) return nullptr;
+    auto txt = std::make_unique<Text>(insertPt, content, height, rotation);
+    txt->SetHAlign(hAlign);
+    txt->SetVAlign(vAlign);
+    txt->SetAlignPoint(alignPt);
+    ApplyProps(txt.get(), props);
+    return txt;
+}
+
+std::unique_ptr<Entity> DXFReader::ReadMText() {
+    DXFCode code;
+    EntityProps props;
+    geom::Vec3 insertPt;
+    double height = 2.5, rotation = 0.0;
+    std::string content;
+    int attachPoint = 1; // MTEXT code 71: 1=TL,2=TC,3=TR,4=ML,5=MC,6=MR,7=BL,8=BC,9=BR
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 1)  content  += code.value; // MTEXT çok satırlı olabilir
+        else if (code.code == 3)  content  += code.value; // ek metin chunk'ları
+        else if (code.code == 10) insertPt.x = code.AsDouble();
+        else if (code.code == 20) insertPt.y = code.AsDouble();
+        else if (code.code == 30) insertPt.z = code.AsDouble();
+        else if (code.code == 40) height = code.AsDouble();
+        else if (code.code == 50) rotation = code.AsDouble();
+        else if (code.code == 71) attachPoint = code.AsInt();
+    }
+
+    // MTEXT format kodlarını temizle: \P (paragraf), \~ (boşluk), {\...} blokları
+    std::string clean;
+    clean.reserve(content.size());
+    bool inBrace = false;
+    for (size_t i = 0; i < content.size(); ++i) {
+        if (content[i] == '{') { inBrace = true; continue; }
+        if (content[i] == '}') { inBrace = false; continue; }
+        if (content[i] == '\\' && i + 1 < content.size()) {
+            char next = content[i+1];
+            if (next == 'P' || next == 'p') { clean += '\n'; i++; continue; }
+            if (next == '~')               { clean += ' ';  i++; continue; }
+            if (next == 'n' || next == 'N'){ clean += '\n'; i++; continue; }
+            // \fFont;  \H height; \S frac; \T spacing — skip to semicolon
+            if (next == 'f' || next == 'F' || next == 'H' || next == 'S' || next == 'T' || next == 'Q') {
+                i += 2;
+                while (i < content.size() && content[i] != ';') i++;
+                continue;
+            }
+            i++; continue; // diğer escape'leri atla
+        }
+        if (!inBrace) clean += content[i];
+    }
+
+    if (clean.empty()) return nullptr;
+    auto txt = std::make_unique<Text>(insertPt, clean, height, rotation);
+    // MTEXT attachPoint → hAlign/vAlign: rows=top(1-3)/mid(4-6)/bot(7-9), cols=L/C/R
+    static const int hTab[] = {0, 0,1,2, 0,1,2, 0,1,2}; // index 1-9
+    static const int vTab[] = {0, 3,3,3, 2,2,2, 1,1,1}; // 3=Top,2=Mid,1=Bot
+    if (attachPoint >= 1 && attachPoint <= 9) {
+        txt->SetHAlign(hTab[attachPoint]);
+        txt->SetVAlign(vTab[attachPoint]);
+    }
+    ApplyProps(txt.get(), props);
+    return txt;
+}
+
+std::unique_ptr<Entity> DXFReader::ReadHatch() {
+    DXFCode code;
+    EntityProps props;
+    std::string patternName = "SOLID";
+    double patternAngle = 0.0, patternScale = 1.0;
+    std::vector<Hatch::BoundaryVertex> boundary;
+
+    // DXF HATCH boundary reading state
+    int boundaryType = 0;    // code 92: boundary path type flags
+    int numEdges = 0;        // code 93: edge count
+    int edgeType = 0;        // code 72 within edge: 1=LINE,2=ARC,3=ELLIPSE,4=SPLINE
+    bool inBoundaryData = false;
+    bool inPatternData = false;
+    geom::Vec3 edgePt1, edgePt2; // for LINE edges
+    double edgeCx = 0, edgeCy = 0, edgeR = 0, edgeA0 = 0, edgeA1 = 0;
+    bool edgeCcw = true;
+    int edgeIdx = 0;
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+
+        if (code.code == 2)  { patternName = code.value; continue; }
+        if (code.code == 52) { patternAngle = code.AsDouble(); continue; }
+        if (code.code == 41) { patternScale = code.AsDouble(); continue; }
+
+        // Boundary path header
+        if (code.code == 91) { // number of boundary paths
+            inBoundaryData = true;
+            inPatternData = false;
+            continue;
+        }
+        if (code.code == 92) { // boundary path type flag
+            boundaryType = code.AsInt();
+            edgeIdx = 0;
+            continue;
+        }
+        if (code.code == 93) { // edge count
+            numEdges = code.AsInt();
+            continue;
+        }
+
+        // Edge data within boundary
+        if (inBoundaryData) {
+            if (code.code == 72 && !inPatternData) {
+                // flush previous edge if LINE
+                if (edgeType == 1 && edgeIdx > 0) {
+                    boundary.push_back({edgePt1});
+                }
+                edgeType = code.AsInt();
+                edgePt1 = edgePt2 = {};
+                edgeCx = edgeCy = edgeR = edgeA0 = edgeA1 = 0;
+                edgeCcw = true;
+                edgeIdx++;
+                continue;
+            }
+            if (edgeType == 1) { // LINE
+                if      (code.code == 10) edgePt1.x = code.AsDouble();
+                else if (code.code == 20) edgePt1.y = code.AsDouble();
+                else if (code.code == 11) edgePt2.x = code.AsDouble();
+                else if (code.code == 21) edgePt2.y = code.AsDouble();
+            } else if (edgeType == 2) { // ARC
+                if      (code.code == 10) edgeCx = code.AsDouble();
+                else if (code.code == 20) edgeCy = code.AsDouble();
+                else if (code.code == 40) edgeR  = code.AsDouble();
+                else if (code.code == 50) edgeA0 = code.AsDouble();
+                else if (code.code == 51) edgeA1 = code.AsDouble();
+                else if (code.code == 73) { // flush arc as tessellated points
+                    edgeCcw = code.AsBool();
+                    double sweep = edgeA1 - edgeA0;
+                    if (edgeCcw && sweep < 0) sweep += 360.0;
+                    if (!edgeCcw && sweep > 0) sweep -= 360.0;
+                    sweep = std::abs(sweep);
+                    int steps = std::max(8, (int)(sweep / 5.0)); // 5° per step
+                    for (int k = 0; k < steps; ++k) {
+                        double t = (edgeA0 + (edgeCcw ? 1 : -1) * sweep * k / steps) * M_PI / 180.0;
+                        Hatch::BoundaryVertex v;
+                        v.pos = geom::Vec3(edgeCx + edgeR * std::cos(t),
+                                          edgeCy + edgeR * std::sin(t), 0.0);
+                        boundary.push_back(v);
+                    }
+                }
+            }
+        }
+
+        // Pattern line data starts (code 78 = number of pattern lines)
+        if (code.code == 78) { inPatternData = true; inBoundaryData = false; }
+    }
+
+    // Flush last LINE edge
+    if (edgeType == 1 && !boundary.empty()) {
+        boundary.push_back({edgePt2});
+    }
+
+    if (boundary.size() < 3) return nullptr;
+    auto h = std::make_unique<Hatch>();
+    h->SetPatternName(patternName);
+    h->SetBoundary(std::move(boundary));
+    h->SetPatternAngle(patternAngle);
+    h->SetPatternScale(patternScale > 1e-9 ? patternScale : 1.0);
+    ApplyProps(h.get(), props);
+    return h;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadLWPolyline() {
     DXFCode code;
-    
-    std::string layerName = "0";
+    EntityProps props;
     std::vector<geom::Vec3> vertices;
     std::vector<double> bulges;
     bool closed = false;
-    
-    while (ReadCode(code)) {
-        if (code.code == 0) {
-            // Bir sonraki entity başladı — geri koy ve çık
-            PushBackCode(code);
-            break;
-        }
 
-        if (code.code == 8) {
-            layerName = code.value;
-        } else if (code.code == 70) {
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if (code.code == 70) {
             closed = (code.AsInt() & 1) != 0;
         } else if (code.code == 90) {
-            int count = code.AsInt();
-            vertices.reserve(count);
-            bulges.reserve(count);
+            vertices.reserve(code.AsInt());
+            bulges.reserve(code.AsInt());
         } else if (code.code == 10) {
             double x = code.AsDouble();
             if (ReadCode(code) && code.code == 20) {
-                double y = code.AsDouble();
-                vertices.push_back(geom::Vec3(x, y, 0.0));
+                vertices.push_back(geom::Vec3(x, code.AsDouble(), 0.0));
                 bulges.push_back(0.0);
             }
         } else if (code.code == 42) {
-            if (!bulges.empty()) {
-                bulges.back() = code.AsDouble();
-            }
+            if (!bulges.empty()) bulges.back() = code.AsDouble();
         }
     }
-    
-    if (vertices.size() < 2) {
-        return nullptr;
-    }
-    
-    // Polyline entity oluştur
-    std::vector<Polyline::Vertex> polyVertices;
+
+    if (vertices.size() < 2) return nullptr;
+
+    std::vector<Polyline::Vertex> polyVerts;
+    polyVerts.reserve(vertices.size());
     for (size_t i = 0; i < vertices.size(); ++i) {
         Polyline::Vertex v;
         v.pos = vertices[i];
         v.bulge = i < bulges.size() ? bulges[i] : 0.0;
-        polyVertices.push_back(v);
+        polyVerts.push_back(v);
     }
-    
-    auto polyline = std::make_unique<Polyline>(polyVertices, closed);
-    polyline->SetLayer(GetOrCreateLayer(layerName));
-    
+
+    auto polyline = std::make_unique<Polyline>(polyVerts, closed);
+    ApplyProps(polyline.get(), props);
     return polyline;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadLine() {
     DXFCode code;
-    
-    std::string layerName = "0";
+    EntityProps props;
     geom::Vec3 start, end;
     bool hasStart = false, hasEnd = false;
-    
+
     while (ReadCode(code)) {
         if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if (code.code == 10) { start.x = code.AsDouble(); hasStart = true; }
+        else if (code.code == 20) start.y = code.AsDouble();
+        else if (code.code == 30) start.z = code.AsDouble();
+        else if (code.code == 11) { end.x = code.AsDouble(); hasEnd = true; }
+        else if (code.code == 21) end.y = code.AsDouble();
+        else if (code.code == 31) end.z = code.AsDouble();
+    }
 
-        if (code.code == 8) {
-            layerName = code.value;
-        } else if (code.code == 10) {
-            start.x = code.AsDouble();
-            hasStart = true;
-        } else if (code.code == 20) {
-            start.y = code.AsDouble();
-        } else if (code.code == 30) {
-            start.z = code.AsDouble();
-        } else if (code.code == 11) {
-            end.x = code.AsDouble();
-            hasEnd = true;
-        } else if (code.code == 21) {
-            end.y = code.AsDouble();
-        } else if (code.code == 31) {
-            end.z = code.AsDouble();
-        }
-    }
-    
-    if (!hasStart || !hasEnd) {
-        return nullptr;
-    }
-    
+    if (!hasStart || !hasEnd) return nullptr;
     auto line = std::make_unique<Line>(start, end);
-    line->SetLayer(GetOrCreateLayer(layerName));
-    
+    ApplyProps(line.get(), props);
     return line;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadArc() {
     DXFCode code;
-    
-    std::string layerName = "0";
+    EntityProps props;
     geom::Vec3 center;
-    double radius = 0.0;
-    double startAngle = 0.0;
-    double endAngle = 360.0;
-    
+    double radius = 0.0, startAngle = 0.0, endAngle = 360.0;
+
     while (ReadCode(code)) {
         if (code.code == 0) { PushBackCode(code); break; }
-
-        if (code.code == 8) {
-            layerName = code.value;
-        } else if (code.code == 10) {
-            center.x = code.AsDouble();
-        } else if (code.code == 20) {
-            center.y = code.AsDouble();
-        } else if (code.code == 30) {
-            center.z = code.AsDouble();
-        } else if (code.code == 40) {
-            radius = code.AsDouble();
-        } else if (code.code == 50) {
-            startAngle = code.AsDouble();
-        } else if (code.code == 51) {
-            endAngle = code.AsDouble();
-        }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 10) center.x = code.AsDouble();
+        else if (code.code == 20) center.y = code.AsDouble();
+        else if (code.code == 30) center.z = code.AsDouble();
+        else if (code.code == 40) radius = code.AsDouble();
+        else if (code.code == 50) startAngle = code.AsDouble();
+        else if (code.code == 51) endAngle = code.AsDouble();
     }
 
-    if (radius <= 0.0) {
-        return nullptr;
-    }
-
+    if (radius <= 0.0) return nullptr;
     auto arc = std::make_unique<Arc>(center, radius, startAngle, endAngle);
-    arc->SetLayer(GetOrCreateLayer(layerName));
-    
+    ApplyProps(arc.get(), props);
     return arc;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadCircle() {
     DXFCode code;
-    
-    std::string layerName = "0";
+    EntityProps props;
     geom::Vec3 center;
     double radius = 0.0;
-    
+
     while (ReadCode(code)) {
         if (code.code == 0) { PushBackCode(code); break; }
-
-        if (code.code == 8) {
-            layerName = code.value;
-        } else if (code.code == 10) {
-            center.x = code.AsDouble();
-        } else if (code.code == 20) {
-            center.y = code.AsDouble();
-        } else if (code.code == 30) {
-            center.z = code.AsDouble();
-        } else if (code.code == 40) {
-            radius = code.AsDouble();
-        }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 10) center.x = code.AsDouble();
+        else if (code.code == 20) center.y = code.AsDouble();
+        else if (code.code == 30) center.z = code.AsDouble();
+        else if (code.code == 40) radius = code.AsDouble();
     }
 
-    if (radius <= 0.0) {
-        return nullptr;
-    }
-
+    if (radius <= 0.0) return nullptr;
     auto circle = std::make_unique<Circle>(center, radius);
-    circle->SetLayer(GetOrCreateLayer(layerName));
-    
+    ApplyProps(circle.get(), props);
     return circle;
 }
 
@@ -538,33 +696,65 @@ std::unique_ptr<Entity> DXFReader::ReadInsert() {
         else if (code.code == 50) rotation = code.AsDouble();
     }
 
-    // Block tanımını bul ve entity'lerini kopyala + transform uygula
+    // Block tanımını bul — tüm entity'leri expand et
     auto blockIt = m_blocks.find(blockName);
-    if (blockIt == m_blocks.end() || blockIt->second.empty()) {
-        return nullptr; // Block bulunamadı
-    }
+    if (blockIt == m_blocks.end() || blockIt->second.empty()) return nullptr;
 
-    // Block'taki ilk entity'yi kopyala (basit yaklaşım)
-    // Birden fazla entity varsa, ilkini INSERT noktasına taşı
-    // Gelişmiş: CompositeEntity oluşturulabilir
-    if (blockIt->second.size() == 1) {
-        auto clone = blockIt->second[0]->Clone();
-        clone->SetLayer(GetOrCreateLayer(layerName));
-        // Transform uygula: scale → rotate → translate
+    // DXF kuralı: blok içinde layer "0" olan entity'ler INSERT'in layer'ını miras alır.
+    // Tüm entity'leri klonla, transform (scale → rotate → translate) uygula, m_entities'e ekle.
+    for (const auto& src : blockIt->second) {
+        auto clone = src->Clone();
+        if (!clone) continue;
         clone->Scale(scale);
         clone->Rotate(rotation);
         clone->Move(insertionPoint);
-        return clone;
+        if (clone->GetLayerName() == "0" || clone->GetLayerName().empty()) {
+            clone->SetLayer(GetOrCreateLayer(layerName));
+            clone->SetLayerName(layerName); // renderer lookup için isim de senkronize et
+        }
+        m_entities.push_back(std::move(clone));
     }
+    return nullptr; // entity'ler zaten m_entities'e eklendi
+}
 
-    // Çoklu entity içeren block: Polyline olarak birleştir veya ilk entity'yi döndür
-    // Şimdilik ilk entity'yi döndür
-    auto clone = blockIt->second[0]->Clone();
-    clone->SetLayer(GetOrCreateLayer(layerName));
-    clone->Scale(scale);
-    clone->Rotate(rotation);
-    clone->Move(insertionPoint);
-    return clone;
+bool DXFReader::ReadEntityProp(const DXFCode& code, EntityProps& props) {
+    switch (code.code) {
+        case 8:   props.layer = code.value; return true;
+        case 62: { // ACI renk (0=ByBlock, 256=ByLayer)
+            int aci = code.AsInt();
+            if (aci == 0)   { props.color = Color::ByBlock(); props.hasExplicitColor = true; }
+            else if (aci == 256) { props.color = Color::ByLayer(); props.hasExplicitColor = false; }
+            else             { props.color = Color::FromACI(aci); props.hasExplicitColor = true; }
+            return true;
+        }
+        case 420: { // Truecolor RGB (öncelik: code 420 > code 62)
+            int rgb = code.AsInt();
+            props.color = Color(
+                static_cast<uint8_t>((rgb >> 16) & 0xFF),
+                static_cast<uint8_t>((rgb >> 8)  & 0xFF),
+                static_cast<uint8_t>( rgb        & 0xFF));
+            props.hasExplicitColor = true;
+            return true;
+        }
+        case 370: { // Lineweight (1/100 mm biriminde, -1=ByLayer, -2=ByBlock, -3=Default)
+            int lw = code.AsInt();
+            props.lineweight = (lw > 0) ? lw / 100.0 : -1.0;
+            return true;
+        }
+        case 48:  props.ltScale = code.AsDouble(); return true; // Entity ltype scale
+        default:  return false;
+    }
+}
+
+void DXFReader::ApplyProps(Entity* entity, const EntityProps& props) {
+    entity->SetLayer(GetOrCreateLayer(props.layer));
+    entity->SetLayerName(props.layer); // renderer GetLayerName() ile layer rengini lookup eder
+    if (props.hasExplicitColor)
+        entity->SetColor(props.color);
+    if (props.lineweight > 0)
+        entity->SetLineweight(props.lineweight);
+    if (props.ltScale != 1.0)
+        entity->SetLinetypeScale(props.ltScale);
 }
 
 Layer* DXFReader::GetOrCreateLayer(const std::string& layerName) {
@@ -574,8 +764,7 @@ Layer* DXFReader::GetOrCreateLayer(const std::string& layerName) {
     }
     
     // Yeni layer oluştur
-    Layer newLayer;
-    m_layers[layerName] = newLayer;
+    m_layers[layerName] = Layer(layerName);
     return &m_layers[layerName];
 }
 
@@ -629,7 +818,7 @@ bool DXFReader::PassesFilter(const Entity* entity) const {
         if (!layer) return false;
         
         bool layerMatch = false;
-        std::string layerName = ""; // Layer::GetName() yok - TODO
+        std::string layerName = layer->GetName();
         for (const auto& filterName : m_layerFilter) {
             if (layerName == filterName) {
                 layerMatch = true;
