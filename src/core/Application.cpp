@@ -30,17 +30,8 @@ void Application::Run() {
 
 void Application::Shutdown() {
     std::cout << "VKT Application kapatılıyor..." << std::endl;
-    
-    // Tüm pencereleri kapat
-    for (auto* window : m_windows) {
-        delete window;
-    }
-    m_windows.clear();
-    
-    // Belgeleri kapat
     m_documents.clear();
     m_activeDocument = nullptr;
-    
     m_running = false;
 }
 
@@ -80,12 +71,6 @@ void Application::CloseDocument(Document* doc) {
         m_documents.erase(it);
         std::cout << "Belge kapatıldı." << std::endl;
     }
-}
-
-Window* Application::CreateWindow() {
-    Window* window = new Window();
-    m_windows.push_back(window);
-    return window;
 }
 
 } // namespace core

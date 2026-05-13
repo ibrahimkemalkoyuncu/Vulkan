@@ -213,8 +213,8 @@ geom::Mat4 Viewport::GetProjectionMatrix() const {
     double near = -1000.0;
     double far = 1000.0;
     
-    proj.data[0] = 2.0 / width;
-    proj.data[5] = 2.0 / height;
+    proj.data[0]  =  2.0 / width;
+    proj.data[5]  = -2.0 / height; // Vulkan Y-down: flip so world +Y = screen up
     proj.data[10] = -2.0 / (far - near);
     proj.data[14] = -(far + near) / (far - near);
     

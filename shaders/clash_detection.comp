@@ -1,0 +1,103 @@
+#version 450
+// Clash detection compute shader — one thread per (pipe, arch-entity) pair.
+// Dispatched as: groupX = ceil(numPipes/16), groupY = ceil(numArches/16)
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+struct PipeData {
+    vec4  posA;    // .xyz = world pos A
+    vec4  posB;    // .xyz = world pos B
+    float radius;  // world units
+    float pad0, pad1, pad2;
+};
+
+struct ArchBox {
+    vec4 bbMin; // .xyz = AABB min
+    vec4 bbMax; // .xyz = AABB max
+    uint entityIdLo; // lower 32 bits of EntityId
+    uint entityIdHi; // upper 32 bits
+    uint pad0, pad1;
+};
+
+struct GpuClashResult {
+    vec4  clashPoint; // .xyz
+    uint  pipeIdx;
+    uint  archIdx;
+    uint  severity;   // 0 = hard, 1 = soft
+    float overlap_mm;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer PipeBuffer {
+    PipeData pipes[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer ArchBuffer {
+    ArchBox arches[];
+};
+layout(set = 0, binding = 2, std430) buffer ResultBuffer {
+    uint resultCount;
+    GpuClashResult results[];
+};
+
+layout(push_constant) uniform ClashParams {
+    uint  pipeCount;
+    uint  archCount;
+    float softTolerance; // world units
+    uint  maxResults;
+} params;
+
+// Returns true if segment midpoint falls inside expanded box.
+bool segmentMidInBox(vec3 a, vec3 b, vec3 bMin, vec3 bMax) {
+    vec3 mid = (a + b) * 0.5;
+    return all(greaterThanEqual(mid, bMin)) && all(lessThanEqual(mid, bMax));
+}
+
+bool endpointInBox(vec3 p, vec3 bMin, vec3 bMax) {
+    return all(greaterThanEqual(p, bMin)) && all(lessThanEqual(p, bMax));
+}
+
+void main() {
+    uint pi = gl_GlobalInvocationID.x;
+    uint ai = gl_GlobalInvocationID.y;
+    if (pi >= params.pipeCount || ai >= params.archCount) return;
+
+    PipeData pipe = pipes[pi];
+    ArchBox  arch = arches[ai];
+
+    float r   = pipe.radius;
+    float tol = params.softTolerance;
+
+    vec3 a    = pipe.posA.xyz;
+    vec3 b    = pipe.posB.xyz;
+    vec3 bMin = arch.bbMin.xyz;
+    vec3 bMax = arch.bbMax.xyz;
+
+    // Hard clash: segment midpoint inside box expanded by pipe radius
+    vec3 hardMin = bMin - vec3(r);
+    vec3 hardMax = bMax + vec3(r);
+    if (segmentMidInBox(a, b, hardMin, hardMax)) {
+        uint idx = atomicAdd(resultCount, 1u);
+        if (idx < params.maxResults) {
+            results[idx].clashPoint = vec4((a + b) * 0.5, 1.0);
+            results[idx].pipeIdx    = pi;
+            results[idx].archIdx    = ai;
+            results[idx].severity   = 0u;
+            results[idx].overlap_mm = r * 1000.0;
+        }
+        return;
+    }
+
+    // Soft clash: either endpoint within tolerance zone
+    vec3 softMin = bMin - vec3(tol);
+    vec3 softMax = bMax + vec3(tol);
+    if (endpointInBox(a, softMin, softMax) || endpointInBox(b, softMin, softMax)) {
+        uint idx = atomicAdd(resultCount, 1u);
+        if (idx < params.maxResults) {
+            vec3 ep = endpointInBox(a, softMin, softMax) ? a : b;
+            results[idx].clashPoint = vec4(ep, 1.0);
+            results[idx].pipeIdx    = pi;
+            results[idx].archIdx    = ai;
+            results[idx].severity   = 1u;
+            results[idx].overlap_mm = 0.0;
+        }
+    }
+}

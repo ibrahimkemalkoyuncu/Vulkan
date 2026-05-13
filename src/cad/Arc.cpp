@@ -271,13 +271,39 @@ std::unique_ptr<Arc> Arc::CreateFrom3Points(
         (mid.z + end.z) * 0.5
     );
     
-    // Simplified - TODO: Proper circle fit
-    geom::Vec3 center = mid;
+    // Circumcircle via perpendicular bisector intersection
+    // Midpoints of chords start-mid and mid-end
+    double ax = (start.x + mid.x) * 0.5, ay = (start.y + mid.y) * 0.5;
+    double bx = (mid.x + end.x)   * 0.5, by = (mid.y + end.y)   * 0.5;
+
+    // Direction vectors of the two chords (perpendicular bisector is orthogonal)
+    double dx1 = mid.x - start.x, dy1 = mid.y - start.y; // chord 1 direction
+    double dx2 = end.x - mid.x,   dy2 = end.y - mid.y;   // chord 2 direction
+
+    // Perpendicular bisectors: (ax,ay) + t*(-dy1,dx1)  and  (bx,by) + s*(-dy2,dx2)
+    // Solve for t: ax - t*dy1 = bx - s*dy2  and  ay + t*dx1 = by + s*dx2
+    // => -dy1*t + dy2*s = bx - ax
+    //     dx1*t - dx2*s = by - ay
+    double det = -dy1 * (-dx2) - (-dx2) * 0.0; // use Cramer's rule on 2×2 system
+    // Rewrite: t*(-dy1) + s*(dy2) = bx-ax   =>  [ -dy1  dy2 ] [t]   [bx-ax]
+    //          t*( dx1) + s*(-dx2)= by-ay       [  dx1 -dx2 ] [s] = [by-ay]
+    det = (-dy1) * (-dx2) - (dy2) * (dx1);
+
+    geom::Vec3 center;
+    if (std::abs(det) < geom::EPSILON) {
+        // Points are collinear — degenerate arc, fall back to midpoint
+        center = mid;
+    } else {
+        double t = ((bx - ax) * (-dx2) - (by - ay) * (dy2)) / det;
+        center.x = ax + t * (-dy1);
+        center.y = ay + t * (dx1);
+        center.z = (start.z + mid.z + end.z) / 3.0;
+    }
+
     double radius = center.DistanceTo(start);
-    
     double startAngle = std::atan2(start.y - center.y, start.x - center.x) * RAD_TO_DEG;
-    double endAngle = std::atan2(end.y - center.y, end.x - center.x) * RAD_TO_DEG;
-    
+    double endAngle   = std::atan2(end.y   - center.y, end.x   - center.x) * RAD_TO_DEG;
+
     return std::make_unique<Arc>(center, radius, startAngle, endAngle);
 }
 

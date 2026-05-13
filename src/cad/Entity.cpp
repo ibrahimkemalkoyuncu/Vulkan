@@ -107,6 +107,7 @@ Color Color::FromACI(int index) {
     };
 
     if (index < 0 || index > 255) return Color::White();
+    if (index == 0) return Color::ByBlock(); // ACI 0 = ByBlock
     return Color{aciTable[index][0], aciTable[index][1], aciTable[index][2], 255};
 }
 

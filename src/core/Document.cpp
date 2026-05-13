@@ -99,41 +99,88 @@ void Document::GetCADExtents(geom::Vec3& outMin, geom::Vec3& outMax) const {
     outMin = geom::Vec3(1e9, 1e9, 0);
     outMax = geom::Vec3(-1e9, -1e9, 0);
 
-    // Collect all entity center points for percentile-based bounds
-    // This filters outlier entities that stretch the bounding box
+    // Collect entity CENTROIDS (not min/max corners) for IQR-based outlier rejection.
+    // Using centroids prevents large entities (xrefs, annotation frames) from skewing bounds.
     std::vector<double> xVals, yVals;
-    xVals.reserve(m_cadEntities.size() * 2);
-    yVals.reserve(m_cadEntities.size() * 2);
+    xVals.reserve(m_cadEntities.size());
+    yVals.reserve(m_cadEntities.size());
 
     for (const auto& entity : m_cadEntities) {
         if (!entity) continue;
         auto bounds = entity->GetBounds();
         if (!bounds.IsValid()) continue;
-        xVals.push_back(bounds.min.x);
-        xVals.push_back(bounds.max.x);
-        yVals.push_back(bounds.min.y);
-        yVals.push_back(bounds.max.y);
+        xVals.push_back((bounds.min.x + bounds.max.x) * 0.5);
+        yVals.push_back((bounds.min.y + bounds.max.y) * 0.5);
     }
 
     if (xVals.empty()) return;
 
-    // Sort and use 2nd-98th percentile to exclude outliers
     std::sort(xVals.begin(), xVals.end());
     std::sort(yVals.begin(), yVals.end());
 
-    size_t lo = static_cast<size_t>(xVals.size() * 0.02);
-    size_t hi = static_cast<size_t>(xVals.size() * 0.98);
-    if (hi <= lo) { lo = 0; hi = xVals.size() - 1; }
+    size_t n = xVals.size();
 
-    outMin.x = xVals[lo];
-    outMax.x = xVals[hi];
+    // IQR-based outlier fence: [Q1 - 1.5*IQR, Q3 + 1.5*IQR]
+    auto iqrFence = [&](const std::vector<double>& v, double& fenceLo, double& fenceHi) {
+        size_t q1i = n / 4;
+        size_t q3i = (3 * n) / 4;
+        double q1 = v[q1i], q3 = v[std::min(q3i, n - 1)];
+        double iqr = q3 - q1;
+        if (iqr < 1e-9) iqr = std::abs(q3) * 0.01 + 1.0; // degenerate: single cluster
+        fenceLo = q1 - 1.5 * iqr;
+        fenceHi = q3 + 1.5 * iqr;
+    };
 
-    lo = static_cast<size_t>(yVals.size() * 0.02);
-    hi = static_cast<size_t>(yVals.size() * 0.98);
-    if (hi <= lo) { lo = 0; hi = yVals.size() - 1; }
+    double xLo, xHi, yLo, yHi;
+    iqrFence(xVals, xLo, xHi);
+    iqrFence(yVals, yLo, yHi);
 
-    outMin.y = yVals[lo];
-    outMax.y = yVals[hi];
+    // Collect inlier centroids and find their true min/max
+    for (const auto& entity : m_cadEntities) {
+        if (!entity) continue;
+        auto bounds = entity->GetBounds();
+        if (!bounds.IsValid()) continue;
+        double cx = (bounds.min.x + bounds.max.x) * 0.5;
+        double cy = (bounds.min.y + bounds.max.y) * 0.5;
+        if (cx < xLo || cx > xHi || cy < yLo || cy > yHi) continue; // outlier
+        outMin.x = std::min(outMin.x, bounds.min.x);
+        outMin.y = std::min(outMin.y, bounds.min.y);
+        outMax.x = std::max(outMax.x, bounds.max.x);
+        outMax.y = std::max(outMax.y, bounds.max.y);
+    }
+
+    if (outMin.x > outMax.x) { // all filtered — fall back to raw centroid range
+        outMin.x = xVals.front(); outMax.x = xVals.back();
+        outMin.y = yVals.front(); outMax.y = yVals.back();
+    }
+}
+
+geom::Vec3 Document::NormalizeCoordinates() {
+    if (m_cadEntities.empty()) return m_worldOffset;
+
+    geom::Vec3 minP, maxP;
+    GetCADExtents(minP, maxP);
+
+    geom::Vec3 centroid(
+        (minP.x + maxP.x) * 0.5,
+        (minP.y + maxP.y) * 0.5,
+        0.0
+    );
+
+    // Only normalize if centroid is significantly far from origin (>1000 units)
+    double distSq = centroid.x * centroid.x + centroid.y * centroid.y;
+    if (distSq < 1000.0 * 1000.0) return m_worldOffset;
+
+    std::cout << "[Document] Koordinat normalizasyonu: centroid=("
+              << centroid.x << ", " << centroid.y << "), "
+              << m_cadEntities.size() << " entity kaydırılıyor." << std::endl;
+
+    geom::Vec3 delta(-centroid.x, -centroid.y, 0.0);
+    for (auto& e : m_cadEntities) {
+        if (e) e->Move(delta);
+    }
+    m_worldOffset = centroid;
+    return m_worldOffset;
 }
 
 } // namespace core

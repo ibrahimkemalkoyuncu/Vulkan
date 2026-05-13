@@ -44,28 +44,32 @@ Layer* LayerManager::CreateLayer(const std::string& name, const Color& color) {
     return layerPtr;
 }
 
-bool LayerManager::DeleteLayer(const std::string& name) {
+bool LayerManager::DeleteLayer(const std::string& name, size_t entityCount) {
     // "0" layer'ı silinemez
     if (name == "0") {
         std::cerr << "HATA: '0' layer'ı silinemez!" << std::endl;
         return false;
     }
-    
+
     auto it = m_layers.find(name);
     if (it == m_layers.end()) {
         std::cerr << "HATA: '" << name << "' layer'ı bulunamadı!" << std::endl;
         return false;
     }
-    
+
     // Aktif layer silinemez
     if (it->second.get() == m_activeLayer) {
         std::cerr << "HATA: Aktif layer silinemez! Önce başka bir layer'ı aktif yapın." << std::endl;
         return false;
     }
-    
-    // TODO: Entity sayısı kontrolü (entity'li layer silinemez)
-    // Bu kontrol Document'ten yapılmalı
-    
+
+    // Entity içeren layer silinemez — caller entity sayısını geçirmelidir
+    if (entityCount > 0) {
+        std::cerr << "HATA: '" << name << "' layer'ı " << entityCount
+                  << " entity içeriyor. Önce entity'leri başka layer'a taşıyın veya silin." << std::endl;
+        return false;
+    }
+
     m_layers.erase(it);
     std::cout << "Layer silindi: " << name << std::endl;
     return true;

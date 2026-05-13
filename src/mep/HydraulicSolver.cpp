@@ -11,8 +11,10 @@
  */
 
 #include "mep/HydraulicSolver.hpp"
+#include "mep/Database.hpp"
 #include <cmath>
 #include <algorithm>
+#include <functional>
 #include <iostream>
 #include <queue>
 #include <unordered_set>
@@ -52,7 +54,17 @@ void HydraulicSolver::Solve() {
     // 2. Topolojik debi dağılımı — leaf'lerden source'a kümülatif toplama
     DistributeSupplyFlows();
 
-    // 3. Her boru için hidrolik hesap
+    // 3. Debi bilinen borular için otomatik çap seçimi (TS EN 806-3 hız kısıtı)
+    AutoSizeSupplyPipes();
+
+    // 3b. Kapalı döngü varsa Hardy-Cross iterasyonu ile basınç dengesi
+    auto loops = DetectLoops();
+    if (!loops.empty()) {
+        std::cout << loops.size() << " döngü tespit edildi — Hardy-Cross başlatılıyor..." << std::endl;
+        SolveHardyCross(loops);
+    }
+
+    // 4. Her boru için hidrolik hesap
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
         if (edge.type != EdgeType::Supply) continue;
 
@@ -143,6 +155,89 @@ void HydraulicSolver::DistributeSupplyFlows() {
             }
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  OTOMATİK SUPPLY BORU ÇAPI BOYUTLANDIRMA (TS EN 806-3)
+// ═══════════════════════════════════════════════════════════
+
+void HydraulicSolver::AutoSizeSupplyPipes() {
+    // TS EN 806-3 hız kısıtları:
+    //   Dağıtım boruları : v_max = 3.0 m/s
+    //   Bağlantı boruları: v_max = 2.0 m/s  (Ø ≤ 25 mm)
+    //   Minimum hız      : v_min = 0.5 m/s  (durgunluk/çökelme önleme)
+    //
+    // Algoritma: her Supply edge için Database'deki çapları küçükten büyüğe tara,
+    // v = Q / A kısıtını sağlayan ilk çapı seç.
+    // Kullanıcının manuel atadığı çap (diameter_mm > 0) korunur — sadece
+    // flowRate'e göre gerekli çaptan küçükse otomatik büyütülür.
+
+    constexpr double V_MAX_LARGE = 3.0; // m/s — Ø > 25 mm
+    constexpr double V_MAX_SMALL = 2.0; // m/s — Ø ≤ 25 mm
+    constexpr double V_MIN       = 0.5; // m/s
+
+    for (auto& [id, edge] : m_network.GetEdgeMap()) {
+        if (edge.type != EdgeType::Supply) continue;
+        if (edge.flowRate_m3s <= 0.0) continue;
+
+        double autoD = SelectSupplyPipeDiameter(edge.flowRate_m3s, edge.material);
+
+        // Kullanıcı çapını küçültme — sadece yetersizse büyüt
+        if (autoD > edge.diameter_mm) {
+            std::cout << "Boru " << edge.id << ": çap " << edge.diameter_mm
+                      << " mm → " << autoD << " mm (Q="
+                      << edge.flowRate_m3s * 1000.0 << " L/s)\n";
+            edge.diameter_mm = autoD;
+        }
+
+        // Seçilen çapla gerçek hızı güncelle
+        double D_m = edge.diameter_mm / 1000.0;
+        double area = PI * (D_m / 2.0) * (D_m / 2.0);
+        edge.velocity_ms = (area > 0.0) ? edge.flowRate_m3s / area : 0.0;
+
+        // Hız uyarısı
+        double vMax = (edge.diameter_mm <= 25.0) ? V_MAX_SMALL : V_MAX_LARGE;
+        if (edge.velocity_ms > vMax) {
+            std::cout << "UYARI Boru " << edge.id << ": v=" << edge.velocity_ms
+                      << " m/s > " << vMax << " m/s (standart aşıldı)\n";
+        } else if (edge.velocity_ms < V_MIN && edge.velocity_ms > 0.0) {
+            std::cout << "UYARI Boru " << edge.id << ": v=" << edge.velocity_ms
+                      << " m/s < 0.5 m/s (çökelme riski)\n";
+        }
+    }
+}
+
+double HydraulicSolver::SelectSupplyPipeDiameter(double flowRate_m3s, const std::string& material) const {
+    constexpr double V_MAX_LARGE = 3.0;
+    constexpr double V_MAX_SMALL = 2.0;
+    constexpr double DN15_MIN    = 15.0; // TS EN 806-3: minimum bağlantı çapı
+
+    const Database& db = Database::Instance();
+    std::vector<double> diameters;
+
+    try {
+        diameters = db.GetPipe(material).availableDiameters_mm;
+    } catch (...) {
+        // Bilinmeyen malzeme — PVC standart çaplarını kullan
+        diameters = db.GetPipe("PVC").availableDiameters_mm;
+    }
+
+    // Küçükten büyüğe sıralı olmalı (Database zaten sıralı)
+    for (double diam_mm : diameters) {
+        if (diam_mm < DN15_MIN) continue;
+
+        double D_m   = diam_mm / 1000.0;
+        double area  = PI * (D_m / 2.0) * (D_m / 2.0);
+        double v     = flowRate_m3s / area;
+        double vMax  = (diam_mm <= 25.0) ? V_MAX_SMALL : V_MAX_LARGE;
+
+        if (v <= vMax) {
+            return diam_mm;
+        }
+    }
+
+    // Tüm standart çaplar yetersiz — en büyüğünü döndür
+    return diameters.empty() ? 50.0 : diameters.back();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -266,8 +361,30 @@ CriticalPathResult HydraulicSolver::CalculateCriticalPath() {
         std::cout << "En dezavantajlı düğüm: " << result.disadvantagedNodeId << std::endl;
     }
 
+    // Kaynak node toplam debisini m³/h cinsine çevir
+    double totalFlow_m3s = 0.0;
+    for (const auto& [id, node] : m_network.GetNodeMap()) {
+        if (node.type == NodeType::Source) {
+            totalFlow_m3s += node.flowRate_m3s;
+        }
+    }
+    result.requiredFlow_m3h = totalFlow_m3s * 3600.0;
+
+    // Database'den uygun pompa öner
+    const PumpData pump = Database::Instance().SuggestPump(
+        result.requiredPumpHead_m, result.requiredFlow_m3h);
+    result.suggestedPumpModel    = pump.model;
+    result.suggestedPumpHead_m   = pump.maxHead_m;
+    result.suggestedPumpFlow_m3h = pump.maxFlow_m3h;
+    result.suggestedPumpPower_kW = pump.ratedPower_kW;
+
     std::cout << "Toplam kayıp: " << result.totalHeadLoss_m << " m" << std::endl;
-    std::cout << "Gerekli pompa yüksekliği: " << result.requiredPumpHead_m << " mSS" << std::endl;
+    std::cout << "Gerekli pompa: " << result.requiredPumpHead_m << " mSS, "
+              << result.requiredFlow_m3h << " m³/h" << std::endl;
+    std::cout << "Önerilen pompa: " << result.suggestedPumpModel
+              << " (" << result.suggestedPumpHead_m << " m, "
+              << result.suggestedPumpFlow_m3h << " m³/h, "
+              << result.suggestedPumpPower_kW << " kW)" << std::endl;
     return result;
 }
 
@@ -489,6 +606,169 @@ void HydraulicSolver::DFS(uint32_t nodeId, std::vector<uint32_t>& path,
 
     path.pop_back();
     visited.erase(nodeId);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HARDY-CROSS — KAPALI DÖNGÜ ŞEBEKE ANALİZİ
+// ═══════════════════════════════════════════════════════════
+
+double HydraulicSolver::ComputeResistance(const Edge& edge) const {
+    double D = edge.diameter_mm / 1000.0;
+    double L = edge.length_m;
+    if (D <= 0.0 || L <= 0.0) return 0.0;
+
+    double A = PI * D * D / 4.0;
+    double Q = std::abs(edge.flowRate_m3s);
+
+    double f;
+    if (Q < 1e-9) {
+        // Sıfır debide tam türbülanslı yaklaşım (Moody diyagramı sağ sınır)
+        double eps_D = edge.roughness_mm / edge.diameter_mm;
+        if (eps_D < 1e-9) eps_D = 1e-6;
+        double invSqrtF = -2.0 * std::log10(eps_D / 3.7);
+        f = (invSqrtF > 0.0) ? 1.0 / (invSqrtF * invSqrtF) : 0.04;
+    } else {
+        double v  = Q / A;
+        double Re = v * D / KINEMATIC_VISCOSITY;
+        f = HaalandFriction(Re, edge.roughness_mm / edge.diameter_mm);
+    }
+
+    // r: h_f = r * Q^2  →  r = f * L / (D * 2g * A²)
+    return f * L / (D * 2.0 * GRAVITY * A * A);
+}
+
+std::vector<HydraulicSolver::NetworkLoop> HydraulicSolver::DetectLoops() const {
+    std::vector<NetworkLoop> loops;
+
+    std::unordered_map<uint32_t, uint32_t> parent;
+    std::unordered_map<uint32_t, uint32_t> parentEdgeId;
+    std::unordered_set<uint32_t> visited;
+    std::unordered_set<uint32_t> inStack;
+
+    // Yinelemeli DFS — back edge her kapalı döngüyü tanımlar
+    std::function<void(uint32_t)> dfs = [&](uint32_t nodeId) {
+        visited.insert(nodeId);
+        inStack.insert(nodeId);
+
+        for (uint32_t eid : m_network.GetConnectedEdges(nodeId)) {
+            const Edge* e = m_network.GetEdge(eid);
+            if (!e || e->type != EdgeType::Supply) continue;
+
+            uint32_t neighbor = (e->nodeA == nodeId) ? e->nodeB : e->nodeA;
+
+            if (!visited.count(neighbor)) {
+                parent[neighbor]     = nodeId;
+                parentEdgeId[neighbor] = eid;
+                dfs(neighbor);
+            } else if (inStack.count(neighbor) && neighbor != parent[nodeId]) {
+                // Back edge bulundu → döngü oluştur
+                NetworkLoop loop;
+
+                // Kapatan kenar (back edge): nodeId → neighbor
+                int backDir = (e->nodeA == nodeId) ? +1 : -1;
+                loop.edges.push_back({eid, backDir});
+
+                // Kapsayan ağaç yolunu geriye izle: nodeId → ... → neighbor
+                uint32_t cur = nodeId;
+                int safetyLimit = 1000;
+                while (cur != neighbor && parent.count(cur) && --safetyLimit > 0) {
+                    uint32_t pe = parentEdgeId[cur];
+                    const Edge* pep = m_network.GetEdge(pe);
+                    if (!pep) break;
+                    // Yön: parent[cur] → cur (spanning tree yönü)
+                    int dir = (pep->nodeA == parent[cur]) ? +1 : -1;
+                    loop.edges.push_back({pe, dir});
+                    cur = parent[cur];
+                }
+
+                if (loop.edges.size() >= 2) {
+                    loops.push_back(std::move(loop));
+                }
+            }
+        }
+
+        inStack.erase(nodeId);
+    };
+
+    for (const auto& [id, node] : m_network.GetNodeMap()) {
+        if (!visited.count(id)) {
+            parent[id] = 0;
+            dfs(id);
+        }
+    }
+
+    return loops;
+}
+
+void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
+    if (loops.empty()) return;
+
+    constexpr int    MAX_ITER  = 50;
+    constexpr double TOLERANCE = 1e-7; // m³/s (~0.1 mL/s)
+
+    // Sıfır debili Supply borularına başlangıç debisi ata (yakınsama için)
+    for (auto& [eid, edge] : m_network.GetEdgeMap()) {
+        if (edge.type == EdgeType::Supply &&
+            std::abs(edge.flowRate_m3s) < 1e-10) {
+            edge.flowRate_m3s = 1e-4; // 0.1 L/s başlangıç tahmini
+        }
+    }
+
+    for (int iter = 0; iter < MAX_ITER; ++iter) {
+        double maxCorrection = 0.0;
+
+        for (const auto& loop : loops) {
+            // Darcy-Weisbach Hardy-Cross: ΔQ = -Σ(r·Q·|Q|) / (2·Σ(r·|Q|))
+            double numerator   = 0.0;
+            double denominator = 0.0;
+
+            for (const auto& [eid, dir] : loop.edges) {
+                const Edge* e = m_network.GetEdge(eid);
+                if (!e || e->type != EdgeType::Supply) continue;
+
+                double Q = e->flowRate_m3s;
+                double r = ComputeResistance(*e);
+                // Döngü yönüne göre işaretli kayıp: dir × r × Q × |Q|
+                numerator   += dir * r * Q * std::abs(Q);
+                denominator += 2.0 * r * std::abs(Q);
+            }
+
+            if (denominator < 1e-15) continue;
+
+            double dQ = -numerator / denominator;
+            maxCorrection = std::max(maxCorrection, std::abs(dQ));
+
+            // Tüm döngü borularına düzeltme uygula
+            for (const auto& [eid, dir] : loop.edges) {
+                Edge* e = m_network.GetEdge(eid);
+                if (!e || e->type != EdgeType::Supply) continue;
+                e->flowRate_m3s += dir * dQ;
+            }
+        }
+
+        if (maxCorrection < TOLERANCE) {
+            std::cout << "Hardy-Cross yakınsadı: " << iter + 1
+                      << " iterasyonda, max ΔQ=" << maxCorrection * 1000.0
+                      << " mL/s" << std::endl;
+            break;
+        }
+
+        if (iter == MAX_ITER - 1) {
+            std::cout << "Hardy-Cross UYARI: " << MAX_ITER
+                      << " iterasyonda yakınsama sağlanamadı (max ΔQ="
+                      << maxCorrection * 1000.0 << " mL/s)" << std::endl;
+        }
+    }
+
+    // Yakınsama sonrası hız ve kayıp değerlerini güncelle
+    for (auto& [eid, edge] : m_network.GetEdgeMap()) {
+        if (edge.type != EdgeType::Supply) continue;
+        double D = edge.diameter_mm / 1000.0;
+        double A = PI * D * D / 4.0;
+        if (A > 0.0)
+            edge.velocity_ms = std::abs(edge.flowRate_m3s) / A;
+        edge.headLoss_m = CalculateHeadLoss(edge);
+    }
 }
 
 } // namespace mep

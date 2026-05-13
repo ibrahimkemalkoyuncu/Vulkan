@@ -6,7 +6,11 @@
 #include "mep/ScheduleGenerator.hpp"
 #include <sstream>
 #include <iomanip>
+#include <fstream>
 #include <map>
+#include <QPrinter>
+#include <QTextDocument>
+#include <QString>
 
 namespace vkt {
 namespace mep {
@@ -196,6 +200,130 @@ std::string ScheduleGenerator::ExportToCSV() const {
     }
     
     return ss.str();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PDF EXPORT (Qt6::PrintSupport)
+// ═══════════════════════════════════════════════════════════
+
+bool ScheduleGenerator::ExportToPDF(const std::string& filePath, const std::string& projectName) const {
+    QString report = QString::fromStdString(GenerateHydraulicReport());
+
+    // Markdown → basit HTML dönüşümü (QPrinter HTML destekler)
+    report.replace(QStringLiteral("# "),  QStringLiteral("<h1>"));
+    report.replace(QStringLiteral("## "), QStringLiteral("<h2>"));
+    report.replace(QStringLiteral("### "),QStringLiteral("<h3>"));
+    report.replace(QStringLiteral("\n---\n"), QStringLiteral("<hr/>"));
+    report.replace(QStringLiteral("**"), QStringLiteral("<b>"));
+    // Satır sonlarını <br> yap
+    report.replace(QStringLiteral("\n"), QStringLiteral("<br/>\n"));
+
+    QString html = QStringLiteral(
+        "<html><head><meta charset='utf-8'/>"
+        "<style>body{font-family:Arial,sans-serif;font-size:10pt;}"
+        "h1{color:#1a5276;}h2{color:#1f618d;}table{border-collapse:collapse;width:100%;}"
+        "th,td{border:1px solid #ccc;padding:4px 8px;}th{background:#d6eaf8;}"
+        "</style></head><body>%1</body></html>"
+    ).arg(report);
+
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(QString::fromStdString(filePath));
+    printer.setPageSize(QPageSize(QPageSize::A4));
+    printer.setPageOrientation(QPageLayout::Portrait);
+
+    QTextDocument doc;
+    doc.setHtml(html);
+    doc.print(&printer);
+
+    return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  EXCEL EXPORT (Office Open XML / SpreadsheetML)
+// ═══════════════════════════════════════════════════════════
+
+bool ScheduleGenerator::ExportToExcel(const std::string& filePath) const {
+    // SpreadsheetML formatı: .xlsx uzantılı ama zip içermeyen XML.
+    // Excel 2003+ ve LibreOffice bu formatı doğrudan açar.
+    // Gerçek zip-tabanlı .xlsx için ileride libxlsxwriter eklenebilir.
+
+    std::ofstream f(filePath);
+    if (!f.is_open()) return false;
+
+    auto xmlCell = [](const std::string& val, bool header = false) -> std::string {
+        std::string style = header ? " ss:StyleID=\"header\"" : "";
+        return "<Cell" + style + "><Data ss:Type=\"String\">" + val + "</Data></Cell>";
+    };
+    auto numCell = [](double val) -> std::string {
+        std::ostringstream ss;
+        ss << std::fixed << std::setprecision(3) << val;
+        return "<Cell><Data ss:Type=\"Number\">" + ss.str() + "</Data></Cell>";
+    };
+
+    f << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      << "<?mso-application progid=\"Excel.Sheet\"?>\n"
+      << "<Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\"\n"
+      << " xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\">\n"
+      << "<Styles>\n"
+      << " <Style ss:ID=\"header\"><Font ss:Bold=\"1\"/>"
+      << "<Interior ss:Color=\"#D6EAF8\" ss:Pattern=\"Solid\"/></Style>\n"
+      << "</Styles>\n";
+
+    // --- Sayfa 1: Malzeme Listesi ---
+    f << "<Worksheet ss:Name=\"Malzeme Listesi\"><Table>\n";
+    f << "<Row>" << xmlCell("Malzeme/Armatür", true)
+                 << xmlCell("Birim", true)
+                 << xmlCell("Miktar", true) << "</Row>\n";
+    for (const auto& item : GenerateMaterialList()) {
+        f << "<Row>" << xmlCell(item.description)
+                     << xmlCell(item.unit)
+                     << numCell(item.quantity) << "</Row>\n";
+    }
+    f << "</Table></Worksheet>\n";
+
+    // --- Sayfa 2: Temiz Su Boruları ---
+    f << "<Worksheet ss:Name=\"Temiz Su\"><Table>\n";
+    f << "<Row>" << xmlCell("Boru ID", true)
+                 << xmlCell("Çap (mm)", true)
+                 << xmlCell("Uzunluk (m)", true)
+                 << xmlCell("Debi (L/s)", true)
+                 << xmlCell("Hız (m/s)", true)
+                 << xmlCell("Kayıp (m)", true)
+                 << xmlCell("Malzeme", true) << "</Row>\n";
+    for (const auto& e : m_network.GetEdges()) {
+        if (e.type != EdgeType::Supply) continue;
+        f << "<Row>" << xmlCell(std::to_string(e.id))
+                     << numCell(e.diameter_mm)
+                     << numCell(e.length_m)
+                     << numCell(e.flowRate_m3s * 1000.0)
+                     << numCell(e.velocity_ms)
+                     << numCell(e.headLoss_m)
+                     << xmlCell(e.material) << "</Row>\n";
+    }
+    f << "</Table></Worksheet>\n";
+
+    // --- Sayfa 3: Drenaj Boruları ---
+    f << "<Worksheet ss:Name=\"Drenaj\"><Table>\n";
+    f << "<Row>" << xmlCell("Boru ID", true)
+                 << xmlCell("Çap (mm)", true)
+                 << xmlCell("Eğim (%)", true)
+                 << xmlCell("Kümülatif DU", true)
+                 << xmlCell("Debi (L/s)", true)
+                 << xmlCell("Malzeme", true) << "</Row>\n";
+    for (const auto& e : m_network.GetEdges()) {
+        if (e.type != EdgeType::Drainage) continue;
+        f << "<Row>" << xmlCell(std::to_string(e.id))
+                     << numCell(e.diameter_mm)
+                     << numCell(e.slope * 100.0)
+                     << numCell(e.cumulativeDU)
+                     << numCell(e.flowRate_m3s * 1000.0)
+                     << xmlCell(e.material) << "</Row>\n";
+    }
+    f << "</Table></Worksheet>\n";
+
+    f << "</Workbook>\n";
+    return f.good();
 }
 
 } // namespace mep

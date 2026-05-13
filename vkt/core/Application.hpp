@@ -9,8 +9,8 @@
 
 #include <memory>
 #include <vector>
+#include <string>
 #include "Document.hpp"
-#include "Window.hpp"
 
 namespace vkt {
 namespace core {
@@ -37,10 +37,6 @@ public:
     Document* GetActiveDocument() { return m_activeDocument; }
     void SetActiveDocument(Document* doc) { m_activeDocument = doc; }
 
-    // Window yönetimi
-    Window* CreateWindow();
-    const std::vector<Window*>& GetWindows() const { return m_windows; }
-
 private:
     Application() = default;
     ~Application() = default;
@@ -48,7 +44,6 @@ private:
     Application& operator=(const Application&) = delete;
 
     std::vector<std::unique_ptr<Document>> m_documents;
-    std::vector<Window*> m_windows;
     Document* m_activeDocument = nullptr;
     bool m_running = false;
 };

@@ -17,6 +17,7 @@
 #include <QLabel>
 #include <QString>
 #include <memory>
+#include <unordered_map>
 #include "cad/DXFReader.hpp"
 #ifdef HAVE_LIBREDWG
 #include "cad/DWGReader.hpp"
@@ -60,6 +61,16 @@ public:
      * @brief Import başarılı mı?
      */
     bool WasSuccessful() const { return m_importSuccess; }
+
+    /**
+     * @brief DXF dosyasındaki global $LTSCALE değeri (1.0 = varsayılan)
+     */
+    double GetDXFLtscale() const;
+
+    /**
+     * @brief DWG'den okunan layer bilgilerini getir
+     */
+    std::unordered_map<std::string, cad::Layer> GetLayers() const;
 
 private slots:
     void OnBrowseFile();

@@ -19,7 +19,7 @@ endif()
 find_package(Vulkan REQUIRED)
 
 # Qt6
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui PrintSupport Svg)
 
 # LibreDWG (DWG dosya okuma) - Enabled with basic entity support
 set(LIBREDWG_INCLUDE_DIR "C:/vcpkg/installed/x64-windows/include/libredwg")
@@ -32,6 +32,45 @@ if(EXISTS "${LIBREDWG_INCLUDE_DIR}/dwg.h" AND EXISTS "${LIBREDWG_LIBRARY}")
 else()
     set(LIBREDWG_FOUND FALSE)
     message(WARNING "LibreDWG not found - DWG support DISABLED")
+endif()
+
+# ── Shader compilation (glslc) ──────────────────────────────────────────────
+find_program(GLSLC_EXECUTABLE glslc
+    HINTS "$ENV{VULKAN_SDK}/Bin"
+          "C:/VulkanSDK/1.3.296.0/Bin"
+          "C:/VulkanSDK/1.3.275.0/Bin"
+          "C:/VulkanSDK/1.3.261.1/Bin")
+
+if(GLSLC_EXECUTABLE)
+    set(SHADER_SRC_DIR  "${CMAKE_SOURCE_DIR}/shaders")
+    set(SHADER_OUT_DIR  "${CMAKE_BINARY_DIR}/bin/shaders")
+    file(MAKE_DIRECTORY "${SHADER_OUT_DIR}")
+
+    set(SHADER_SOURCES
+        basic.vert  basic.frag
+        gbuffer.vert  gbuffer.frag
+        fullscreen.vert
+        ssao.frag  ssao_blur.frag  composite.frag
+        clash_detection.comp
+    )
+
+    set(SPV_FILES "")
+    foreach(SHADER ${SHADER_SOURCES})
+        set(SRC "${SHADER_SRC_DIR}/${SHADER}")
+        set(SPV "${SHADER_OUT_DIR}/${SHADER}.spv")
+        add_custom_command(
+            OUTPUT  ${SPV}
+            COMMAND ${GLSLC_EXECUTABLE} ${SRC} -o ${SPV}
+            DEPENDS ${SRC}
+            COMMENT "Compiling shader: ${SHADER}"
+            VERBATIM)
+        list(APPEND SPV_FILES ${SPV})
+    endforeach()
+
+    add_custom_target(VKTShaders ALL DEPENDS ${SPV_FILES})
+    message(STATUS "glslc found — SSAO shaders will be compiled at build time")
+else()
+    message(WARNING "glslc not found — SSAO will be disabled at runtime (shaders/*.spv missing)")
 endif()
 
 # Include directories
@@ -52,18 +91,26 @@ set(SOURCES
     src/main.cpp
     src/core/Application.cpp
     src/core/Document.cpp
-    src/core/Window.cpp
     src/core/Persistence.cpp
+    src/core/FloorManager.cpp
     src/renderer/VulkanRenderer.cpp
     src/renderer/VulkanWindow.cpp
-    src/ui/UI.cpp
+    src/renderer/Gizmo.cpp
     src/ui/MainWindow.cpp
     src/ui/DXFImportDialog.cpp
     src/ui/SpacePanel.cpp
+    src/ui/PrintLayout.cpp
+    src/ui/FixturePropertiesPanel.cpp
+    src/ui/CommandBar.cpp
+    src/ui/SnapOverlay.cpp
+    src/ui/PBRMaterialEditor.cpp
     src/mep/NetworkGraph.cpp
     src/mep/HydraulicSolver.cpp
     src/mep/Database.cpp
     src/mep/ScheduleGenerator.cpp
+    src/mep/RiserDiagram.cpp
+    src/mep/ClashDetection.cpp
+    src/mep/XLSXWriter.cpp
     src/geom/BRep.cpp
     src/cad/Entity.cpp
     src/cad/Layer.cpp
@@ -75,7 +122,12 @@ set(SOURCES
     src/cad/SelectionManager.cpp
     src/cad/Viewport.cpp
     src/cad/Space.cpp
+    src/cad/Dimension.cpp
+    src/cad/Text.cpp
+    src/cad/Hatch.cpp
+    src/cad/FixtureSymbolLibrary.cpp
     src/cad/DXFReader.cpp
+    src/cad/DXFWriter.cpp
     src/cad/DWGReader.cpp  # Placeholder implementation (UI support)
     src/cad/SpaceManager.cpp
     src/cad/SnapManager.cpp
@@ -85,21 +137,29 @@ set(SOURCES
 set(HEADERS
     vkt/core/Application.hpp
     vkt/core/Document.hpp
-    vkt/core/Window.hpp
     vkt/core/Command.hpp
     vkt/core/Persistence.hpp
+    vkt/core/FloorManager.hpp
     vkt/geom/Math.hpp
+    vkt/geom/Quaternion.hpp
     vkt/geom/BRep.hpp
     vkt/mep/NetworkGraph.hpp
     vkt/mep/HydraulicSolver.hpp
+    vkt/mep/MaterialProperties.hpp
     vkt/mep/Database.hpp
     vkt/mep/ScheduleGenerator.hpp
+    vkt/mep/RiserDiagram.hpp
     vkt/render/VulkanRenderer.hpp
     vkt/render/VulkanWindow.hpp
-    vkt/ui/UI.hpp
+    vkt/render/Gizmo.hpp
     vkt/ui/MainWindow.hpp
     vkt/ui/DXFImportDialog.hpp
     vkt/ui/SpacePanel.hpp
+    vkt/ui/PrintLayout.hpp
+    vkt/ui/FixturePropertiesPanel.hpp
+    vkt/ui/CommandBar.hpp
+    vkt/ui/SnapOverlay.hpp
+    vkt/ui/PBRMaterialEditor.hpp
     vkt/cad/Entity.hpp
     vkt/cad/Layer.hpp
     vkt/cad/LayerManager.hpp
@@ -110,7 +170,11 @@ set(HEADERS
     vkt/cad/SelectionManager.hpp
     vkt/cad/Viewport.hpp
     vkt/cad/Space.hpp
+    vkt/cad/Dimension.hpp
+    vkt/cad/Text.hpp
+    vkt/cad/FixtureSymbolLibrary.hpp
     vkt/cad/DXFReader.hpp
+    vkt/cad/DXFWriter.hpp
     vkt/cad/DWGReader.hpp
     vkt/cad/SpaceManager.hpp
     vkt/cad/SnapManager.hpp
@@ -120,12 +184,18 @@ set(HEADERS
 # Executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
+if(GLSLC_EXECUTABLE)
+    add_dependencies(${PROJECT_NAME} VKTShaders)
+endif()
+
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     Vulkan::Vulkan
     Qt6::Core
     Qt6::Widgets
     Qt6::Gui
+    Qt6::PrintSupport
+    Qt6::Svg
 )
 
 # Opsiyonel: LibreDWG

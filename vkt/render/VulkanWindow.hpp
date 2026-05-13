@@ -58,6 +58,9 @@ public:
     void SetMouseReleaseCallback(MouseCallback cb) { m_onMouseRelease = std::move(cb); }
     void SetMouseMoveCallback(MoveCallback cb) { m_onMouseMove = std::move(cb); }
 
+    using ViewportChangeCallback = std::function<void()>;
+    void SetViewportChangeCallback(ViewportChangeCallback cb) { m_onViewportChange = std::move(cb); }
+
 signals:
     void FrameRendered();
 
@@ -90,6 +93,7 @@ private:
     MouseCallback m_onMousePress;
     MouseCallback m_onMouseRelease;
     MoveCallback m_onMouseMove;
+    ViewportChangeCallback m_onViewportChange;
 };
 
 } // namespace render

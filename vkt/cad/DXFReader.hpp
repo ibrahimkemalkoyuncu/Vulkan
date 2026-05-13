@@ -80,11 +80,23 @@ struct DXFCode {
  */
 struct DXFHeader {
     std::string version;        ///< AutoCAD version (AC1009 = R12, AC1015 = R2000)
-    std::string units;          ///< Drawing units
+    std::string units;          ///< Drawing units (string description)
+    int insUnits = 4;           ///< $INSUNITS (4=mm, 6=m, 5=cm, 1=inch, 0=unitless)
+    double ltscale = 1.0;       ///< $LTSCALE global linetype scale
     geom::Vec3 extMin;          ///< Extent minimum
     geom::Vec3 extMax;          ///< Extent maximum
-    
+
     bool IsValid() const { return !version.empty(); }
+
+    /// Returns how many mm one drawing unit equals.
+    /// e.g. mm→1.0, cm→10.0, m→1000.0, inch→25.4
+    double GetScaleToMM() const;
+
+    /// Conversion factor: 1 drawing_unit² → m²
+    double GetAreaToM2() const {
+        double s = GetScaleToMM() / 1000.0; // mm → m
+        return s * s;
+    }
 };
 
 /**
@@ -287,16 +299,11 @@ private:
      * @brief LINE entity oku
      */
     std::unique_ptr<Entity> ReadLine();
-    
-    /**
-     * @brief ARC entity oku
-     */
     std::unique_ptr<Entity> ReadArc();
-    
-    /**
-     * @brief CIRCLE entity oku
-     */
     std::unique_ptr<Entity> ReadCircle();
+    std::unique_ptr<Entity> ReadText();
+    std::unique_ptr<Entity> ReadMText();
+    std::unique_ptr<Entity> ReadHatch();
     
     /**
      * @brief BLOCKS section'ı oku
@@ -314,7 +321,22 @@ private:
     void SkipEntity();
     
     // ==================== YARDIMCI FONKSİYONLAR ====================
-    
+
+    /** Entity ortak özellikleri: layer, renk, lineweight, ltype_scale */
+    struct EntityProps {
+        std::string layer     = "0";
+        Color       color     = Color::ByLayer();
+        double      lineweight = -1.0;   // mm, -1=ByLayer
+        double      ltScale    = 1.0;    // entity ltype scale
+        bool        hasExplicitColor = false;
+    };
+
+    /** DXF group code 8/62/420/370/48 ortak okuma — entity loop'una entegre */
+    bool ReadEntityProp(const DXFCode& code, EntityProps& props);
+
+    /** EntityProps'u entity'ye uygula */
+    void ApplyProps(Entity* entity, const EntityProps& props);
+
     /**
      * @brief Layer ismine göre Layer* al, yoksa default layer döndür
      */

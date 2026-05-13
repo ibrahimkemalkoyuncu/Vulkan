@@ -52,6 +52,25 @@ public:
      */
     std::string ExportToCSV() const;
 
+    /**
+     * @brief PDF rapor dosyasına yaz (Qt6::PrintSupport)
+     * @param filePath Çıktı dosya yolu (.pdf)
+     * @param projectName Rapor başlığında görünecek proje adı
+     * @return Başarılı ise true
+     */
+    bool ExportToPDF(const std::string& filePath, const std::string& projectName = "") const;
+
+    /**
+     * @brief Excel (.xlsx) formatında metraj + hidrolik tablo
+     * @param filePath Çıktı dosya yolu (.xlsx)
+     * @return Başarılı ise true
+     *
+     * Harici kütüphane gerektirmez: Office Open XML (SpreadsheetML) formatında
+     * zip içermeyen tek XML çıktısı — Excel ve LibreOffice tarafından açılabilir.
+     * Gerçek .xlsx (zip) için libxlsxwriter eklenebilir.
+     */
+    bool ExportToExcel(const std::string& filePath) const;
+
 private:
     const NetworkGraph& m_network;
     

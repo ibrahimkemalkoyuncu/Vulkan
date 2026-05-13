@@ -22,7 +22,12 @@ struct CriticalPathResult {
     uint32_t disadvantagedNodeId = 0;   ///< En dezavantajlı düğüm
     double totalHeadLoss_m = 0.0;       ///< Toplam kayıp (m)
     double requiredPumpHead_m = 0.0;    ///< Gerekli pompa yüksekliği (m)
+    double requiredFlow_m3h = 0.0;      ///< Kaynak çıkış debisi (m³/h)
     std::vector<uint32_t> criticalPath; ///< Kritik devre düğüm listesi
+    std::string suggestedPumpModel;     ///< Önerilen pompa modeli
+    double suggestedPumpHead_m = 0.0;   ///< Önerilen pompa max yüksekliği (m)
+    double suggestedPumpFlow_m3h = 0.0; ///< Önerilen pompa max debisi (m³/h)
+    double suggestedPumpPower_kW = 0.0; ///< Önerilen pompa gücü (kW)
 };
 
 /**
@@ -80,6 +85,10 @@ private:
     void DistributeSupplyFlows();
     void DistributeDrainageFlows();
 
+    // TS EN 806-3: hız kısıtına göre minimum çap seçimi (Database'den)
+    void AutoSizeSupplyPipes();
+    double SelectSupplyPipeDiameter(double flowRate_m3s, const std::string& material) const;
+
     // Besleme yardımcı fonksiyonlar — TS EN 806-3
     double CalculateFlowFromLU(double loadUnit) const;
     double CalculateHeadLoss(const Edge& edge);
@@ -97,6 +106,14 @@ private:
     void DFS(uint32_t nodeId, std::vector<uint32_t>& path,
              std::vector<uint32_t>& bestPath, double& maxLoss, double currentLoss,
              std::unordered_set<uint32_t>& visited);
+
+    // Hardy-Cross — kapalı döngü ağ çözümü
+    struct NetworkLoop {
+        std::vector<std::pair<uint32_t, int>> edges; // (edgeId, yön: +1 veya -1)
+    };
+    void SolveHardyCross(const std::vector<NetworkLoop>& loops);
+    std::vector<NetworkLoop> DetectLoops() const;
+    double ComputeResistance(const Edge& edge) const;
 
     NetworkGraph& m_network;
     BuildingType m_buildingType = BuildingType::Residential;

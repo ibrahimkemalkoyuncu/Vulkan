@@ -19,6 +19,11 @@
 #include "cad/Viewport.hpp"
 #include "cad/Entity.hpp"
 #include "ui/SpacePanel.hpp"
+#include "ui/FixturePropertiesPanel.hpp"
+#include "ui/CommandBar.hpp"
+#include "ui/SnapOverlay.hpp"
+#include "ui/PBRMaterialEditor.hpp"
+#include "cad/SnapManager.hpp"
 
 namespace vkt {
 namespace render { class VulkanWindow; }
@@ -87,6 +92,19 @@ private slots:
     void OnSpaceDoubleClicked(unsigned long long spaceId);
     void OnDeleteSpace(unsigned long long spaceId);
 
+    // Node seçimi
+    void OnNodeSelected(uint32_t nodeId);
+    void OnNodeUpdated(uint32_t nodeId);
+
+    // PBR malzeme editörü
+    void OnPBRMaterialChanged(float roughness, float metalness, float ambient,
+                               float r, float g, float b,
+                               float lightAzimuth, float lightElevation);
+
+    // Komut satırı
+    void OnCommandEntered(const QString& cmd);
+    void OnCommandEscape();
+
     // Property değişiklikleri
     void OnPropertiesUpdated();
     void OnDiameterChanged(const QString& text);
@@ -133,6 +151,21 @@ private:
     SpacePanel* m_spacePanel = nullptr;
     std::unique_ptr<cad::SpaceManager> m_spaceManager;
 
+    // Fixture Properties Panel
+    QDockWidget*            m_fixtureDock  = nullptr;
+    FixturePropertiesPanel* m_fixturePanel = nullptr;
+
+    QDockWidget*            m_pbrDock      = nullptr;
+    PBRMaterialEditor*      m_pbrEditor    = nullptr;
+
+    // Komut satırı
+    CommandBar*  m_commandBar  = nullptr;
+
+    // Snap overlay (Vulkan container üzerinde şeffaf crosshair)
+    SnapOverlay* m_snapOverlay      = nullptr;
+    QWidget*     m_vulkanContainer  = nullptr;
+    cad::SnapManager m_snapManager;
+
     // Actions
     QAction* m_actNew = nullptr;
     QAction* m_actOpen = nullptr;
@@ -157,12 +190,19 @@ private:
     // Tool state
     ToolMode m_currentToolMode = ToolMode::Select;
     DrawState m_drawState = DrawState::Idle;
-    uint32_t m_firstNodeId = 0; // DrawPipe icin ilk node
-    geom::Vec3 m_firstClickPos; // Ilk tiklama world koordinati
+    uint32_t m_firstNodeId = 0;       // DrawPipe icin ilk node
+    geom::Vec3 m_firstClickPos;       // Ilk tiklama world koordinati
+
+    // Selection state (Select modunda aktif seçim)
+    uint32_t m_selectedNodeId = 0;    // 0 = seçim yok
+    uint32_t m_selectedEdgeId = 0;    // 0 = seçim yok
 
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
     void HandleMouseMove(double worldX, double worldY);
+
+    // CAD text entity'lerini SnapOverlay'e aktar
+    void RefreshTextOverlay();
 };
 
 } // namespace ui

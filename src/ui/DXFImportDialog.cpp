@@ -531,5 +531,32 @@ std::vector<cad::SpaceCandidate> DXFImportDialog::GetAcceptedSpaces() const {
     return accepted;
 }
 
+/**
+ * @brief DWG/DXF'ten okunan layer bilgilerini döndür
+ */
+std::unordered_map<std::string, cad::Layer> DXFImportDialog::GetLayers() const {
+#ifdef HAVE_LIBREDWG
+    if (m_fileType == FileType::DWG && m_dwgReader) {
+        return m_dwgReader->GetLayers();
+    }
+#endif
+    if (m_fileType == FileType::DXF && m_dxfReader) {
+        // DXFReader std::map kullanıyor, unordered_map'e dönüştür
+        const auto& layers = m_dxfReader->GetLayers();
+        std::unordered_map<std::string, cad::Layer> result;
+        for (const auto& pair : layers) {
+            result[pair.first] = pair.second;
+        }
+        return result;
+    }
+    return {};
+}
+
+double DXFImportDialog::GetDXFLtscale() const {
+    if (m_fileType == FileType::DXF && m_dxfReader)
+        return m_dxfReader->GetHeader().ltscale;
+    return 1.0;
+}
+
 } // namespace ui
 } // namespace vkt

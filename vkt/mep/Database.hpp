@@ -47,6 +47,17 @@ struct ZetaData {
 };
 
 /**
+ * @struct PumpData
+ * @brief Pompa katalog verisi
+ */
+struct PumpData {
+    std::string model;          ///< Model adı
+    double maxHead_m  = 0.0;    ///< Maksimum yükseklik (m)
+    double maxFlow_m3h = 0.0;   ///< Maksimum debi (m³/h)
+    double ratedPower_kW = 0.0; ///< Anma gücü (kW)
+};
+
+/**
  * @class Database
  * @brief Tesisat veritabanı yönetimi
  * 
@@ -68,15 +79,21 @@ public:
     double GetZeta(const std::string& fittingType) const;
     std::vector<std::string> GetFittingTypes() const;
 
+    // Pompa kataloğu — gerekli yükseklik ve debiye göre en küçük uygun pompa
+    PumpData SuggestPump(double requiredHead_m, double requiredFlow_m3h) const;
+    const std::vector<PumpData>& GetPumpCatalog() const { return m_pumps; }
+
 private:
     Database();
     void InitializeFixtures();
     void InitializePipes();
     void InitializeZetas();
+    void InitializePumps();
 
     std::map<std::string, FixtureData> m_fixtures;
     std::map<std::string, PipeData> m_pipes;
     std::map<std::string, double> m_zetas;
+    std::vector<PumpData> m_pumps;
 };
 
 } // namespace mep

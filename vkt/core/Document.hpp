@@ -10,10 +10,13 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include "mep/NetworkGraph.hpp"
 #include "cad/Entity.hpp"
+#include "cad/Layer.hpp"
 #include "geom/Math.hpp"
 #include "Command.hpp"
+#include "core/FloorManager.hpp"
 
 namespace vkt {
 namespace core {
@@ -54,6 +57,19 @@ public:
     const std::vector<std::unique_ptr<cad::Entity>>& GetCADEntities() const { return m_cadEntities; }
     void GetCADExtents(geom::Vec3& outMin, geom::Vec3& outMax) const;
 
+    // Koordinat normalizasyonu: centroid orijinden uzaksa tüm entity'leri kaydır
+    // Büyük koordinatlı çizimlerde (ulusal grid sistemi vb.) float32 hassasiyetini korur
+    geom::Vec3 NormalizeCoordinates();
+    const geom::Vec3& GetWorldOffset() const { return m_worldOffset; }
+
+    // Layer yönetimi (DWG'den okunan katman bilgileri)
+    void SetLayers(const std::unordered_map<std::string, cad::Layer>& layers) { m_layers = layers; }
+    const std::unordered_map<std::string, cad::Layer>& GetLayers() const { return m_layers; }
+
+    // Kat yönetimi
+    FloorManager& GetFloorManager() { return m_floorManager; }
+    const FloorManager& GetFloorManager() const { return m_floorManager; }
+
 private:
     std::string m_filePath;
     std::string m_title = "Untitled";
@@ -61,6 +77,9 @@ private:
 
     mep::NetworkGraph m_network;
     std::vector<std::unique_ptr<cad::Entity>> m_cadEntities;
+    std::unordered_map<std::string, cad::Layer> m_layers;
+    FloorManager m_floorManager;
+    geom::Vec3 m_worldOffset;  ///< Normalizasyon sonrası orijinal centroid offset
 
     std::vector<std::unique_ptr<Command>> m_commandHistory;
     size_t m_commandIndex = 0;

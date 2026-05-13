@@ -53,6 +53,7 @@ void VulkanWindow::RenderFrame() {
     // VP matrisini renderer'a set et
     geom::Mat4 vp = m_viewport.GetViewProjectionMatrix();
     m_renderer.SetViewProjectionMatrix(vp);
+    m_renderer.SetPixelsPerWorldUnit(static_cast<float>(m_viewport.GetZoom()));
 
     m_renderer.BeginFrame();
 
@@ -109,6 +110,7 @@ void VulkanWindow::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton && m_isPanning) {
         m_isPanning = false;
         setCursor(Qt::ArrowCursor);
+        if (m_onViewportChange) m_onViewportChange();
         return;
     }
 
@@ -148,6 +150,7 @@ void VulkanWindow::wheelEvent(QWheelEvent* event) {
 
     QPointF pos = event->position();
     m_viewport.ZoomAt(factor, pos.x(), pos.y());
+    if (m_onViewportChange) m_onViewportChange();
 }
 
 void VulkanWindow::keyPressEvent(QKeyEvent* event) {

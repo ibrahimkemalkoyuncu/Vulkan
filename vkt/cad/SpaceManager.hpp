@@ -62,6 +62,10 @@ struct SpaceDetectionOptions {
     double textSearchRadius = 500.0;        ///< TEXT arama yarıçapı (mm)
     bool requireClosedPolylines = true;     ///< Sadece kapalı polyline'lar
     bool autoInferTypes = true;             ///< Otomatik tip tahmini
+    /// 1 drawing_unit² → m² dönüşüm katsayısı.
+    /// DXFReader::GetHeader().GetAreaToM2() ile doldurulur.
+    /// Default 1.0 → koordinatlar zaten m² cinsinden (backward-compat).
+    double drawingUnitsToM2 = 1.0;
 };
 
 /**
@@ -153,7 +157,33 @@ public:
         const std::vector<Entity*>& entities,
         const SpaceDetectionOptions& options = SpaceDetectionOptions{}
     );
+
+    /**
+     * @brief LINE/LWPOLYLINE segmentlerini birleştirerek kapalı oda döngüleri bul.
+     * Kapalı polyline olmayan ama birbirine bağlı duvar segmentlerinden oluşan
+     * odaları tespit eder.
+     * @param entities Tüm entity'ler
+     * @param options Tespit ayarları
+     * @param snapTolerance Uç nokta birleştirme toleransı (world unit)
+     * @return Mahal adayları listesi (oluşturulan polyline'lar SpaceManager'a aittir)
+     */
+    std::vector<SpaceCandidate> DetectSpacesFromSegments(
+        const std::vector<Entity*>& entities,
+        const SpaceDetectionOptions& options = SpaceDetectionOptions{},
+        double snapTolerance = 50.0
+    );
     
+    /**
+     * @brief Çakışan/iç içe geçmiş mahal adaylarını ele.
+     * İki aday merkezi örtüşüyor veya biri diğerinin içindeyse,
+     * büyük olanı (büyük alan = dış çerçeve) kaldır; küçük odaları tut.
+     * @param candidates Adaylar listesi (in-place değiştirilir)
+     * @param overlapRatio Bu oranda alan örtüşmesi "çakışma" sayılır (0..1)
+     */
+    static void RemoveOverlappingCandidates(
+        std::vector<SpaceCandidate>& candidates,
+        double overlapRatio = 0.80);
+
     /**
      * @brief Mahal adayını onaylayıp Space nesnesi oluştur
      * @param candidate Onaylanan aday
@@ -251,12 +281,13 @@ public:
 
 private:
     std::map<EntityId, std::unique_ptr<Space>> m_spaces; ///< Mahal koleksiyonu
-    
+    std::vector<std::unique_ptr<Polyline>> m_syntheticPolylines; ///< DetectSpacesFromSegments'in oluşturduğu polyline'lar
+
     /**
      * @brief Kapalı polyline'ları filtrele
      */
     std::vector<Polyline*> FilterClosedPolylines(const std::vector<Entity*>& entities);
-    
+
     /**
      * @brief Layer'a göre filtrele
      */

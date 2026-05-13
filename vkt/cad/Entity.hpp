@@ -180,6 +180,9 @@ struct Color {
     static Color Cyan()     { return {0, 255, 255, 255}; }
     static Color Magenta()  { return {255, 0, 255, 255}; }
     static Color ByLayer()  { return {0, 0, 0, 0}; } ///< Layer rengini kullan (alpha=0 flag)
+    static Color ByBlock()  { return {0, 0, 0, 2}; } ///< INSERT rengini kullan (alpha=2 flag)
+    bool IsByLayer() const  { return a == 0; }
+    bool IsByBlock() const  { return a == 2; }
 
     /// ACI renk indeksinden Color oluştur (AutoCAD Color Index 1-255)
     static Color FromACI(int index);
@@ -261,6 +264,20 @@ public:
     /** @brief Renk */
     Color GetColor() const { return m_color; }
     void SetColor(const Color& color) { m_color = color; m_flags |= EF_Modified; }
+
+    /** @brief Layer adı (DWG'den okunan, string olarak) */
+    const std::string& GetLayerName() const { return m_layerName; }
+    void SetLayerName(const std::string& name) { m_layerName = name; }
+
+    /** @brief Linetype adı ("CONTINUOUS","DASHED","HIDDEN","CENTER","PHANTOM") */
+    const std::string& GetLinetype() const { return m_linetype; }
+    void SetLinetype(const std::string& lt) { m_linetype = lt; }
+
+    /** @brief Çizgi kalınlığı mm (-1=ByLayer, -2=ByBlock, 0+=explicit) */
+    double GetLineweight() const { return m_lineweight; }
+    void SetLineweight(double lw) { m_lineweight = lw; }
+    double GetLinetypeScale() const { return m_linetypeScale; }
+    void SetLinetypeScale(double s) { m_linetypeScale = (s > 0) ? s : 1.0; }
     
     /** @brief Pozisyon (entity'nin anchor noktası) */
     geom::Vec3 GetPosition() const { return m_position; }
@@ -362,6 +379,10 @@ protected:
     // Görünüm
     Color m_color = Color::ByLayer(); ///< Renk (ByLayer ise layer rengini kullan)
     uint32_t m_flags = EF_Default;    ///< Durum bayrakları
+    std::string m_layerName = "0";    ///< Layer adı (DWG'den okunan)
+    std::string m_linetype  = "CONTINUOUS"; ///< Linetype adı
+    double      m_lineweight    = -1.0;  ///< Çizgi kalınlığı mm (-1=ByLayer)
+    double      m_linetypeScale = 1.0;   ///< Entity ltype scale (code 48)
     
     // ID generator (static)
     static EntityId s_nextId;

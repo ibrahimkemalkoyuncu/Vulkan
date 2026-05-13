@@ -61,14 +61,15 @@ public:
     /**
      * @brief Layer'ı sil
      * @param name Silinecek layer ismi
+     * @param entityCount Bu layer'daki entity sayısı (0 ise silinir, >0 reddedilir)
      * @return Başarılı ise true
-     * 
+     *
      * Silme engelleri:
      * - "0" layer'ı silinemez
      * - Aktif layer silinemez
      * - Entity içeren layer silinemez (önce entity'ler taşınmalı/silinmeli)
      */
-    bool DeleteLayer(const std::string& name);
+    bool DeleteLayer(const std::string& name, size_t entityCount = 0);
     
     /**
      * @brief Tüm layer'ları temizle (sadece "0" kalır)

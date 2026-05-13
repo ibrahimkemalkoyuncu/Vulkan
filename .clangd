@@ -1,0 +1,29 @@
+CompileFlags:
+  # Point clangd to the Qt Creator-generated compile_commands.json
+  CompilationDatabase: build/Desktop_Qt_6_10_1_MinGW_64_bit-Debug/.qtc_clangd
+
+  # Additional flags for headers that are not in compile_commands.json
+  Add:
+    - "-IC:/Users/afney/Desktop/vulkan/vkt"
+    - "-IC:/Users/afney/Desktop/vulkan/third_party"
+    - "-IC:/VulkanSDK/1.4.335.0/Include"
+    - "-IC:/vcpkg/installed/x64-windows/include"
+    - "-isystem"
+    - "C:/Qt/Tools/mingw1310_64/x86_64-w64-mingw32/include"
+    - "-isystem"
+    - "C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++"
+    - "-isystem"
+    - "C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/x86_64-w64-mingw32"
+    - "-isystem"
+    - "C:/Qt/Tools/mingw1310_64/lib/gcc/x86_64-w64-mingw32/13.1.0/include/c++/backward"
+    - "--target=x86_64-w64-mingw32"
+    - "-DHAVE_LIBREDWG"
+    - "-DNOMINMAX"
+    - "-DWIN32_LEAN_AND_MEAN"
+    - "-D_WIN32"
+    - "-D_WIN64"
+
+Diagnostics:
+  # Suppress false positives from system header resolution
+  Suppress:
+    - pp_file_not_found

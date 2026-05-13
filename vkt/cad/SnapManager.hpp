@@ -72,17 +72,30 @@ public:
      * @brief Verilen dünya koordinatı etrafında snap noktası bul
      * @param worldPos Mouse'un dünya koordinatı
      * @param entities Snap yapılacak entity'ler
-     * @param viewScale Viewport ölçeği (piksel/birim) — aperture dönüşümü için
-     * @return En yakın snap noktası
+     * @param viewScale Viewport ölçeği (piksel/birim) — aperture ve adaptive grid için
+     * @return En yüksek öncelikli snap noktası
      */
     SnapResult FindSnapPoint(const geom::Vec3& worldPos,
                              const std::vector<Entity*>& entities,
                              double viewScale = 1.0) const;
 
+    /**
+     * @brief Adaptive grid: viewScale bazında grid aralığını otomatik hesapla.
+     * Manuel SetGridSpacing ile override edilebilir (m_gridOverride != 0).
+     */
+    double AdaptiveGridSpacing(double viewScale) const;
+
+    /// 0 ise adaptive grid aktif; != 0 ise bu değer kullanılır
+    void SetGridSpacingOverride(double spacing) { m_gridOverride = spacing; }
+    void ClearGridSpacingOverride()             { m_gridOverride = 0.0; }
+
 private:
     uint32_t m_activeSnaps = 0; ///< Bit flags
-    double m_gridSpacing = 0.1; ///< 100mm = 0.1m
+    double m_gridSpacing = 0.1; ///< 100mm = 0.1m (legacy, adaptive modda kullanılmaz)
+    double m_gridOverride = 0.0;///< 0 = adaptive; != 0 = sabit override
     double m_aperture = 10.0;   ///< Piksel cinsinden yakalama mesafesi
+
+    static int SnapPriority(SnapType type); ///< Düşük sayı = yüksek öncelik
 
     // Snap hesaplama yardımcıları
     void FindEndpointSnaps(const Entity* entity, const geom::Vec3& worldPos,
@@ -94,7 +107,12 @@ private:
     void FindNearestSnaps(const Entity* entity, const geom::Vec3& worldPos,
                           double tolerance, std::vector<SnapResult>& results) const;
     void FindGridSnap(const geom::Vec3& worldPos, double tolerance,
-                      std::vector<SnapResult>& results) const;
+                      double gridSpacing, std::vector<SnapResult>& results) const;
+    void FindIntersectionSnaps(const Entity* a, const Entity* b,
+                               const geom::Vec3& worldPos, double tolerance,
+                               std::vector<SnapResult>& results) const;
+    void FindPerpendicularSnaps(const Entity* entity, const geom::Vec3& worldPos,
+                                double tolerance, std::vector<SnapResult>& results) const;
 
     static uint32_t SnapTypeToBit(SnapType type);
 };

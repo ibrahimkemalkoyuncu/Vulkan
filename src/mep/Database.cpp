@@ -18,6 +18,7 @@ Database::Database() {
     InitializeFixtures();
     InitializePipes();
     InitializeZetas();
+    InitializePumps();
 }
 
 void Database::InitializeFixtures() {
@@ -79,6 +80,36 @@ void Database::InitializeZetas() {
     m_zetas["Giriş (Keskin)"] = 0.5;
     m_zetas["Giriş (Yuvarlatılmış)"] = 0.05;
     m_zetas["Çıkış"] = 1.0;
+}
+
+void Database::InitializePumps() {
+    // Standart sirkülasyon / hidrofar pompaları (head m, flow m³/h, kW)
+    m_pumps = {
+        {"Wilo Yonos PICO 25/1-4",   4.0,   2.0,  0.04},
+        {"Grundfos UPS 25-40",        4.0,   3.5,  0.06},
+        {"Wilo Stratos 25/1-8",       8.0,   4.5,  0.08},
+        {"Grundfos CM 3-4",          30.0,   3.0,  0.37},
+        {"Grundfos CM 5-5",          45.0,   5.0,  0.55},
+        {"Wilo MVI 204",             40.0,  20.0,  1.10},
+        {"Grundfos CM 10-3",         30.0,  10.0,  0.75},
+        {"Wilo MVI 406",             60.0,  40.0,  2.20},
+        {"Grundfos CM 25-3",         30.0,  25.0,  1.50},
+        {"Wilo MVI 810",             80.0,  80.0,  5.50},
+        {"Grundfos CR 10-12",       120.0,  10.0,  5.50},
+        {"Wilo MVI 1605",           150.0, 160.0, 15.00},
+    };
+}
+
+PumpData Database::SuggestPump(double requiredHead_m, double requiredFlow_m3h) const {
+    // Katalogdan gerekli yükseklik ve debiyi karşılayan en küçük pompayı seç
+    // Sıralama: maxHead_m ve maxFlow_m3h'ye göre ascending (InitializePumps'ta zaten küçükten büyüğe)
+    for (const auto& pump : m_pumps) {
+        if (pump.maxHead_m >= requiredHead_m && pump.maxFlow_m3h >= requiredFlow_m3h) {
+            return pump;
+        }
+    }
+    // Hiçbiri yetmiyorsa en büyüğünü döndür
+    return m_pumps.empty() ? PumpData{} : m_pumps.back();
 }
 
 FixtureData Database::GetFixture(const std::string& name) const {

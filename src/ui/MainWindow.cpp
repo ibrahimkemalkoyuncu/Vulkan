@@ -6,14 +6,18 @@
 #include "ui/MainWindow.hpp"
 #include "ui/DXFImportDialog.hpp"
 #include "ui/SpacePanel.hpp"
+#include "ui/CommandBar.hpp"
+#include "ui/SnapOverlay.hpp"
 #include "render/VulkanWindow.hpp"
 #include "mep/HydraulicSolver.hpp"
 #include "mep/ScheduleGenerator.hpp"
 #include "mep/Database.hpp"
-#include "core/Persistence.hpp"
+#include "mep/XLSXWriter.hpp"
+#include "mep/MaterialProperties.hpp"
 #include "core/Application.hpp"
+#include "core/Commands.hpp"
+#include "cad/Text.hpp"
 #include <QMenuBar>
-#include <fstream>
 #include <QStatusBar>
 #include <QMessageBox>
 #include <QFileDialog>
@@ -23,15 +27,12 @@
 #include <QLabel>
 #include <QPushButton>
 #include <iostream>
-#include <fstream>
+#include <string>
+#include <cmath>
+#include <algorithm>
 
 static void LogCAD(const std::string& msg) {
-    static std::ofstream logFile("C:/Users/afney/Desktop/vkt_cad_import.log", std::ios::trunc);
-    if (logFile.is_open()) {
-        logFile << msg << std::endl;
-        logFile.flush();
-    }
-    std::cout << msg << std::endl;
+    std::cout << "[MainWindow] " << msg << std::endl;
 }
 
 namespace vkt {
@@ -48,15 +49,22 @@ MainWindow::MainWindow(QWidget* parent)
 
     // Vulkan rendering penceresi oluştur
     m_vulkanWindow = new render::VulkanWindow();
-    QWidget* vulkanWidget = QWidget::createWindowContainer(m_vulkanWindow, this);
-    vulkanWidget->setMinimumSize(400, 300);
-    setCentralWidget(vulkanWidget);
+    m_vulkanContainer = QWidget::createWindowContainer(m_vulkanWindow, this);
+    m_vulkanContainer->setMinimumSize(400, 300);
+    setCentralWidget(m_vulkanContainer);
+
+    // Snap overlay — şeffaf, mouse olaylarını geçirir
+    m_snapOverlay = new SnapOverlay(m_vulkanContainer);
+    m_snapOverlay->resize(m_vulkanContainer->size());
+    m_snapOverlay->raise();
 
     // Mouse callback'lerini bagla
     m_vulkanWindow->SetMousePressCallback(
         [this](double wx, double wy, Qt::MouseButton btn) { HandleMousePress(wx, wy, btn); });
     m_vulkanWindow->SetMouseMoveCallback(
         [this](double wx, double wy) { HandleMouseMove(wx, wy); });
+    m_vulkanWindow->SetViewportChangeCallback(
+        [this]() { RefreshTextOverlay(); });
 
     CreateActions();
     CreateMenus();
@@ -274,11 +282,49 @@ void MainWindow::CreateDockPanels() {
     connect(m_spacePanel, &SpacePanel::SpaceDoubleClicked, this, &MainWindow::OnSpaceDoubleClicked);
     connect(m_spacePanel, &SpacePanel::DeleteSpaceRequested, this, &MainWindow::OnDeleteSpace);
 
+    // Fixture Properties Panel
+    m_fixtureDock  = new QDockWidget("Armatür Özellikleri", this);
+    m_fixturePanel = new FixturePropertiesPanel(this);
+    m_fixtureDock->setWidget(m_fixturePanel);
+    m_fixtureDock->setMinimumWidth(220);
+    addDockWidget(Qt::RightDockWidgetArea, m_fixtureDock);
+    tabifyDockWidget(m_propertyPanel, m_fixtureDock);
+    m_propertyPanel->raise(); // Boru özellikleri varsayılan sekme
+
+    connect(m_fixturePanel, &FixturePropertiesPanel::NodeUpdated,
+            this,           &MainWindow::OnNodeUpdated);
+
+    // PBR Material Editor
+    m_pbrDock   = new QDockWidget("PBR Malzeme Editörü", this);
+    m_pbrEditor = new PBRMaterialEditor(this);
+    m_pbrDock->setWidget(m_pbrEditor);
+    m_pbrDock->setMinimumWidth(240);
+    addDockWidget(Qt::RightDockWidgetArea, m_pbrDock);
+    tabifyDockWidget(m_fixtureDock, m_pbrDock);
+
+    connect(m_pbrEditor, &PBRMaterialEditor::MaterialChanged,
+            this,        &MainWindow::OnPBRMaterialChanged);
+
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
     m_logList = new QListWidget();
     m_logPanel->setWidget(m_logList);
     addDockWidget(Qt::BottomDockWidgetArea, m_logPanel);
+
+    // Komut Satırı (alt bar — Log'un yanına yerleştirilir)
+    m_commandBar = new CommandBar(this);
+    auto* cmdDock = new QDockWidget("Komut Satırı", this);
+    cmdDock->setWidget(m_commandBar);
+    cmdDock->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    cmdDock->setTitleBarWidget(new QWidget()); // başlık çubuğunu gizle
+    addDockWidget(Qt::BottomDockWidgetArea, cmdDock);
+    tabifyDockWidget(m_logPanel, cmdDock);
+    cmdDock->raise();
+
+    connect(m_commandBar, &CommandBar::CommandEntered,
+            this,          &MainWindow::OnCommandEntered);
+    connect(m_commandBar, &CommandBar::EscapePressed,
+            this,          &MainWindow::OnCommandEscape);
 }
 
 void MainWindow::UpdateUI() {
@@ -375,9 +421,45 @@ void MainWindow::OnImportDXF() {
                 }
             }
 
+            // Dialog'dan mahal kabul edilmediyse otomatik tespit yap
+            if (addedCount == 0 && !entityPtrs.empty()) {
+                cad::SpaceDetectionOptions autoOpts;
+                autoOpts.wallLayerNames   = {};      // tüm layer'lardan tara
+                autoOpts.minArea          = 1.0;     // 1 m²
+                autoOpts.maxArea          = 10000.0;
+                autoOpts.detectNamesFromText = true;
+                autoOpts.autoInferTypes   = true;
+
+                // Önce kapalı polyline'lardan dene
+                auto autoCandidates = m_spaceManager->DetectSpacesFromEntities(entityPtrs, autoOpts);
+
+                // Kapalı polyline'dan bulunamadıysa LINE/LWPOLYLINE segmentlerini birleştir
+                if (autoCandidates.empty()) {
+                    autoCandidates = m_spaceManager->DetectSpacesFromSegments(entityPtrs, autoOpts, 50.0);
+                    LogCAD("[MainWindow] Segment birleştirme ile " + std::to_string(autoCandidates.size()) + " mahal adayı");
+                }
+
+                for (const auto& c : autoCandidates) {
+                    if (c.isValid) {
+                        if (m_spaceManager->AcceptCandidate(c)) {
+                            addedCount++;
+                        }
+                    }
+                }
+                LogCAD("[MainWindow] Otomatik mahal tespiti: " + std::to_string(autoCandidates.size())
+                       + " aday, " + std::to_string(addedCount) + " kabul edildi");
+            }
+
             // Komşulukları tespit et
             if (addedCount > 0) {
                 m_spaceManager->DetectAllAdjacencies(10.0); // 10mm tolerance
+            }
+
+            // Layer bilgilerini kaydet (entity'lerden ÖNCE — renk çözümlemesi tamamlanmış)
+            auto layers = dialog.GetLayers();
+            if (m_document && !layers.empty()) {
+                m_document->SetLayers(layers);
+                LogCAD("[MainWindow] " + std::to_string(layers.size()) + " layers stored in Document");
             }
 
             // CAD entity'leri Document'a kaydet (ownership transfer)
@@ -387,8 +469,22 @@ void MainWindow::OnImportDXF() {
             if (!ownedEntities.empty() && m_document) {
                 m_document->SetCADEntities(std::move(ownedEntities));
                 LogCAD("[MainWindow] Document now has " + std::to_string(m_document->GetCADEntities().size()) + " CAD entities");
+
+                // Büyük koordinatlı çizimleri (ulusal grid, coğrafi referans) origin'e kaydır.
+                // float32 vertex hassasiyetini korur; eksen dağılmasını önler.
+                auto offset = m_document->NormalizeCoordinates();
+                if (offset.x != 0.0 || offset.y != 0.0) {
+                    LogCAD("[MainWindow] Koordinat normalizasyonu uygulandı: offset=("
+                           + std::to_string(offset.x) + ", " + std::to_string(offset.y) + ")");
+                }
+
                 if (m_vulkanWindow) {
                     m_vulkanWindow->SetCADEntities(&m_document->GetCADEntities());
+                    // Layer renk haritasını renderer'a ilet (ByLayer çözümlemesi için)
+                    if (auto* r = m_vulkanWindow->GetRenderer()) {
+                        r->SetLayerMap(m_document->GetLayers());
+                        r->SetGlobalLtscale(static_cast<float>(dialog.GetDXFLtscale()));
+                    }
                     LogCAD("[MainWindow] SetCADEntities on VulkanWindow done");
                 } else {
                     LogCAD("[MainWindow] ERROR: m_vulkanWindow is NULL!");
@@ -406,10 +502,11 @@ void MainWindow::OnImportDXF() {
             m_logList->clear();
             m_logList->addItem(QString("CAD dosyası import başarılı!"));
             m_logList->addItem(QString("- %1 entity yüklendi").arg(entityCount));
+            m_logList->addItem(QString("- %1 layer bulundu").arg(layers.size()));
             m_logList->addItem(QString("- %1 mahal eklendi").arg(addedCount));
 
-            statusBar()->showMessage(QString("%1 entity, %2 mahal başarıyla yüklendi!")
-                .arg(entityCount).arg(addedCount));
+            statusBar()->showMessage(QString("%1 entity, %2 layer, %3 mahal başarıyla yüklendi!")
+                .arg(entityCount).arg(layers.size()).arg(addedCount));
 
             // Auto zoom to fit imported drawing
             OnZoomExtents();
@@ -436,8 +533,29 @@ void MainWindow::OnRedo() {
 }
 
 void MainWindow::OnDelete() {
-    // TODO: Secili node/edge'leri Command uzerinden sil
-    statusBar()->showMessage("Silme islemi - secim yapilmadi");
+    if (!m_document) return;
+
+    auto& network = m_document->GetNetwork();
+
+    if (m_selectedNodeId != 0) {
+        auto cmd = std::make_unique<core::DeleteNodeCommand>(network, m_selectedNodeId);
+        m_document->ExecuteCommand(std::move(cmd));
+        statusBar()->showMessage(QString("Node #%1 silindi").arg(m_selectedNodeId));
+        m_selectedNodeId = 0;
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
+        if (m_fixturePanel) m_fixturePanel->Clear();
+        m_document->SetModified(true);
+        UpdateUI();
+    } else if (m_selectedEdgeId != 0) {
+        auto cmd = std::make_unique<core::DeleteEdgeCommand>(network, m_selectedEdgeId);
+        m_document->ExecuteCommand(std::move(cmd));
+        statusBar()->showMessage(QString("Kenar #%1 silindi").arg(m_selectedEdgeId));
+        m_selectedEdgeId = 0;
+        m_document->SetModified(true);
+        UpdateUI();
+    } else {
+        statusBar()->showMessage("Silme: önce bir öğe seçin (Select modu)");
+    }
 }
 
 void MainWindow::OnDrawPipe() {
@@ -461,6 +579,7 @@ void MainWindow::OnDrawJunction() {
 void MainWindow::OnSelectMode() {
     m_currentToolMode = ToolMode::Select;
     m_drawState = DrawState::Idle;
+    if (m_snapOverlay) m_snapOverlay->Hide();
     statusBar()->showMessage("Secim modu");
 }
 
@@ -518,6 +637,8 @@ void MainWindow::OnZoomExtents() {
         LogCAD("[OnZoomExtents] Viewport zoom=" + std::to_string(vp.GetZoom())
                + " center=(" + std::to_string(vp.GetCenter().x) + "," + std::to_string(vp.GetCenter().y)
                + ") size=" + std::to_string(vp.GetWidth()) + "x" + std::to_string(vp.GetHeight()));
+        m_vulkanWindow->requestUpdate();
+        RefreshTextOverlay();
     }
 }
 
@@ -588,26 +709,30 @@ void MainWindow::OnExportReport() {
     if (!m_document) return;
 
     QString filePath = QFileDialog::getSaveFileName(this,
-        "Rapor Kaydet", "", "CSV Dosyasi (*.csv);;Metin Dosyasi (*.txt)");
+        "Rapor Kaydet", "",
+        "Excel Raporu (*.xls);;"
+        "CSV Dosyası (*.csv);;"
+        "Metin Dosyası (*.txt)");
     if (filePath.isEmpty()) return;
 
     auto& network = m_document->GetNetwork();
-    mep::ScheduleGenerator generator(network);
+    bool ok = false;
 
-    std::string content;
-    if (filePath.endsWith(".csv", Qt::CaseInsensitive)) {
-        content = generator.ExportToCSV();
+    if (filePath.endsWith(".xls", Qt::CaseInsensitive)) {
+        ok = mep::XLSXWriter::ExportProjectReport(filePath.toStdString(), network);
     } else {
-        content = generator.GenerateHydraulicReport();
+        mep::ScheduleGenerator generator(network);
+        std::string content = filePath.endsWith(".csv", Qt::CaseInsensitive)
+                              ? generator.ExportToCSV()
+                              : generator.GenerateHydraulicReport();
+        std::ofstream f(filePath.toStdString());
+        if (f.is_open()) { f << content; ok = true; }
     }
 
-    std::ofstream file(filePath.toStdString());
-    if (file.is_open()) {
-        file << content;
-        file.close();
+    if (ok) {
         statusBar()->showMessage(QString("Rapor kaydedildi: %1").arg(filePath));
     } else {
-        QMessageBox::critical(this, "Hata", "Dosya yazilamadi!");
+        QMessageBox::critical(this, "Hata", "Dosya yazılamadı!");
     }
 }
 
@@ -799,18 +924,323 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         break;
     }
     case ToolMode::Select:
-    default:
-        // TODO: SelectionManager ile entity sec
-        statusBar()->showMessage(QString("Konum: x=%1, y=%2")
-            .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+    default: {
+        const double NODE_SNAP = 10.0; // world unit
+        const double EDGE_SNAP = 5.0;
+
+        // Node picking: nearest within snap radius
+        uint32_t closestNodeId = 0;
+        double   closestNodeDist = NODE_SNAP * NODE_SNAP;
+
+        for (const auto& [id, node] : network.GetNodeMap()) {
+            double dx = node.position.x - worldX;
+            double dy = node.position.y - worldY;
+            double d2 = dx*dx + dy*dy;
+            if (d2 < closestNodeDist) {
+                closestNodeDist = d2;
+                closestNodeId   = id;
+            }
+        }
+
+        if (closestNodeId != 0) {
+            OnNodeSelected(closestNodeId);
+            break;
+        }
+
+        // Edge picking: point-to-segment distance in world space
+        uint32_t closestEdgeId   = 0;
+        double   closestEdgeDist = EDGE_SNAP;
+
+        for (const auto& [id, edge] : network.GetEdgeMap()) {
+            const mep::Node* nA = network.GetNode(edge.nodeA);
+            const mep::Node* nB = network.GetNode(edge.nodeB);
+            if (!nA || !nB) continue;
+
+            double ex   = nB->position.x - nA->position.x;
+            double ey   = nB->position.y - nA->position.y;
+            double len2 = ex*ex + ey*ey;
+            double dist;
+            if (len2 < 1e-9) {
+                double dx = nA->position.x - worldX, dy = nA->position.y - worldY;
+                dist = std::sqrt(dx*dx + dy*dy);
+            } else {
+                double t  = ((worldX - nA->position.x)*ex + (worldY - nA->position.y)*ey) / len2;
+                t         = std::max(0.0, std::min(1.0, t));
+                double px = nA->position.x + t*ex;
+                double py = nA->position.y + t*ey;
+                double dx = px - worldX, dy = py - worldY;
+                dist = std::sqrt(dx*dx + dy*dy);
+            }
+            if (dist < closestEdgeDist) {
+                closestEdgeDist = dist;
+                closestEdgeId   = id;
+            }
+        }
+
+        if (closestEdgeId != 0) {
+            m_selectedNodeId = 0;
+            m_selectedEdgeId = closestEdgeId;
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
+            const mep::Edge* edge = network.GetEdge(closestEdgeId);
+            if (m_fixturePanel) m_fixturePanel->Clear();
+            statusBar()->showMessage(QString("Kenar #%1 seçildi — Çap:%2mm, Malzeme:%3")
+                .arg(closestEdgeId)
+                .arg(edge ? edge->diameter_mm : 0.0, 0, 'f', 1)
+                .arg(edge ? QString::fromStdString(edge->material) : ""));
+        } else {
+            m_selectedNodeId = 0;
+            m_selectedEdgeId = 0;
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
+            if (m_fixturePanel) m_fixturePanel->Clear();
+            statusBar()->showMessage(QString("Konum: x=%1, y=%2")
+                .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+        }
         break;
+    }
+    } // switch
+} // HandleMousePress
+
+void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    statusBar()->showMessage(QString("x=%1  y=%2")
+        .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+
+    if (!m_snapOverlay) return;
+
+    // Overlay boyutunu container ile senkronize tut
+    if (m_vulkanContainer &&
+        m_snapOverlay->size() != m_vulkanContainer->size()) {
+        m_snapOverlay->resize(m_vulkanContainer->size());
+    }
+
+    // Çizim modunda değilse overlay'i gizle
+    if (m_currentToolMode == ToolMode::Select) {
+        m_snapOverlay->Hide();
+        return;
+    }
+
+    // World → screen koordinat dönüşümü
+    const auto& vp = m_vulkanWindow->GetViewport();
+    geom::Vec3 screenPt = vp.WorldToScreen({worldX, worldY, 0.0});
+    QPoint screenPos(static_cast<int>(screenPt.x), static_cast<int>(screenPt.y));
+
+    // Snap hesabı (CAD entity varsa)
+    cad::SnapResult snap;
+    if (m_document && !m_document->GetCADEntities().empty()) {
+        std::vector<cad::Entity*> entityPtrs;
+        entityPtrs.reserve(m_document->GetCADEntities().size());
+        for (const auto& e : m_document->GetCADEntities())
+            entityPtrs.push_back(e.get());
+        snap = m_snapManager.FindSnapPoint({worldX, worldY, 0.0},
+                                           entityPtrs,
+                                           vp.GetZoom());
+    }
+
+    m_snapOverlay->Update(screenPos, snap);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NODE (ARMATÜR) SEÇİMİ
+// ═══════════════════════════════════════════════════════════
+
+void MainWindow::OnNodeSelected(uint32_t nodeId) {
+    if (!m_document || !m_fixturePanel) return;
+
+    m_selectedNodeId = nodeId;
+    m_selectedEdgeId = 0;
+
+    // Fixture ve Source/Drain node'ları için panel göster
+    const mep::Node* node = m_document->GetNetwork().GetNode(nodeId);
+    if (!node) { m_fixturePanel->Clear(); return; }
+
+    // Gizmo + PBR material: seçili node'a göre güncelle
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
+        auto* r = m_vulkanWindow->GetRenderer();
+        r->GetGizmo().SetPosition(node->position);
+        r->GetGizmo().SetMode(render::GizmoMode::Translate);
+        r->SetGizmoVisible(true);
+
+        // PBR: bağlı ilk Supply borusunun malzeme parametrelerini uygula
+        for (uint32_t eid : m_document->GetNetwork().GetConnectedEdges(nodeId)) {
+            const mep::Edge* e = m_document->GetNetwork().GetEdge(eid);
+            if (e && e->type == mep::EdgeType::Supply) {
+                mep::MaterialProperties mp = mep::GetPipeMaterial(e->material);
+                r->SetCompositeMaterial(mp.roughness, mp.metallic);
+                break;
+            }
+        }
+    }
+
+    if (node->type == mep::NodeType::Fixture ||
+        node->type == mep::NodeType::Source   ||
+        node->type == mep::NodeType::Drain     ||
+        node->type == mep::NodeType::Pump      ||
+        node->type == mep::NodeType::Tank) {
+
+        m_fixtureDock->raise(); // Armatür sekmesini öne al
+        m_fixturePanel->LoadNode(nodeId,
+                                 &m_document->GetNetwork(),
+                                 &m_document->GetFloorManager());
+    } else {
+        m_fixturePanel->Clear();
     }
 }
 
-void MainWindow::HandleMouseMove(double worldX, double worldY) {
-    // Status bar'da koordinat goster
-    statusBar()->showMessage(QString("x=%1  y=%2")
-        .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+void MainWindow::OnCommandEntered(const QString& cmd) {
+    // Komut adını büyük harfe çevir (zaten CommandBar yapar ama güvenlik için)
+    QString c = cmd.trimmed().toUpper();
+
+    if (c == "HELP") {
+        if (m_logList) {
+            m_logList->addItem("Komutlar: LINE PIPE FIXTURE JUNCTION SOURCE DRAIN");
+            m_logList->addItem("         ZOOM ZOOM-EXTENTS VIEW-PLAN VIEW-ISO");
+            m_logList->addItem("         HYDRAULICS DRAINAGE SCHEDULE RISER");
+            m_logList->addItem("         UNDO REDO SAVE EXPORT-DXF EXPORT-PDF");
+        }
+    } else if (c == "PIPE" || c == "LINE") {
+        OnDrawPipe();
+        if (m_commandBar) m_commandBar->SetPrompt("Boru başlangıcı");
+    } else if (c == "FIXTURE") {
+        OnDrawFixture();
+        if (m_commandBar) m_commandBar->SetPrompt("Armatür konumu");
+    } else if (c == "JUNCTION") {
+        OnDrawJunction();
+        if (m_commandBar) m_commandBar->SetPrompt("Bağlantı noktası");
+    } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
+        OnZoomExtents();
+    } else if (c == "VIEW-PLAN") {
+        OnPlanView();
+    } else if (c == "VIEW-ISO") {
+        OnIsometricView();
+    } else if (c == "HYDRAULICS") {
+        OnRunHydraulics();
+    } else if (c == "SCHEDULE") {
+        OnGenerateSchedule();
+    } else if (c == "UNDO") {
+        OnUndo();
+    } else if (c == "REDO") {
+        OnRedo();
+    } else if (c == "SAVE") {
+        OnSave();
+    } else if (c == "NEW") {
+        OnNew();
+    } else if (c == "OPEN") {
+        OnOpen();
+    } else if (c == "EXPORT-DXF" || c == "EXPORT-PDF") {
+        OnExportReport();
+    } else {
+        statusBar()->showMessage(QString("Bilinmeyen komut: %1  (HELP yazın)").arg(cmd));
+        if (m_commandBar) m_commandBar->SetPrompt("Komut");
+    }
+}
+
+void MainWindow::RefreshTextOverlay() {
+    if (!m_snapOverlay || !m_document || !m_vulkanWindow) return;
+    const auto& entities = m_document->GetCADEntities();
+    if (entities.empty()) return;
+
+    const cad::Viewport& vp = m_vulkanWindow->GetViewport();
+    const auto& layerMap = m_document->GetLayers();
+
+    std::vector<SnapOverlay::TextLabel> labels;
+    labels.reserve(64);
+
+    for (const auto& ent : entities) {
+        if (!ent) continue;
+        if (ent->GetType() != cad::EntityType::Text &&
+            ent->GetType() != cad::EntityType::MText) continue;
+
+        const auto* txt = static_cast<const cad::Text*>(ent.get());
+        const std::string& content = txt->GetText();
+        if (content.empty()) continue;
+
+        // World → screen — use effective anchor (alignPoint when justification is set)
+        geom::Vec3 sp = vp.WorldToScreen(txt->GetEffectiveInsertPoint());
+        if (sp.x < -200 || sp.x > vp.GetWidth() + 200 ||
+            sp.y < -200 || sp.y > vp.GetHeight() + 200) continue;
+
+        // Text height: world mm → screen px
+        double heightPx = txt->GetHeight() * vp.GetZoom();
+        if (heightPx < 3.0) continue; // too small to read
+
+        // Renk çözümle
+        cad::Color col = ent->GetColor();
+        QColor qcol;
+        if (col.a == 0) {
+            auto it = layerMap.find(ent->GetLayerName());
+            if (it != layerMap.end()) {
+                cad::Color lc = it->second.GetColor();
+                qcol = QColor(lc.r, lc.g, lc.b);
+            } else {
+                qcol = Qt::white;
+            }
+        } else {
+            qcol = QColor(col.r, col.g, col.b);
+        }
+
+        SnapOverlay::TextLabel lbl;
+        lbl.pos    = QPointF(sp.x, sp.y);
+        lbl.text   = QString::fromStdString(content);
+        lbl.pixelH = static_cast<int>(heightPx);
+        lbl.color  = qcol;
+        lbl.rotDeg = txt->GetRotationDeg();
+        lbl.hAlign = txt->GetHAlign();
+        lbl.vAlign = txt->GetVAlign();
+        labels.push_back(std::move(lbl));
+    }
+
+    m_snapOverlay->SetTextLabels(std::move(labels));
+}
+
+void MainWindow::OnCommandEscape() {
+    m_drawState = DrawState::Idle;
+    m_currentToolMode = ToolMode::Select;
+    if (m_commandBar) m_commandBar->SetPrompt("Komut");
+    if (m_snapOverlay) m_snapOverlay->Hide();
+    statusBar()->showMessage("İptal edildi");
+}
+
+void MainWindow::OnNodeUpdated(uint32_t nodeId) {
+    if (!m_document) return;
+    // Renderer'ı ve status bar'ı güncelle
+    if (m_vulkanWindow)
+        m_vulkanWindow->requestUpdate();
+
+    const mep::Node* node = m_document->GetNetwork().GetNode(nodeId);
+    if (node) {
+        statusBar()->showMessage(
+            QString("Node %1 güncellendi: %2")
+                .arg(nodeId)
+                .arg(QString::fromStdString(node->label.empty()
+                         ? node->fixtureType : node->label)));
+    }
+}
+
+void MainWindow::OnPBRMaterialChanged(float roughness, float metalness, float ambient,
+                                       float r, float g, float b,
+                                       float lightAzimuth, float lightElevation) {
+    auto* renderer = m_vulkanWindow ? m_vulkanWindow->GetRenderer() : nullptr;
+    if (!renderer) return;
+
+    renderer->SetCompositeMaterial(roughness, metalness);
+
+    // Convert azimuth/elevation (degrees) to view-space light direction XYZ
+    float azRad = lightAzimuth   * (3.14159265f / 180.0f);
+    float elRad = lightElevation * (3.14159265f / 180.0f);
+    float lx =  std::cos(elRad) * std::sin(azRad);
+    float ly =  std::sin(elRad);
+    float lz = -std::cos(elRad) * std::cos(azRad);
+    float len = std::sqrt(lx*lx + ly*ly + lz*lz);
+    if (len > 1e-4f) { lx /= len; ly /= len; lz /= len; }
+
+    auto& pc = renderer->GetCompositePC();
+    pc.lightDir[0] = lx;
+    pc.lightDir[1] = ly;
+    pc.lightDir[2] = lz;
+    pc.ambient     = ambient;
+
+    (void)r; (void)g; (void)b; // base color applies to individual pipes via SetCurrentMaterial
+
+    if (m_vulkanWindow) m_vulkanWindow->requestUpdate();
 }
 
 } // namespace ui

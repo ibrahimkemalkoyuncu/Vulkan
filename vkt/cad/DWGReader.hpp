@@ -57,6 +57,8 @@ struct DWGStatistics {
     size_t ellipseCount = 0;
     size_t splineCount = 0;
     size_t textCount = 0;
+    size_t mtextCount = 0;
+    size_t hatchCount = 0;
     size_t insertExpanded = 0;
     double readTimeMs = 0.0;
     std::string dwgVersion;
@@ -143,21 +145,30 @@ private:
     Entity* ParseArc(void* ent);
     Entity* ParseCircle(void* ent);
     Entity* ParseText(void* ent);
+    Entity* ParseMText(void* ent);
+    Entity* ParseHatch(void* ent);
     Entity* ParseEllipse(void* ent);
     Entity* ParseSpline(void* ent);
     Entity* ParsePoint(void* ent);
     void ExpandMInsert(void* obj_ptr, void* dwg_ptr);
+    void ExpandMInsertNested(void* obj_ptr, void* dwg_ptr, void* parentChain, int depth);
     
-    // Layer management
+    // Layer ve renk management
     void ExtractLayers(void* dwg_data);
+    void ExtractEntityColorAndLayer(void* obj_ptr, Entity* entity);
     bool PassesLayerFilter(const std::string& layerName) const;
     
+    // Xref resolution: load external DWG referenced by INSERT
+    void ExpandXref(const std::string& xrefPath,
+                    std::vector<struct InsertTransform>& transformChain, int depth);
+
     // Data
     std::vector<std::unique_ptr<Entity>> m_entities;
     std::unordered_map<std::string, Layer> m_layers;
     std::unordered_set<std::string> m_layerFilter;
     DWGStatistics m_stats;
     std::string m_errorMessage;
+    std::string m_filePath; ///< Path to the current DWG file (for xref resolution)
     
     // LibreDWG data handle (opaque pointer)
     void* m_dwgData = nullptr;

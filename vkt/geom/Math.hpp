@@ -85,6 +85,41 @@ struct Ray {
 
     /** @brief Işın üzerinde t parametresine karşılık gelen noktayı döner. */
     Vec3 PointAt(double t) const { return origin + (direction * t); }
+
+    /** @brief Sonsuz düzlemle kesişim: plane_normal·(P - plane_point) = 0. */
+    bool IntersectsPlane(const Vec3& normal, const Vec3& planePoint, double& t) const {
+        double denom = Vec3::Dot(normal, direction);
+        if (std::abs(denom) < EPSILON) return false;
+        t = Vec3::Dot(normal, planePoint - origin) / denom;
+        return t >= 0.0;
+    }
+
+    /** @brief pA–pB ekseni etrafında radius yarıçaplı silindirle kesişim. */
+    bool IntersectsCylinder(const Vec3& pA, const Vec3& pB, double radius, double& t) const {
+        Vec3 axis = (pB - pA).Normalize();
+        Vec3 d = direction - axis * Vec3::Dot(direction, axis);
+        Vec3 oc = origin - pA;
+        Vec3 f = oc - axis * Vec3::Dot(oc, axis);
+
+        double a = Vec3::Dot(d, d);
+        double b = 2.0 * Vec3::Dot(f, d);
+        double c = Vec3::Dot(f, f) - radius * radius;
+
+        double disc = b * b - 4.0 * a * c;
+        if (disc < 0.0 || a < EPSILON) return false;
+
+        double sqrtDisc = std::sqrt(disc);
+        double t0 = (-b - sqrtDisc) / (2.0 * a);
+        double t1 = (-b + sqrtDisc) / (2.0 * a);
+        t = (t0 >= 0.0) ? t0 : t1;
+        if (t < 0.0) return false;
+
+        // Silindir uzunluk sınırı kontrolü
+        Vec3 hitPoint = PointAt(t);
+        double proj = Vec3::Dot(hitPoint - pA, axis);
+        double len = (pB - pA).Length();
+        return proj >= 0.0 && proj <= len;
+    }
 };
 
 /** @struct Vertex
