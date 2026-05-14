@@ -365,6 +365,9 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Gerçek zamanlı hidrolik (FineSANI differentiator)** — boru/armatür eklenince/silinince 600ms debounce ile `RunAutoHydro()` tetikleniyor; `HydraulicSolver` + EN 806-3 DN seçimi sessizce çalışır, edge label güncellenir, overlay yenilenir
 - **RunAutoHydro topoloji tabanlı LU** — DFS ile Source'dan downstream fixture LU hesabı; her edge gerçek taşıma kapasitesine göre DN alıyor (eşit dağılım fallback ile)
 - **DWG xref circular ref koruması** — `m_visitedXrefs` (canonical path) + `m_missingXrefs` kaydı; nested xref'lerde de koruma; DXFImportDialog'da kayıp xref uyarısı
+- **DWG xref arama dizini** — `DWGReader::AddXrefSearchPath()` + `GetMissingXrefs()`; DXFImportDialog'da QMessageBox ile kullanıcıdan dizin isteme + re-read
+- **Undo/Redo → AutoHydro** — `OnUndo()` / `OnRedo()` sonrası `ScheduleAutoHydro()` çağrısı; MEP ağı geri alınca DN label'lar otomatik güncelleniyor
+- **Birim testleri: text rotation + MTEXT word-wrap** — `x_axis_dir`→derece dönüşümü (6 test), greedy word-wrap algoritması (8 test); `tests/test_geometry.cpp`
 
 ### Devam Eden
 
@@ -372,7 +375,6 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 
 ### Planlanan
 
-- DWG xref zinciri (nested external reference tam desteği)
 - Multi-threading: GPU Vulkan senkronizasyonu ayrı thread
 - GPU Clash: device-local + staging buffer ile büyük proje performansı
 
@@ -380,7 +382,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 
 ## Bilinen Kısıtlar
 
-1. **DWG xref**: `ExpandXref()` temel desteği var; karmaşık nested xref zincirleri ve döngüsel referans koruması eksik
+1. **DWG xref**: `ExpandXref()` temel desteği var; karmaşık nested xref zincirleri hâlâ tam desteklenmiyor
 2. **Mahal tespiti**: T-kesişim ve iç bölme duvarı geometrilerinde planar embedding bozulabilir
 3. **Undo/Redo**: Disk'e yazılmıyor, session bazlı
 4. **Shader**: SPIR-V `.spv` dosyaları runtime derleniyor, dinamik GLSL derleme yok
