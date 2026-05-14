@@ -74,7 +74,7 @@ geom::Vec3 Circle::GetPointAt(double t) const {
 
 bool Circle::ContainsPoint(const geom::Vec3& point, double tolerance) const {
     double dist = m_center.DistanceTo(point);
-    return std::abs(dist - m_radius) <= tolerance;
+    return dist <= m_radius + tolerance;
 }
 
 bool Circle::ContainsPointInside(const geom::Vec3& point) const {

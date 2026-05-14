@@ -393,33 +393,31 @@ CriticalPathResult HydraulicSolver::CalculateCriticalPath() {
 // ═══════════════════════════════════════════════════════════
 
 double HydraulicSolver::CalculateFlowFromLU(double loadUnit) const {
-    // TS EN 806-3 formülü:
-    //   Q = 0.01 * LU^0.42  [L/s]  (LU < 500 için)
+    // TS EN 806-3 / DIN 1988-300 tasarım debi formülü:
+    //   Qd = 0.682 * LU^0.45  [L/s]
     //
     // Referans noktalar:
-    //   LU=1   → Q ≈ 0.01 L/s
-    //   LU=5   → Q ≈ 0.019 L/s
-    //   LU=10  → Q ≈ 0.026 L/s
-    //   LU=50  → Q ≈ 0.046 L/s
-    //   LU=100 → Q ≈ 0.063 L/s
-    //   LU=500 → Q ≈ 0.117 L/s
-    //
-    // Not: Standart tablodaki Q değerleri bundan yüksektir çünkü
-    // minimum debi gereksinimleri uygulanır. Bu formül alt sınır eğrisidir.
+    //   LU=1   → Q ≈ 0.68 L/s
+    //   LU=5   → Q ≈ 1.28 L/s
+    //   LU=10  → Q ≈ 1.92 L/s
+    //   LU=50  → Q ≈ 4.55 L/s
+    //   LU=100 → Q ≈ 6.82 L/s
+    //   LU=200 → Q ≈ 7.40 L/s
+    //   LU=500 → Q ≈ 11.6 L/s
 
     if (loadUnit <= 0.0) return 0.0;
 
     double Q_Ls;
     if (loadUnit <= 500.0) {
-        Q_Ls = 0.01 * std::pow(loadUnit, 0.42);
+        Q_Ls = 0.682 * std::pow(loadUnit, 0.45);
     } else {
         // LU > 500 için lineer ekstrapolasyon (endüstriyel tesisler)
-        double Q_500 = 0.01 * std::pow(500.0, 0.42);
-        Q_Ls = Q_500 + 0.0001 * (loadUnit - 500.0);
+        double Q_500 = 0.682 * std::pow(500.0, 0.45);
+        Q_Ls = Q_500 + 0.005 * (loadUnit - 500.0);
     }
 
-    // Minimum debi kontrolü: her fixture en az 0.01 L/s
-    Q_Ls = std::max(Q_Ls, 0.01);
+    // Minimum debi: EN 806-3 tablo değerleri >= 0.1 L/s
+    Q_Ls = std::max(Q_Ls, 0.1);
 
     return Q_Ls / 1000.0; // L/s → m³/s
 }

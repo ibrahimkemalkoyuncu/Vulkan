@@ -6,6 +6,7 @@
 #include "core/FloorManager.hpp"
 #include "nlohmann/json.hpp"
 #include <algorithm>
+#include <iostream>
 #include <sstream>
 
 namespace vkt {
@@ -104,12 +105,12 @@ std::string FloorManager::Serialize() const {
     nlohmann::json root;
     root["floors"] = nlohmann::json::array();
     for (const auto& f : m_floors) {
-        root["floors"].push_back({
-            {"index",       f.index},
-            {"label",       f.label},
-            {"elevation_m", f.elevation_m},
-            {"height_m",    f.height_m}
-        });
+        nlohmann::json fj = nlohmann::json::object();
+        fj["index"]       = f.index;
+        fj["label"]       = f.label;
+        fj["elevation_m"] = f.elevation_m;
+        fj["height_m"]    = f.height_m;
+        root["floors"].push_back(fj);
     }
 
     root["nodeFloorMap"] = nlohmann::json::object();
@@ -132,24 +133,31 @@ bool FloorManager::Deserialize(const std::string& jsonStr) {
         m_nodeFloorMap.clear();
         m_entityFloorMap.clear();
 
-        for (const auto& fj : root.value("floors", nlohmann::json::array())) {
+        auto floorsArr = root.value("floors", nlohmann::json::array());
+        for (const auto& fj : floorsArr) {
             Floor f;
             f.index       = fj.value("index", 0);
-            f.label       = fj.value("label", "");
+            f.label       = fj.value("label", std::string{});
             f.elevation_m = fj.value("elevation_m", 0.0);
             f.height_m    = fj.value("height_m", 3.0);
             m_floors.push_back(f);
         }
         SortFloors();
 
-        for (auto& [key, val] : root.value("nodeFloorMap", nlohmann::json::object()).items()) {
+        auto nodeMapObj = root.value("nodeFloorMap", nlohmann::json::object());
+        for (auto& [key, val] : nodeMapObj.items()) {
             m_nodeFloorMap[static_cast<uint32_t>(std::stoul(key))] = val.get<int>();
         }
-        for (auto& [key, val] : root.value("entityFloorMap", nlohmann::json::object()).items()) {
+
+        auto entityMapObj = root.value("entityFloorMap", nlohmann::json::object());
+        for (auto& [key, val] : entityMapObj.items()) {
             m_entityFloorMap[static_cast<uint64_t>(std::stoull(key))] = val.get<int>();
         }
 
         return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[FloorManager::Deserialize] exception: " << e.what() << std::endl;
+        return false;
     } catch (...) {
         return false;
     }

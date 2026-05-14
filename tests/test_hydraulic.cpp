@@ -44,13 +44,13 @@ TEST_CASE("HydraulicSolver - LU to Flow Conversion (TS EN 806-3)", "[hydraulic]"
     solver.Solve();
 
     // Fixture node'un debisi = CalculateFlowFromLU(10)
-    // Q = 0.01 * 10^0.42 ≈ 0.026 L/s = 0.000026 m³/s
+    // Q = 0.682 * 10^0.45 ≈ 1.92 L/s
     auto* fixture = graph.GetNode(2); // ID 2 = fixture
     REQUIRE(fixture != nullptr);
     REQUIRE(fixture->flowRate_m3s > 0.0);
-    // TS EN 806-3: Q = 0.01 * LU^0.42, LU=10 → Q ≈ 0.026 L/s
+    // TS EN 806-3: Q = 0.682 * LU^0.45, LU=10 → Q ≈ 1.92 L/s
     REQUIRE_THAT(fixture->flowRate_m3s * 1000.0,
-                 Catch::Matchers::WithinAbs(0.026, 0.005));
+                 Catch::Matchers::WithinAbs(1.92, 0.1));
 }
 
 TEST_CASE("HydraulicSolver - Zero LU gives zero flow", "[hydraulic]") {
