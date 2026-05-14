@@ -4,6 +4,37 @@ Vulkan + Qt6 tabanlı, Türkiye/AB standartlarına uygun profesyonel MEP (Mekani
 
 ---
 
+## Persistent Context (Notion)
+
+Detaylı bilgi Notion'da. CLAUDE.md değişmeyen kuralları taşır; iş anına özgü detay Notion'dan çekilir. Notion MCP üzerinden erişim açık.
+
+- **VKT Hub**: https://www.notion.so/35b0d0232488811d9638ebbb449c41bd
+- **Project Bible**: https://www.notion.so/35b0d02324888117ac03e0db4f22b45c
+- **Modül Durumu**: https://www.notion.so/35b0d0232488814c9835ce8065aafc22
+- **Karar Günlüğü**: https://www.notion.so/35b0d02324888177a743dac9ebe7da10
+- **Aktif Session**: https://www.notion.so/35b0d0232488814c807df1fb78e67843
+- **FineSANI Referansı** (rakip analizi + domain bilgisi): https://www.notion.so/3600d0232488818f8913cc3ce64fd853
+  - Sistem Mantığı & İş Akışı: https://www.notion.so/3600d023248881eba83ae6e05f815bd9
+  - Hesaplama Motoru: https://www.notion.so/3600d02324888164ac13e46288c1b7dc
+  - Çıktı & Pafta Yönetimi: https://www.notion.so/3600d023248881e4b4c4c223b3abc404
+  - Domain Sözlüğü: https://www.notion.so/3600d0232488815cb900f1ebf24aae52
+
+### Context Loading Protocol
+
+**Session başında (her zaman):**
+1. Project Bible'ı oku
+2. Aktif Session'ı oku
+3. Durumu özetle, sıradaki adımı söyle
+
+**Görev FineSANI karşılaştırması / UX / domain içeriyorsa:**
+- Sadece ilgili FineSANI Referansı alt sayfasını çek (tümünü yükleme — token israfı)
+
+**Session sonunda:**
+- Aktif Session sayfasını güncelle (tamamlanan / yarım kalan / sonraki adım)
+- Mimari karar verildiyse Karar Günlüğü'ne entry ekle
+
+---
+
 ## Neden Bu Proje Var?
 
 **4M FINE SANI**, Türkiye'de yaygın kullanılan tesisat CAD + hesap yazılımıdır ancak temel kısıtları vardır:
@@ -286,6 +317,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 ## Tamamlanan / Devam Eden / Planlanan
 
 ### Tamamlanan
+
 - Entity sistemi (serialization dahil)
 - DXF import + DXF export (DXFWriter)
 - DWG import (LibreDWG — temel entity'ler, MINSERT expand, arc/circle fit)
@@ -326,9 +358,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DN otomatik boyutlandırma UI** — çizilen ağdan tek tıkla EN 806-3 hesabı, sonuçları boru label olarak render
 
 ### Devam Eden
-- (tüm planlanan özellikler tamamlandı)
+
+(tüm planlanan özellikler tamamlandı — yeni hedefler için Aktif Session sayfasına bak)
 
 ### Planlanan
+
 - DWG xref zinciri (nested external reference tam desteği)
 - Multi-threading: GPU Vulkan senkronizasyonu ayrı thread
 - GPU Clash: device-local + staging buffer ile büyük proje performansı
@@ -343,3 +377,17 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 4. **Shader**: SPIR-V `.spv` dosyaları runtime derleniyor, dinamik GLSL derleme yok
 5. **Multi-threading**: UI ve Vulkan senkronizasyonu tek thread
 6. **GPU Clash**: `RunClashDetectionGPU` host-coherent bellek kullanır; büyük projelerde device-local + staging buffer ile daha hızlı olur
+
+---
+
+## Domain Disiplini (FineSANI'den Miras)
+
+FineSANI'nin pain point'lerinden çıkarılan 5 altın kural — VKT'nin **asla** tekrarlamayacağı hatalar:
+
+1. **Birim daima metre** — cm/mm karışıklığı yok, runtime'da otomatik algılama + dönüşüm
+2. **Z-ekseni bağlantılarında perpendicular zorunlu** — kolon ↔ yatay hat snap'i otomatik öneri
+3. **Tek başlangıç noktası enforcement** — bir binada tek su kaynağı, sistem seviyesinde kural
+4. **Kolonlar kopyalama dışı** — `CopyFloor` komutu kolonları otomatik filtreler
+5. **Non-destructive editing** — "explode" tarzı geri dönüşsüz işlem yok, her zaman editable
+
+Detay, FineSANI iş akışı ve VKT fırsatları için: **FineSANI Referansı** (Notion — yukarıda link).

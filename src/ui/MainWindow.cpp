@@ -337,13 +337,16 @@ void MainWindow::CreateDockPanels() {
 
 void MainWindow::UpdateUI() {
     bool hasDoc = (m_document != nullptr);
-    
+
     m_actSave->setEnabled(hasDoc);
     m_actSaveAs->setEnabled(hasDoc);
     m_actUndo->setEnabled(hasDoc && m_document->CanUndo());
     m_actRedo->setEnabled(hasDoc && m_document->CanRedo());
     m_actRunHydraulics->setEnabled(hasDoc);
     m_actGenerateSchedule->setEnabled(hasDoc);
+
+    // MEP node/edge label'larını overlay'e yansıt
+    if (m_vulkanWindow) RefreshTextOverlay();
 }
 
 // Slot implementations
@@ -1068,10 +1071,11 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         node.type = mep::NodeType::Junction;
         node.position = geom::Vec3(worldX, worldY, 0.0);
         node.label = "J";
-        network.AddNode(node);
+        auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+        m_document->ExecuteCommand(std::move(cmd));
         m_document->SetModified(true);
         UpdateUI();
-        statusBar()->showMessage(QString("Baglanti noktasi eklendi (x=%1, y=%2)")
+        statusBar()->showMessage(QString("Bağlantı noktası eklendi (x=%1, y=%2)")
             .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;
     }
@@ -1295,16 +1299,15 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
 
 void MainWindow::RefreshTextOverlay() {
     if (!m_snapOverlay || !m_document || !m_vulkanWindow) return;
-    const auto& entities = m_document->GetCADEntities();
-    if (entities.empty()) return;
 
     const cad::Viewport& vp = m_vulkanWindow->GetViewport();
-    const auto& layerMap = m_document->GetLayers();
+    const auto& layerMap    = m_document->GetLayers();
 
     std::vector<SnapOverlay::TextLabel> labels;
-    labels.reserve(64);
+    labels.reserve(128);
 
-    for (const auto& ent : entities) {
+    // ── CAD Text / MText entity'leri (DXF/DWG import) ────────
+    for (const auto& ent : m_document->GetCADEntities()) {
         if (!ent) continue;
         if (ent->GetType() != cad::EntityType::Text &&
             ent->GetType() != cad::EntityType::MText) continue;
@@ -1313,26 +1316,20 @@ void MainWindow::RefreshTextOverlay() {
         const std::string& content = txt->GetText();
         if (content.empty()) continue;
 
-        // World → screen — use effective anchor (alignPoint when justification is set)
         geom::Vec3 sp = vp.WorldToScreen(txt->GetEffectiveInsertPoint());
         if (sp.x < -200 || sp.x > vp.GetWidth() + 200 ||
             sp.y < -200 || sp.y > vp.GetHeight() + 200) continue;
 
-        // Text height: world mm → screen px
         double heightPx = txt->GetHeight() * vp.GetZoom();
-        if (heightPx < 3.0) continue; // too small to read
+        if (heightPx < 3.0) continue;
 
-        // Renk çözümle
         cad::Color col = ent->GetColor();
         QColor qcol;
         if (col.a == 0) {
             auto it = layerMap.find(ent->GetLayerName());
-            if (it != layerMap.end()) {
-                cad::Color lc = it->second.GetColor();
-                qcol = QColor(lc.r, lc.g, lc.b);
-            } else {
-                qcol = Qt::white;
-            }
+            qcol = (it != layerMap.end())
+                ? QColor(it->second.GetColor().r, it->second.GetColor().g, it->second.GetColor().b)
+                : Qt::white;
         } else {
             qcol = QColor(col.r, col.g, col.b);
         }
@@ -1348,15 +1345,78 @@ void MainWindow::RefreshTextOverlay() {
         labels.push_back(std::move(lbl));
     }
 
+    // ── MEP Edge label'ları (DN boyutu, boru etiketi) ─────────
+    const auto& network = m_document->GetNetwork();
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.label.empty()) continue;
+
+        const mep::Node* nA = network.GetNode(edge.nodeA);
+        const mep::Node* nB = network.GetNode(edge.nodeB);
+        if (!nA || !nB) continue;
+
+        // Borunun orta noktası (world)
+        geom::Vec3 mid{
+            (nA->position.x + nB->position.x) * 0.5,
+            (nA->position.y + nB->position.y) * 0.5,
+            0.0
+        };
+        geom::Vec3 sp = vp.WorldToScreen(mid);
+        if (sp.x < -40 || sp.x > vp.GetWidth() + 40 ||
+            sp.y < -40 || sp.y > vp.GetHeight() + 40) continue;
+
+        // Minimum zoom: çok küçük ölçekte gösterme
+        if (vp.GetZoom() < 0.3) continue;
+
+        SnapOverlay::TextLabel lbl;
+        lbl.pos    = QPointF(sp.x + 4, sp.y - 4); // hafif offset, borudan kaçsın
+        lbl.text   = QString::fromStdString(edge.label);
+        lbl.pixelH = 11;
+        lbl.color  = QColor(100, 220, 255); // açık mavi — boru rengiyle uyumlu
+        lbl.rotDeg = 0.0;
+        lbl.hAlign = 0; // sol hizalı
+        lbl.vAlign = 0;
+        labels.push_back(std::move(lbl));
+    }
+
+    // ── MEP Node label'ları (armatür tipi) ────────────────────
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.label.empty() || node.type == mep::NodeType::Junction) continue;
+
+        geom::Vec3 sp = vp.WorldToScreen(node.position);
+        if (sp.x < -40 || sp.x > vp.GetWidth() + 40 ||
+            sp.y < -40 || sp.y > vp.GetHeight() + 40) continue;
+        if (vp.GetZoom() < 0.3) continue;
+
+        QColor qcol;
+        switch (node.type) {
+            case mep::NodeType::Fixture: qcol = QColor(100, 255, 120); break; // yeşil
+            case mep::NodeType::Source:  qcol = QColor(100, 160, 255); break; // mavi
+            case mep::NodeType::Drain:   qcol = QColor(210, 140, 80);  break; // turuncu
+            case mep::NodeType::Pump:    qcol = QColor(255, 220, 50);  break; // sarı
+            default:                     qcol = Qt::white;              break;
+        }
+
+        SnapOverlay::TextLabel lbl;
+        lbl.pos    = QPointF(sp.x + 6, sp.y - 6);
+        lbl.text   = QString::fromStdString(node.label);
+        lbl.pixelH = 10;
+        lbl.color  = qcol;
+        lbl.rotDeg = 0.0;
+        lbl.hAlign = 0;
+        lbl.vAlign = 0;
+        labels.push_back(std::move(lbl));
+    }
+
     m_snapOverlay->SetTextLabels(std::move(labels));
 }
 
 void MainWindow::OnCommandEscape() {
-    m_drawState = DrawState::Idle;
-    m_currentToolMode = ToolMode::Select;
+    m_drawState        = DrawState::Idle;
+    m_currentToolMode  = ToolMode::Select;
+    m_firstNodeInGraph = false;
     if (m_commandBar) m_commandBar->SetPrompt("Komut");
-    if (m_snapOverlay) m_snapOverlay->Hide();
-    statusBar()->showMessage("İptal edildi");
+    if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+    statusBar()->showMessage("İptal edildi — Seçim modu");
 }
 
 void MainWindow::OnNodeUpdated(uint32_t nodeId) {
