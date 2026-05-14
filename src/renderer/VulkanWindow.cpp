@@ -126,6 +126,8 @@ void VulkanWindow::mouseMoveEvent(QMouseEvent* event) {
         double dy = event->pos().y() - m_lastMousePos.y();
         m_viewport.Pan(dx, dy);
         m_lastMousePos = event->pos();
+        // Overlay label'larının pan sırasında geriden kalmaması için
+        if (m_onViewportChange) m_onViewportChange();
         return;
     }
 

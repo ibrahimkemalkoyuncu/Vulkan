@@ -52,7 +52,30 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
 
         QFontMetrics fm(tf);
         // Split on \n (MTEXT \P paragraph separator)
-        QStringList lines = lbl.text.split('\n', Qt::SkipEmptyParts);
+        QStringList rawLines = lbl.text.split('\n', Qt::SkipEmptyParts);
+        if (rawLines.isEmpty()) continue;
+
+        // Word-wrap: eğer maxWidthPx > 0 ise her satırı genişliğe göre kır
+        QStringList lines;
+        for (const QString& raw : rawLines) {
+            if (lbl.maxWidthPx <= 0 ||
+                fm.horizontalAdvance(raw) <= static_cast<int>(lbl.maxWidthPx)) {
+                lines << raw;
+                continue;
+            }
+            QStringList words = raw.split(' ', Qt::SkipEmptyParts);
+            QString cur;
+            for (const QString& w : words) {
+                QString test = cur.isEmpty() ? w : cur + ' ' + w;
+                if (fm.horizontalAdvance(test) <= static_cast<int>(lbl.maxWidthPx)) {
+                    cur = test;
+                } else {
+                    if (!cur.isEmpty()) lines << cur;
+                    cur = w;
+                }
+            }
+            if (!cur.isEmpty()) lines << cur;
+        }
         if (lines.isEmpty()) continue;
 
         int lineH    = fm.height();

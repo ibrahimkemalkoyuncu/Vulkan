@@ -946,10 +946,28 @@ Entity* DWGReader::ParseMText(void* obj_ptr) {
     geom::Vec3 insertPt(mtext->ins_pt.x, mtext->ins_pt.y, 0.0);
     double height = (mtext->text_height > 0.0) ? mtext->text_height : 2.5;
 
+    // Rotation from x_axis_dir vector
+    double rotDeg = 0.0;
+    if (mtext->x_axis_dir.x != 0.0 || mtext->x_axis_dir.y != 0.0)
+        rotDeg = std::atan2(mtext->x_axis_dir.y, mtext->x_axis_dir.x) * 180.0 / M_PI;
+
     std::string clean = StripMTextFormatting(mtext->text);
     if (clean.empty()) return nullptr;
 
-    return new Text(insertPt, clean, height, 0.0);
+    auto* txt = new Text(insertPt, clean, height, rotDeg);
+
+    // attachment → hAlign/vAlign (same table as DXF code 71)
+    static const int hTab[] = {0, 0,1,2, 0,1,2, 0,1,2};
+    static const int vTab[] = {0, 3,3,3, 2,2,2, 1,1,1};
+    int att = static_cast<int>(mtext->attachment);
+    if (att >= 1 && att <= 9) {
+        txt->SetHAlign(hTab[att]);
+        txt->SetVAlign(vTab[att]);
+    }
+
+    if (mtext->rect_width > 0.0) txt->SetRectWidth(mtext->rect_width);
+
+    return txt;
 }
 
 // HATCH → Hatch entity (SOLID pattern: fan-fill; diğerleri: sınır çizgisi)

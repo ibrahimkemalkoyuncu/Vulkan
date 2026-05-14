@@ -49,6 +49,10 @@ public:
     const geom::Vec3& GetAlignPoint() const      { return m_alignPoint; }
     void SetAlignPoint(const geom::Vec3& p)      { m_alignPoint = p; }
 
+    // MTEXT column width in world units (DXF code 41 / DWG rect_width). 0 = no wrap.
+    double GetRectWidth() const                  { return m_rectWidth; }
+    void   SetRectWidth(double w)                { m_rectWidth = w; }
+
     // Returns the effective anchor point in world space
     // (alignPoint when justification is set, insertPoint otherwise)
     const geom::Vec3& GetEffectiveInsertPoint() const {
@@ -69,6 +73,7 @@ private:
     double      m_rotationDeg = 0.0;
     int         m_hAlign      = 0;     ///< Horizontal justification (code 72)
     int         m_vAlign      = 0;     ///< Vertical justification (code 73)
+    double      m_rectWidth   = 0.0;   ///< MTEXT column width in world units (0 = no wrap)
 };
 
 } // namespace cad

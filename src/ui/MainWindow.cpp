@@ -1335,13 +1335,14 @@ void MainWindow::RefreshTextOverlay() {
         }
 
         SnapOverlay::TextLabel lbl;
-        lbl.pos    = QPointF(sp.x, sp.y);
-        lbl.text   = QString::fromStdString(content);
-        lbl.pixelH = static_cast<int>(heightPx);
-        lbl.color  = qcol;
-        lbl.rotDeg = txt->GetRotationDeg();
-        lbl.hAlign = txt->GetHAlign();
-        lbl.vAlign = txt->GetVAlign();
+        lbl.pos        = QPointF(sp.x, sp.y);
+        lbl.text       = QString::fromStdString(content);
+        lbl.pixelH     = static_cast<int>(heightPx);
+        lbl.color      = qcol;
+        lbl.rotDeg     = txt->GetRotationDeg();
+        lbl.hAlign     = txt->GetHAlign();
+        lbl.vAlign     = txt->GetVAlign();
+        lbl.maxWidthPx = txt->GetRectWidth() * vp.GetZoom(); // 0 → sarma yok
         labels.push_back(std::move(lbl));
     }
 
@@ -1378,33 +1379,53 @@ void MainWindow::RefreshTextOverlay() {
         labels.push_back(std::move(lbl));
     }
 
-    // ── MEP Node label'ları (armatür tipi) ────────────────────
-    for (const auto& [nid, node] : network.GetNodeMap()) {
-        if (node.label.empty() || node.type == mep::NodeType::Junction) continue;
+    // ── MEP Node label'ları (armatür tipi) ─ collision avoidance ile ──────
+    {
+        // Yerleştirilen bounding rect'leri tut — çakışma varsa yukarı kaydır
+        std::vector<QRectF> placedRects;
 
-        geom::Vec3 sp = vp.WorldToScreen(node.position);
-        if (sp.x < -40 || sp.x > vp.GetWidth() + 40 ||
-            sp.y < -40 || sp.y > vp.GetHeight() + 40) continue;
-        if (vp.GetZoom() < 0.3) continue;
+        for (const auto& [nid, node] : network.GetNodeMap()) {
+            if (node.label.empty() || node.type == mep::NodeType::Junction) continue;
 
-        QColor qcol;
-        switch (node.type) {
-            case mep::NodeType::Fixture: qcol = QColor(100, 255, 120); break; // yeşil
-            case mep::NodeType::Source:  qcol = QColor(100, 160, 255); break; // mavi
-            case mep::NodeType::Drain:   qcol = QColor(210, 140, 80);  break; // turuncu
-            case mep::NodeType::Pump:    qcol = QColor(255, 220, 50);  break; // sarı
-            default:                     qcol = Qt::white;              break;
+            geom::Vec3 sp = vp.WorldToScreen(node.position);
+            if (sp.x < -40 || sp.x > vp.GetWidth() + 40 ||
+                sp.y < -40 || sp.y > vp.GetHeight() + 40) continue;
+            if (vp.GetZoom() < 0.3) continue;
+
+            QColor qcol;
+            switch (node.type) {
+                case mep::NodeType::Fixture: qcol = QColor(100, 255, 120); break;
+                case mep::NodeType::Source:  qcol = QColor(100, 160, 255); break;
+                case mep::NodeType::Drain:   qcol = QColor(210, 140,  80); break;
+                case mep::NodeType::Pump:    qcol = QColor(255, 220,  50); break;
+                default:                     qcol = Qt::white;              break;
+            }
+
+            constexpr int kLblH = 10;
+            constexpr int kLblW = 50; // yaklaşık genişlik tahmini
+            QPointF base(sp.x + 6, sp.y - 6);
+
+            // Greedy placement: en fazla 4 kez yukarı kaydır
+            QRectF r(base.x(), base.y() - kLblH, kLblW, kLblH + 2);
+            for (int attempt = 0; attempt < 4; ++attempt) {
+                bool clash = false;
+                for (const auto& pr : placedRects)
+                    if (r.intersects(pr)) { clash = true; break; }
+                if (!clash) break;
+                r.moveTop(r.top() - (kLblH + 3));
+            }
+            placedRects.push_back(r);
+
+            SnapOverlay::TextLabel lbl;
+            lbl.pos    = QPointF(r.left(), r.bottom() - 2);
+            lbl.text   = QString::fromStdString(node.label);
+            lbl.pixelH = kLblH;
+            lbl.color  = qcol;
+            lbl.rotDeg = 0.0;
+            lbl.hAlign = 0;
+            lbl.vAlign = 0;
+            labels.push_back(std::move(lbl));
         }
-
-        SnapOverlay::TextLabel lbl;
-        lbl.pos    = QPointF(sp.x + 6, sp.y - 6);
-        lbl.text   = QString::fromStdString(node.label);
-        lbl.pixelH = 10;
-        lbl.color  = qcol;
-        lbl.rotDeg = 0.0;
-        lbl.hAlign = 0;
-        lbl.vAlign = 0;
-        labels.push_back(std::move(lbl));
     }
 
     m_snapOverlay->SetTextLabels(std::move(labels));

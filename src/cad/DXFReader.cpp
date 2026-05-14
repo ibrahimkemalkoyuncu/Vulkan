@@ -345,20 +345,21 @@ std::unique_ptr<Entity> DXFReader::ReadMText() {
     DXFCode code;
     EntityProps props;
     geom::Vec3 insertPt;
-    double height = 2.5, rotation = 0.0;
+    double height = 2.5, rotation = 0.0, rectWidth = 0.0;
     std::string content;
     int attachPoint = 1; // MTEXT code 71: 1=TL,2=TC,3=TR,4=ML,5=MC,6=MR,7=BL,8=BC,9=BR
 
     while (ReadCode(code)) {
         if (code.code == 0) { PushBackCode(code); break; }
         if (ReadEntityProp(code, props)) continue;
-        if      (code.code == 1)  content  += code.value; // MTEXT çok satırlı olabilir
-        else if (code.code == 3)  content  += code.value; // ek metin chunk'ları
+        if      (code.code == 1)  content   += code.value; // MTEXT çok satırlı olabilir
+        else if (code.code == 3)  content   += code.value; // ek metin chunk'ları
         else if (code.code == 10) insertPt.x = code.AsDouble();
         else if (code.code == 20) insertPt.y = code.AsDouble();
         else if (code.code == 30) insertPt.z = code.AsDouble();
-        else if (code.code == 40) height = code.AsDouble();
-        else if (code.code == 50) rotation = code.AsDouble();
+        else if (code.code == 40) height     = code.AsDouble();
+        else if (code.code == 41) rectWidth  = code.AsDouble(); // column/wrap width
+        else if (code.code == 50) rotation   = code.AsDouble();
         else if (code.code == 71) attachPoint = code.AsInt();
     }
 
@@ -394,6 +395,7 @@ std::unique_ptr<Entity> DXFReader::ReadMText() {
         txt->SetHAlign(hTab[attachPoint]);
         txt->SetVAlign(vTab[attachPoint]);
     }
+    if (rectWidth > 0.0) txt->SetRectWidth(rectWidth);
     ApplyProps(txt.get(), props);
     return txt;
 }

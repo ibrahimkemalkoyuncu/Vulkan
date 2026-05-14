@@ -42,13 +42,14 @@ public:
 
     /** @brief CAD Text entity'leri için ekran-uzayı etiketi */
     struct TextLabel {
-        QPointF pos;        ///< Ekran koordinatı (pixel) — effective alignment anchor
+        QPointF pos;            ///< Ekran koordinatı (pixel) — effective alignment anchor
         QString text;
-        int     pixelH;     ///< Piksel yüksekliği
+        int     pixelH;         ///< Piksel yüksekliği
         QColor  color;
-        double  rotDeg;     ///< Döndürme açısı (derece)
-        int     hAlign = 0; ///< 0=Left,1=Center,2=Right
-        int     vAlign = 0; ///< 0=Baseline,1=Bottom,2=Middle,3=Top
+        double  rotDeg;         ///< Döndürme açısı (derece)
+        int     hAlign = 0;     ///< 0=Left,1=Center,2=Right
+        int     vAlign = 0;     ///< 0=Baseline,1=Bottom,2=Middle,3=Top
+        double  maxWidthPx = 0; ///< Word-wrap genişliği (pixel). 0 = sarma yok.
     };
 
     /** @brief Render edilecek metin listesini güncelle (import/view değişiminde çağrılır) */
