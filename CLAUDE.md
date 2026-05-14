@@ -362,6 +362,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DWG MTEXT iyileştirmesi** — `x_axis_dir`'den rotation parse, `attachment` → hAlign/vAlign
 - **Pan sırasında overlay sync** — `VulkanWindow::mouseMoveEvent()` pan'da `m_onViewportChange` çağrıyor
 - **MEP node label collision avoidance** — greedy placement, çakışan label'lar yukarı kaydırılıyor
+- **Gerçek zamanlı hidrolik (FineSANI differentiator)** — boru/armatür eklenince/silinince 600ms debounce ile `RunAutoHydro()` tetikleniyor; `HydraulicSolver` + EN 806-3 DN seçimi sessizce çalışır, edge label güncellenir, overlay yenilenir
 
 ### Devam Eden
 
