@@ -31,6 +31,9 @@
 #include <string>
 #include <cmath>
 #include <algorithm>
+#include <functional>
+#include <unordered_map>
+#include <unordered_set>
 
 static void LogCAD(const std::string& msg) {
     std::cout << "[MainWindow] " << msg << std::endl;
@@ -801,7 +804,6 @@ void MainWindow::RunAutoHydro() {
     auto& network = m_document->GetNetwork();
     if (network.GetEdgeMap().empty()) return;
 
-    // EN 806-3: v_max=2.5 m/s → D_min hesabı (OnAutoSizeDN ile aynı mantık)
     static const double kDN[] = {16,20,25,32,40,50,63,75,90,110,125,160,200,0};
     const double v_max = 2.5;
 
@@ -812,25 +814,76 @@ void MainWindow::RunAutoHydro() {
         return 200.0;
     };
 
-    // Solver'ı sessizce çalıştır
+    // Solver'ı sessizce çalıştır (flowRate_m3s doldurur)
     mep::HydraulicSolver solver(network);
     solver.Solve();
     solver.SolveDrainage();
 
-    double totalLU = 0.0;
-    for (const auto& [nid, node] : network.GetNodeMap())
-        if (node.type == mep::NodeType::Fixture) totalLU += node.loadUnit;
-    totalLU = std::max(totalLU, 0.1);
-    int edgeCount = static_cast<int>(network.GetEdgeMap().size());
+    // ── Topoloji tabanlı downstream LU (DFS) ─────────────────
+    // Her edge için: o edge'in "ilerisi"ndeki fixture'ların toplam LU'su
+    // Tree-like ağlarda doğru; döngü varsa fallback eşit dağılım
+    std::unordered_map<uint32_t, double> edgeDownstreamLU; // eid → downstream LU
+    {
+        // Her node'un kendi LU katkısı
+        std::unordered_map<uint32_t, double> nodeLU;
+        double totalLU = 0.0;
+        for (const auto& [nid, node] : network.GetNodeMap()) {
+            double lu = (node.type == mep::NodeType::Fixture) ? std::max(node.loadUnit, 0.1) : 0.0;
+            nodeLU[nid] = lu;
+            totalLU += lu;
+        }
+        totalLU = std::max(totalLU, 0.1);
 
+        // DFS: her Source'dan başla, her edge için downstream subtree LU hesapla
+        std::unordered_set<uint32_t> visited;
+        std::function<double(uint32_t, uint32_t)> dfs = [&](uint32_t nid, uint32_t parentId) -> double {
+            visited.insert(nid);
+            double lu = nodeLU[nid];
+            for (uint32_t eid : network.GetConnectedEdges(nid)) {
+                const mep::Edge* e = network.GetEdge(eid);
+                if (!e) continue;
+                uint32_t neighbor = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+                if (neighbor == parentId || visited.count(neighbor)) continue;
+                double childLU = dfs(neighbor, nid);
+                lu += childLU;
+                // Bu edge, neighbor tarafındaki subtree'yi taşıyor
+                edgeDownstreamLU[eid] = childLU;
+            }
+            return lu;
+        };
+
+        // Source node'lardan başla; source yoksa tüm node'lardan başla
+        bool hasSource = false;
+        for (const auto& [nid, node] : network.GetNodeMap()) {
+            if (node.type == mep::NodeType::Source) {
+                if (!visited.count(nid)) dfs(nid, UINT32_MAX);
+                hasSource = true;
+            }
+        }
+        if (!hasSource) {
+            for (const auto& [nid, node] : network.GetNodeMap())
+                if (!visited.count(nid)) dfs(nid, UINT32_MAX);
+        }
+
+        // Hâlâ atanmamış edge'ler (izole bölgeler) → eşit dağılım
+        int edgeCount = static_cast<int>(network.GetEdgeMap().size());
+        double equalLU = totalLU / std::max(edgeCount, 1);
+        for (const auto& [eid, edge] : network.GetEdgeMap())
+            if (!edgeDownstreamLU.count(eid))
+                edgeDownstreamLU[eid] = equalLU;
+    }
+
+    // ── Edge başına DN seçimi ──────────────────────────────────
     int updated = 0;
     for (auto& [eid, edge] : network.GetEdgeMap()) {
         double Q_lps;
         if (edge.flowRate_m3s > 1e-9) {
+            // Solver çözdüyse doğrudan kullan
             Q_lps = edge.flowRate_m3s * 1000.0;
         } else {
-            double edgeLU = totalLU / std::max(edgeCount, 1);
-            Q_lps = 0.682 * std::pow(edgeLU, 0.45);
+            // Downstream LU'dan EN 806-3 tahmini
+            double lu = std::max(edgeDownstreamLU[eid], 0.1);
+            Q_lps = 0.682 * std::pow(lu, 0.45);
         }
         Q_lps = std::max(Q_lps, 0.05);
         double newDN = selectDN(Q_lps);

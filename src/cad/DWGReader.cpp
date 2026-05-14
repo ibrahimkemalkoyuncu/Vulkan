@@ -70,6 +70,8 @@ void DWGReader::Clear() {
 bool DWGReader::Read(const std::string& filepath) {
     Clear();
     m_filePath = filepath;
+    m_visitedXrefs.clear();
+    m_missingXrefs.clear();
 
     auto start = std::chrono::high_resolution_clock::now();
     
@@ -571,7 +573,7 @@ void DWGReader::ExpandInsert(void* obj_ptr, void* dwg_ptr,
 // Load an external xref DWG and apply the transform chain to all its model-space entities
 void DWGReader::ExpandXref(const std::string& xrefPath,
                             std::vector<InsertTransform>& transformChain, int depth) {
-    if (depth > 6) return; // guard against circular xrefs
+    if (depth > 6) return;
 
     // Resolve path: try absolute, then relative to current file's directory
     namespace fs = std::filesystem;
@@ -584,7 +586,7 @@ void DWGReader::ExpandXref(const std::string& xrefPath,
         if (fs::exists(candidate)) {
             resolved = candidate.string();
         } else {
-            // Try with .dwg extension
+            // .dwg uzantısı yoksa dene
             candidate.replace_extension(".dwg");
             if (fs::exists(candidate))
                 resolved = candidate.string();
@@ -593,13 +595,26 @@ void DWGReader::ExpandXref(const std::string& xrefPath,
 
     if (resolved.empty()) {
         std::cout << "[DWGReader] xref not found: " << xrefPath << std::endl;
+        m_missingXrefs.push_back(xrefPath);
         return;
     }
+
+    // Canonical path ile döngüsel referans tespiti
+    std::string canonical;
+    try { canonical = fs::canonical(resolved).string(); }
+    catch (...) { canonical = resolved; }
+
+    if (m_visitedXrefs.count(canonical)) {
+        std::cout << "[DWGReader] xref circular ref skipped: " << canonical << std::endl;
+        return;
+    }
+    m_visitedXrefs.insert(canonical);
 
     // Load the external file with a separate reader
     DWGReader sub;
     sub.m_filePath = resolved;
     sub.m_layerFilter = m_layerFilter;
+    sub.m_visitedXrefs = m_visitedXrefs; // döngüsel ref setini devret
     if (!sub.Read(resolved)) {
         std::cout << "[DWGReader] xref load failed: " << resolved << std::endl;
         return;

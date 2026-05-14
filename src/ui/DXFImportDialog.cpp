@@ -264,6 +264,16 @@ void DXFImportDialog::OnImport() {
             entityCount = stats.entityCount;
             layerCount = stats.layerCount;
             readTime = stats.readTimeMs;
+
+            // Bulunamayan xref dosyaları → kullanıcıya bilgi ver
+            const auto& missing = m_dwgReader->GetMissingXrefs();
+            if (!missing.empty()) {
+                QString msg = QString("%1 xref dosyası bulunamadı:\n").arg(missing.size());
+                for (const auto& p : missing)
+                    msg += "  • " + QString::fromStdString(p) + "\n";
+                msg += "\nXref dosyalarını DWG ile aynı dizine koyun veya görmezden gelin.";
+                QMessageBox::warning(this, "Xref Bulunamadı", msg);
+            }
         } else {
             errorMsg = m_dwgReader->GetError();
         }

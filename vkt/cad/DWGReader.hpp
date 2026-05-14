@@ -133,6 +133,9 @@ public:
      */
     void Clear();
 
+    /** @brief Yüklenemeyen xref dosya yolları (Read() sonrası kontrol et) */
+    const std::vector<std::string>& GetMissingXrefs() const { return m_missingXrefs; }
+
 private:
     // Entity parsing helpers
     bool ParseEntities(void* dwg_data);
@@ -169,6 +172,10 @@ private:
     DWGStatistics m_stats;
     std::string m_errorMessage;
     std::string m_filePath; ///< Path to the current DWG file (for xref resolution)
+
+    // Xref state (reset on each Read() call)
+    std::unordered_set<std::string> m_visitedXrefs; ///< Circular ref koruması
+    std::vector<std::string>        m_missingXrefs;  ///< Bulunamayan xref dosyaları
     
     // LibreDWG data handle (opaque pointer)
     void* m_dwgData = nullptr;
