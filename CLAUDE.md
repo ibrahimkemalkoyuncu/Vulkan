@@ -363,6 +363,8 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Pan sırasında overlay sync** — `VulkanWindow::mouseMoveEvent()` pan'da `m_onViewportChange` çağrıyor
 - **MEP node label collision avoidance** — greedy placement, çakışan label'lar yukarı kaydırılıyor
 - **Gerçek zamanlı hidrolik (FineSANI differentiator)** — boru/armatür eklenince/silinince 600ms debounce ile `RunAutoHydro()` tetikleniyor; `HydraulicSolver` + EN 806-3 DN seçimi sessizce çalışır, edge label güncellenir, overlay yenilenir
+- **RunAutoHydro topoloji tabanlı LU** — DFS ile Source'dan downstream fixture LU hesabı; her edge gerçek taşıma kapasitesine göre DN alıyor (eşit dağılım fallback ile)
+- **DWG xref circular ref koruması** — `m_visitedXrefs` (canonical path) + `m_missingXrefs` kaydı; nested xref'lerde de koruma; DXFImportDialog'da kayıp xref uyarısı
 
 ### Devam Eden
 
