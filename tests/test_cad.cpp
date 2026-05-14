@@ -179,7 +179,7 @@ TEST_CASE("Polyline RemoveRedundantVertices removes collinear", "[cad][polyline]
     REQUIRE(poly.GetVertexCount() == 4); // {0,0}, {2,0}, {2,2}, {4,2}
 }
 
-TEST_CASE("Polyline ConvertArcsToLines — no arcs is a no-op", "[cad][polyline]") {
+TEST_CASE("Polyline ConvertArcsToLines - no arcs is a no-op", "[cad][polyline]") {
     Polyline poly({{{0,0,0},{1,0,0},{1,1,0}}}, false);
     size_t before = poly.GetVertexCount();
     poly.ConvertArcsToLines(8);

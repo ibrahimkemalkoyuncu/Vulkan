@@ -24,7 +24,7 @@ static std::string TempPath(const std::string& name) {
 // NETWORK GRAPH ROUND-TRIP
 // ============================================================
 
-TEST_CASE("Document Save/Load — empty document", "[persistence]") {
+TEST_CASE("Document Save/Load - empty document", "[persistence]") {
     Document doc;
     std::string path = TempPath("vkt_test_empty.json");
 
@@ -39,7 +39,7 @@ TEST_CASE("Document Save/Load — empty document", "[persistence]") {
     std::filesystem::remove(path);
 }
 
-TEST_CASE("Document Save/Load — nodes and edges preserved", "[persistence]") {
+TEST_CASE("Document Save/Load - nodes and edges preserved", "[persistence]") {
     Document doc;
     auto& net = doc.GetNetwork();
 
@@ -87,7 +87,7 @@ TEST_CASE("Document Save/Load — nodes and edges preserved", "[persistence]") {
     std::filesystem::remove(path);
 }
 
-TEST_CASE("Document Save/Load — multiple nodes", "[persistence]") {
+TEST_CASE("Document Save/Load - multiple nodes", "[persistence]") {
     Document doc;
     auto& net = doc.GetNetwork();
 

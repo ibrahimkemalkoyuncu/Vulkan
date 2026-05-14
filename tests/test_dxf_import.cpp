@@ -311,7 +311,7 @@ static vkt::cad::Polyline* makeRoomPoly(
     return store.back().get();
 }
 
-TEST_CASE("SpaceManager ValidateAll — all valid spaces", "[space][validate]") {
+TEST_CASE("SpaceManager ValidateAll - all valid spaces", "[space][validate]") {
     using namespace vkt::cad;
     std::vector<std::unique_ptr<Polyline>> store;
 
@@ -329,7 +329,7 @@ TEST_CASE("SpaceManager ValidateAll — all valid spaces", "[space][validate]") 
     REQUIRE(stats.invalidSpaces == 0);
 }
 
-TEST_CASE("SpaceManager ValidateAll — detects invalid (tiny) space", "[space][validate]") {
+TEST_CASE("SpaceManager ValidateAll - detects invalid (tiny) space", "[space][validate]") {
     using namespace vkt::cad;
     std::vector<std::unique_ptr<Polyline>> store;
 
@@ -351,7 +351,7 @@ TEST_CASE("SpaceManager ValidateAll — detects invalid (tiny) space", "[space][
 // DetectNameFromText — boyut filtresi
 // ============================================================
 
-TEST_CASE("SpaceManager DetectSpacesFromEntities — dimension text ignored", "[space][text]") {
+TEST_CASE("SpaceManager DetectSpacesFromEntities - dimension text ignored", "[space][text]") {
     using namespace vkt::cad;
     using namespace vkt::geom;
 
@@ -391,7 +391,7 @@ TEST_CASE("SpaceManager DetectSpacesFromEntities — dimension text ignored", "[
 // RemoveOverlappingCandidates
 // ============================================================
 
-TEST_CASE("SpaceManager RemoveOverlappingCandidates — removes outer wrapper", "[space][overlap]") {
+TEST_CASE("SpaceManager RemoveOverlappingCandidates - removes outer wrapper", "[space][overlap]") {
     using namespace vkt::cad;
     using namespace vkt::geom;
 
@@ -423,7 +423,7 @@ TEST_CASE("SpaceManager RemoveOverlappingCandidates — removes outer wrapper", 
     }
 }
 
-TEST_CASE("SpaceManager RemoveOverlappingCandidates — no false removal for separate rooms", "[space][overlap]") {
+TEST_CASE("SpaceManager RemoveOverlappingCandidates - no false removal for separate rooms", "[space][overlap]") {
     using namespace vkt::cad;
     using namespace vkt::geom;
 
@@ -454,7 +454,7 @@ TEST_CASE("SpaceManager RemoveOverlappingCandidates — no false removal for sep
 // Beklenen: 2 oda (her biri 4x4 = 16 m²)
 //
 
-TEST_CASE("SpaceManager DetectSpacesFromSegments — 2-room plan", "[space][segment]") {
+TEST_CASE("SpaceManager DetectSpacesFromSegments - 2-room plan", "[space][segment]") {
     using namespace vkt::cad;
     using namespace vkt::geom;
 
