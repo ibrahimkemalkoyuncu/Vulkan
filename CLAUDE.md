@@ -356,6 +356,12 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DrawPipeCommand (Command Pattern)** — boru/armatür/kavşak işlemleri undo/redo stack'e kaydediliyor
 - **Armatür tipi seçici** — Lavabo/Duş/WC/Mutfak/Bataryolu combo ile fixture tip seçimi
 - **DN otomatik boyutlandırma UI** — çizilen ağdan tek tıkla EN 806-3 hesabı, sonuçları boru label olarak render
+- **MEP overlay label'ları** — Edge (DN boyutu, açık mavi) + Node (armatür tipi, renge göre) SnapOverlay'de gösteriliyor
+- **Junction undo/redo** — AddNodeCommand ile Ctrl+Z desteği
+- **MTEXT word-wrap** — `Text::m_rectWidth` (DXF code 41 / DWG rect_width), `SnapOverlay` word-wrap, `maxWidthPx` zoom-aware dönüşümü
+- **DWG MTEXT iyileştirmesi** — `x_axis_dir`'den rotation parse, `attachment` → hAlign/vAlign
+- **Pan sırasında overlay sync** — `VulkanWindow::mouseMoveEvent()` pan'da `m_onViewportChange` çağrıyor
+- **MEP node label collision avoidance** — greedy placement, çakışan label'lar yukarı kaydırılıyor
 
 ### Devam Eden
 
