@@ -13,6 +13,7 @@
 #include "cad/Polyline.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Ellipse.hpp"
 #include "cad/Text.hpp"
 #include "cad/Hatch.hpp"
 #include <sstream>
@@ -301,11 +302,51 @@ std::unique_ptr<Entity> DXFReader::ReadEntity(const std::string& entityType) {
     else if (entityType == "LINE")       return ReadLine();
     else if (entityType == "ARC")        return ReadArc();
     else if (entityType == "CIRCLE")     return ReadCircle();
+    else if (entityType == "ELLIPSE")    return ReadEllipse();
     else if (entityType == "INSERT")     return ReadInsert();
     else if (entityType == "TEXT")       return ReadText();
     else if (entityType == "MTEXT")      return ReadMText();
     else if (entityType == "HATCH")      return ReadHatch();
     else { SkipEntity(); return nullptr; }
+}
+
+std::unique_ptr<Entity> DXFReader::ReadEllipse() {
+    DXFCode code;
+    EntityProps props;
+    geom::Vec3 center;
+    geom::Vec3 majorAxis(1.0, 0.0, 0.0); // relative to center
+    double axisRatio  = 1.0;
+    double startParam = 0.0;
+    double endParam   = 6.283185307179586; // 2π
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 10) center.x    = code.AsDouble();
+        else if (code.code == 20) center.y    = code.AsDouble();
+        else if (code.code == 30) center.z    = code.AsDouble();
+        else if (code.code == 11) majorAxis.x = code.AsDouble(); // major axis endpoint (relative)
+        else if (code.code == 21) majorAxis.y = code.AsDouble();
+        else if (code.code == 31) majorAxis.z = code.AsDouble();
+        else if (code.code == 40) axisRatio   = code.AsDouble();
+        else if (code.code == 41) startParam  = code.AsDouble();
+        else if (code.code == 42) endParam    = code.AsDouble();
+    }
+
+    double semiMajor = std::sqrt(majorAxis.x * majorAxis.x + majorAxis.y * majorAxis.y);
+    if (semiMajor < 1e-12) return nullptr;
+
+    double rotAngle = std::atan2(majorAxis.y, majorAxis.x);
+
+    constexpr double twoPi = 6.283185307179586;
+    bool full = (std::abs(endParam - startParam) < 1e-10) ||
+                (std::abs(endParam - startParam - twoPi) < 1e-10);
+    if (full) { startParam = 0.0; endParam = twoPi; }
+
+    auto ellipse = std::make_unique<Ellipse>(center, semiMajor, axisRatio,
+                                              rotAngle, startParam, endParam);
+    ApplyProps(ellipse.get(), props);
+    return ellipse;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadText() {

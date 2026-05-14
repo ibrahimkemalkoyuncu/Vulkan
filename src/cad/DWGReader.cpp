@@ -7,6 +7,7 @@
 #include "cad/Line.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
+#include "cad/Ellipse.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Hatch.hpp"
 #include "cad/Text.hpp"
@@ -1094,10 +1095,9 @@ Entity* DWGReader::ParseHatch(void* obj_ptr) {
 }
 
 /**
- * @brief ELLIPSE entity parse — Polyline olarak tessellate eder
+ * @brief ELLIPSE entity parse — Ellipse entity olarak sakla (tessellation render'da yapılır)
  *
  * LibreDWG: center, sm_axis (yarı-büyük eksen vektörü), axis_ratio, start/end_angle
- * Tam ellips veya kısmi ellips (elliptical arc) desteklenir.
  */
 Entity* DWGReader::ParseEllipse(void* obj_ptr) {
     Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
@@ -1105,50 +1105,24 @@ Entity* DWGReader::ParseEllipse(void* obj_ptr) {
 
     Dwg_Entity_ELLIPSE* ell = obj->tio.entity->tio.ELLIPSE;
 
-    geom::Vec3 center(ell->center.x, ell->center.y, 0.0);
+    geom::Vec3 center(ell->center.x, ell->center.y, ell->center.z);
     double semiMajor = std::sqrt(ell->sm_axis.x * ell->sm_axis.x +
                                   ell->sm_axis.y * ell->sm_axis.y);
     if (semiMajor < 1e-12) return nullptr;
 
-    double semiMinor = semiMajor * ell->axis_ratio;
-    double rotAngle = std::atan2(ell->sm_axis.y, ell->sm_axis.x);
+    double axisRatio = ell->axis_ratio;
+    double rotAngle  = std::atan2(ell->sm_axis.y, ell->sm_axis.x);
 
     double startParam = ell->start_angle;
-    double endParam = ell->end_angle;
+    double endParam   = ell->end_angle;
 
-    // Tam ellips kontrolü
-    bool fullEllipse = (std::abs(endParam - startParam) < 1e-10) ||
-                       (std::abs(endParam - startParam - 2.0 * M_PI) < 1e-10);
-    if (fullEllipse) {
-        startParam = 0.0;
-        endParam = 2.0 * M_PI;
-    }
+    // Tam ellips: start == end → normalize to [0, 2π]
+    constexpr double twoPi = 6.283185307179586;
+    bool full = (std::abs(endParam - startParam) < 1e-10) ||
+                (std::abs(endParam - startParam - twoPi) < 1e-10);
+    if (full) { startParam = 0.0; endParam = twoPi; }
 
-    // Parametrik noktalar ile tessellate et
-    int segments = 64;
-    double sweep = endParam - startParam;
-    if (sweep < 0) sweep += 2.0 * M_PI;
-
-    std::vector<Polyline::Vertex> vertices;
-    vertices.reserve(segments + 1);
-
-    double cosR = std::cos(rotAngle);
-    double sinR = std::sin(rotAngle);
-
-    for (int i = 0; i <= segments; ++i) {
-        double t = startParam + sweep * i / segments;
-        double lx = semiMajor * std::cos(t);
-        double ly = semiMinor * std::sin(t);
-        // Rotate by ellipse rotation
-        double wx = center.x + lx * cosR - ly * sinR;
-        double wy = center.y + lx * sinR + ly * cosR;
-
-        Polyline::Vertex pv;
-        pv.pos = geom::Vec3(wx, wy, 0.0);
-        vertices.push_back(pv);
-    }
-
-    return new Polyline(vertices, fullEllipse);
+    return new Ellipse(center, semiMajor, axisRatio, rotAngle, startParam, endParam);
 }
 
 /**

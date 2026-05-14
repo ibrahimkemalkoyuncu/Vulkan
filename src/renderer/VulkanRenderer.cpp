@@ -7,6 +7,7 @@
 #include "cad/Line.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Ellipse.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Dimension.hpp"
 #include "cad/Hatch.hpp"
@@ -1860,6 +1861,20 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
                           center.y + radius * std::sin(a1));
             }
             circleCount++;
+            break;
+        }
+        case cad::EntityType::Ellipse: {
+            const auto* ell = static_cast<const cad::Ellipse*>(entity.get());
+            // Adaptive segment count based on semi-major axis screen size
+            double screenA = ell->GetSemiMajor() * static_cast<double>(ppu);
+            int segments = static_cast<int>(2.0 * M_PI * screenA / 4.0);
+            segments = std::max(8, std::min(128, segments));
+            if (!ell->IsFullEllipse()) segments = std::max(4, segments / 4);
+            auto pts = ell->Tessellate(segments);
+            for (size_t i = 0; i + 1 < pts.size(); ++i) {
+                addVertex(pts[i].x,     pts[i].y,     pts[i].z);
+                addVertex(pts[i+1].x,   pts[i+1].y,   pts[i+1].z);
+            }
             break;
         }
         case cad::EntityType::Polyline: {

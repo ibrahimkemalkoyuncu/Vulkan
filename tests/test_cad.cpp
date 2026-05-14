@@ -8,8 +8,10 @@
 #include "cad/Line.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
+#include "cad/Ellipse.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/LayerManager.hpp"
+#include <cmath>
 
 using namespace vkt::cad;
 using namespace vkt::geom;
@@ -192,6 +194,63 @@ TEST_CASE("Polyline Offset produces correct number of vertices", "[cad][polyline
     auto offset = poly.Offset(0.5);
     REQUIRE(offset != nullptr);
     REQUIRE(offset->GetVertexCount() == poly.GetVertexCount());
+}
+
+// ============================================================
+// ELLIPSE
+// ============================================================
+
+TEST_CASE("Ellipse - full ellipse detection", "[cad][ellipse]") {
+    static constexpr double kTwoPi = 6.283185307179586;
+    Ellipse full({0,0,0}, 5.0, 0.5, 0.0, 0.0, kTwoPi);
+    REQUIRE(full.IsFullEllipse());
+
+    Ellipse arc({0,0,0}, 5.0, 0.5, 0.0, 0.0, kTwoPi * 0.5);
+    REQUIRE_FALSE(arc.IsFullEllipse());
+}
+
+TEST_CASE("Ellipse - GetPointAt circle degenerate", "[cad][ellipse]") {
+    // axisRatio=1 → circle; point at t=0 should be (r,0,0)
+    Ellipse e({0,0,0}, 3.0, 1.0, 0.0, 0.0, 6.283185307179586);
+    auto p = e.GetPointAt(0.0);
+    REQUIRE_THAT(p.x, Catch::Matchers::WithinAbs(3.0, 1e-9));
+    REQUIRE_THAT(p.y, Catch::Matchers::WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("Ellipse - GetPointAt with rotation", "[cad][ellipse]") {
+    static constexpr double kPi = 3.14159265358979323846;
+    // 90-degree rotation: major axis points along Y
+    Ellipse e({0,0,0}, 4.0, 0.5, kPi / 2.0, 0.0, 2.0 * kPi);
+    auto p = e.GetPointAt(0.0); // t=0 → major axis direction
+    REQUIRE_THAT(p.x, Catch::Matchers::WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(p.y, Catch::Matchers::WithinAbs(4.0, 1e-9));
+}
+
+TEST_CASE("Ellipse - Tessellate segment count", "[cad][ellipse]") {
+    Ellipse e({0,0,0}, 2.0, 0.5, 0.0, 0.0, 6.283185307179586);
+    auto pts = e.Tessellate(32);
+    REQUIRE(pts.size() == 33); // segments+1
+    // First and last point should be close (full ellipse closes)
+    REQUIRE_THAT(pts.front().x, Catch::Matchers::WithinAbs(pts.back().x, 1e-9));
+    REQUIRE_THAT(pts.front().y, Catch::Matchers::WithinAbs(pts.back().y, 1e-9));
+}
+
+TEST_CASE("Ellipse - Move", "[cad][ellipse]") {
+    Ellipse e({1,2,0}, 3.0, 0.5, 0.0, 0.0, 6.283185307179586);
+    e.Move({10, -5, 0});
+    REQUIRE_THAT(e.GetCenter().x, Catch::Matchers::WithinAbs(11.0, 1e-9));
+    REQUIRE_THAT(e.GetCenter().y, Catch::Matchers::WithinAbs(-3.0, 1e-9));
+}
+
+TEST_CASE("Ellipse - Clone preserves parameters", "[cad][ellipse]") {
+    Ellipse e({3,4,0}, 6.0, 0.3, 1.2, 0.5, 5.0);
+    auto c = e.Clone();
+    const auto* ec = static_cast<const Ellipse*>(c.get());
+    REQUIRE(ec->GetType() == EntityType::Ellipse);
+    REQUIRE_THAT(ec->GetSemiMajor(),  Catch::Matchers::WithinAbs(6.0, 1e-9));
+    REQUIRE_THAT(ec->GetAxisRatio(),  Catch::Matchers::WithinAbs(0.3, 1e-9));
+    REQUIRE_THAT(ec->GetRotAngle(),   Catch::Matchers::WithinAbs(1.2, 1e-9));
+    REQUIRE_THAT(ec->GetCenter().x,   Catch::Matchers::WithinAbs(3.0, 1e-9));
 }
 
 // ============================================================

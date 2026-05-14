@@ -119,6 +119,7 @@ set(SOURCES
     src/cad/Polyline.cpp
     src/cad/Arc.cpp
     src/cad/Circle.cpp
+    src/cad/Ellipse.cpp
     src/cad/SelectionManager.cpp
     src/cad/Viewport.cpp
     src/cad/Space.cpp
