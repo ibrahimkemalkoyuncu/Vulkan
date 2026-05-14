@@ -59,6 +59,11 @@ MainWindow::MainWindow(QWidget* parent)
     m_snapOverlay->resize(m_vulkanContainer->size());
     m_snapOverlay->raise();
 
+    // Gerçek zamanlı hidrolik debounce timer (600ms, single-shot yeniden başlatılabilir)
+    m_autoHydroTimer = new QTimer(this);
+    m_autoHydroTimer->setSingleShot(true);
+    connect(m_autoHydroTimer, &QTimer::timeout, this, &MainWindow::RunAutoHydro);
+
     // Mouse callback'lerini bagla
     m_vulkanWindow->SetMousePressCallback(
         [this](double wx, double wy, Qt::MouseButton btn) { HandleMousePress(wx, wy, btn); });
@@ -557,6 +562,7 @@ void MainWindow::OnDelete() {
         if (m_fixturePanel) m_fixturePanel->Clear();
         m_document->SetModified(true);
         UpdateUI();
+        ScheduleAutoHydro();
     } else if (m_selectedEdgeId != 0) {
         auto cmd = std::make_unique<core::DeleteEdgeCommand>(network, m_selectedEdgeId);
         m_document->ExecuteCommand(std::move(cmd));
@@ -564,6 +570,7 @@ void MainWindow::OnDelete() {
         m_selectedEdgeId = 0;
         m_document->SetModified(true);
         UpdateUI();
+        ScheduleAutoHydro();
     } else {
         statusBar()->showMessage("Silme: önce bir öğe seçin (Select modu)");
     }
@@ -778,6 +785,67 @@ void MainWindow::OnAutoSizeDN() {
     m_document->SetModified(true);
     UpdateUI();
     statusBar()->showMessage(QString("DN boyutlandırma tamamlandı: %1 boru güncellendi").arg(sized));
+}
+
+// ============================================================
+//  GERÇEK ZAMANLI HİDROLİK (DEBOUNCED AUTO-DN)
+// ============================================================
+
+void MainWindow::ScheduleAutoHydro() {
+    // QTimer::start() var olan timer'ı yeniden başlatır (debounce)
+    if (m_autoHydroTimer) m_autoHydroTimer->start(600);
+}
+
+void MainWindow::RunAutoHydro() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) return;
+
+    // EN 806-3: v_max=2.5 m/s → D_min hesabı (OnAutoSizeDN ile aynı mantık)
+    static const double kDN[] = {16,20,25,32,40,50,63,75,90,110,125,160,200,0};
+    const double v_max = 2.5;
+
+    auto selectDN = [&](double Q_lps) -> double {
+        double d_mm = std::sqrt(4.0 * (Q_lps / 1000.0) / M_PI / v_max) * 1000.0;
+        for (int i = 0; kDN[i] > 0; ++i)
+            if (kDN[i] >= d_mm) return kDN[i];
+        return 200.0;
+    };
+
+    // Solver'ı sessizce çalıştır
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    solver.SolveDrainage();
+
+    double totalLU = 0.0;
+    for (const auto& [nid, node] : network.GetNodeMap())
+        if (node.type == mep::NodeType::Fixture) totalLU += node.loadUnit;
+    totalLU = std::max(totalLU, 0.1);
+    int edgeCount = static_cast<int>(network.GetEdgeMap().size());
+
+    int updated = 0;
+    for (auto& [eid, edge] : network.GetEdgeMap()) {
+        double Q_lps;
+        if (edge.flowRate_m3s > 1e-9) {
+            Q_lps = edge.flowRate_m3s * 1000.0;
+        } else {
+            double edgeLU = totalLU / std::max(edgeCount, 1);
+            Q_lps = 0.682 * std::pow(edgeLU, 0.45);
+        }
+        Q_lps = std::max(Q_lps, 0.05);
+        double newDN = selectDN(Q_lps);
+        if (std::abs(newDN - edge.diameter_mm) > 0.5 || edge.label.empty()) {
+            edge.diameter_mm = newDN;
+            edge.label = "DN" + std::to_string(static_cast<int>(newDN));
+            updated++;
+        }
+    }
+
+    if (updated > 0) {
+        RefreshTextOverlay();
+        statusBar()->showMessage(
+            QString("⚡ Otomatik DN: %1 boru güncellendi (EN 806-3)").arg(updated), 3000);
+    }
 }
 
 // ============================================================
@@ -1034,6 +1102,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             m_document->TrackExecuted(std::move(composite));
             m_document->SetModified(true);
             UpdateUI();
+            ScheduleAutoHydro(); // boru eklendi → debounced DN güncelle
 
             // Zincirleme: ikinci nokta bir sonraki borunun başlangıcı
             m_firstNodeId = secondNodeId;
@@ -1062,6 +1131,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         m_document->ExecuteCommand(std::move(cmd));
         m_document->SetModified(true);
         UpdateUI();
+        ScheduleAutoHydro(); // armatür eklendi → LU değişti → DN yeniden hesapla
         statusBar()->showMessage(QString("Armatür eklendi: %1 (x=%2, y=%3)")
             .arg(m_selectedFixtureType).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;

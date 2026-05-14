@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QListWidget>
 #include <QKeyEvent>
+#include <QTimer>
 #include <memory>
 #include "core/Document.hpp"
 #include "cad/SpaceManager.hpp"
@@ -87,6 +88,10 @@ private slots:
     void OnAutoSizeDN();
     void OnGenerateSchedule();
     void OnExportReport();
+
+    // Gerçek zamanlı hidrolik (debounced)
+    void ScheduleAutoHydro();   ///< Debounce zamanlayıcısını başlat/yeniden başlat
+    void RunAutoHydro();        ///< Timer'dan tetiklenen sessiz DN boyutlandırma
 
     // Mahal (Space) yönetimi
     void OnSelectSpace();
@@ -205,6 +210,9 @@ private:
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok
     uint32_t m_selectedEdgeId = 0;    // 0 = seçim yok
+
+    // Gerçek zamanlı hidrolik debounce zamanlayıcısı
+    QTimer* m_autoHydroTimer = nullptr;
 
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
