@@ -593,6 +593,16 @@ void DWGReader::ExpandXref(const std::string& xrefPath,
         }
     }
 
+    // Kullanıcı tanımlı ek arama dizinleri
+    if (resolved.empty()) {
+        for (const auto& searchDir : m_xrefSearchPaths) {
+            fs::path candidate = fs::path(searchDir) / fs::path(xrefPath).filename();
+            if (fs::exists(candidate)) { resolved = candidate.string(); break; }
+            candidate.replace_extension(".dwg");
+            if (fs::exists(candidate)) { resolved = candidate.string(); break; }
+        }
+    }
+
     if (resolved.empty()) {
         std::cout << "[DWGReader] xref not found: " << xrefPath << std::endl;
         m_missingXrefs.push_back(xrefPath);

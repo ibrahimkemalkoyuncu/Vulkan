@@ -541,6 +541,7 @@ void MainWindow::OnUndo() {
     if (m_document) {
         m_document->Undo();
         UpdateUI();
+        ScheduleAutoHydro(); // MEP ağı değişmiş olabilir → DN yeniden hesapla
     }
 }
 
@@ -548,6 +549,7 @@ void MainWindow::OnRedo() {
     if (m_document) {
         m_document->Redo();
         UpdateUI();
+        ScheduleAutoHydro();
     }
 }
 

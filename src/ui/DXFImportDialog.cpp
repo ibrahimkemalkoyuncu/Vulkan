@@ -265,14 +265,35 @@ void DXFImportDialog::OnImport() {
             layerCount = stats.layerCount;
             readTime = stats.readTimeMs;
 
-            // Bulunamayan xref dosyaları → kullanıcıya bilgi ver
+            // Bulunamayan xref dosyaları → kullanıcıya bilgi ver + yeniden arama seçeneği
             const auto& missing = m_dwgReader->GetMissingXrefs();
             if (!missing.empty()) {
-                QString msg = QString("%1 xref dosyası bulunamadı:\n").arg(missing.size());
+                QString msg = QString("%1 xref dosyası bulunamadı:\n\n").arg(missing.size());
                 for (const auto& p : missing)
                     msg += "  • " + QString::fromStdString(p) + "\n";
-                msg += "\nXref dosyalarını DWG ile aynı dizine koyun veya görmezden gelin.";
-                QMessageBox::warning(this, "Xref Bulunamadı", msg);
+                msg += "\nXref dizinini belirtmek ister misiniz?";
+
+                auto btn = QMessageBox::question(this, "Xref Bulunamadı", msg,
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+
+                if (btn == QMessageBox::Yes) {
+                    QString dir = QFileDialog::getExistingDirectory(
+                        this, "Xref Dosyalarının Bulunduğu Dizini Seçin",
+                        QFileInfo(filePath).dir().absolutePath());
+
+                    if (!dir.isEmpty()) {
+                        // Arama dizini ekle ve yeniden oku
+                        m_dwgReader = std::make_unique<cad::DWGReader>();
+                        m_dwgReader->AddXrefSearchPath(dir.toStdString());
+                        if (m_dwgReader->Read(filePath.toStdString())) {
+                            const auto& stats2 = m_dwgReader->GetStatistics();
+                            entityCount = stats2.entityCount;
+                            layerCount  = stats2.layerCount;
+                            readTime    = stats2.readTimeMs;
+                            // Hâlâ eksik xref varsa sessizce devam et
+                        }
+                    }
+                }
             }
         } else {
             errorMsg = m_dwgReader->GetError();
