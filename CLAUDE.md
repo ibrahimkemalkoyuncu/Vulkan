@@ -369,6 +369,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Undo/Redo → AutoHydro** — `OnUndo()` / `OnRedo()` sonrası `ScheduleAutoHydro()` çağrısı; MEP ağı geri alınca DN label'lar otomatik güncelleniyor
 - **Birim testleri: text rotation + MTEXT word-wrap** — `x_axis_dir`→derece dönüşümü (6 test), greedy word-wrap algoritması (8 test); `tests/test_geometry.cpp`
 - **CTest Windows encoding düzeltmesi** — TEST_CASE isimlerindeki em dash (`—`) → ASCII `-`; 79/79 test ctest ile geçiyor
+- **Ellipse entity class** — `vkt/cad/Ellipse.hpp` + `src/cad/Ellipse.cpp`; parametrik depolama (center, semiMajor, axisRatio, rotAngle, startParam/endParam); DWGReader artık `Polyline` yerine `Ellipse*` döndürüyor; DXFReader'a `ReadEllipse()` eklendi (group codes 10–42); VulkanRenderer'da adaptive tessellation (ppu-tabanlı, Circle/Arc ile aynı yaklaşım); 6 birim testi — 85/85 geçiyor
 
 ### Devam Eden
 
