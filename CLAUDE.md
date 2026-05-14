@@ -368,6 +368,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DWG xref arama dizini** — `DWGReader::AddXrefSearchPath()` + `GetMissingXrefs()`; DXFImportDialog'da QMessageBox ile kullanıcıdan dizin isteme + re-read
 - **Undo/Redo → AutoHydro** — `OnUndo()` / `OnRedo()` sonrası `ScheduleAutoHydro()` çağrısı; MEP ağı geri alınca DN label'lar otomatik güncelleniyor
 - **Birim testleri: text rotation + MTEXT word-wrap** — `x_axis_dir`→derece dönüşümü (6 test), greedy word-wrap algoritması (8 test); `tests/test_geometry.cpp`
+- **CTest Windows encoding düzeltmesi** — TEST_CASE isimlerindeki em dash (`—`) → ASCII `-`; 79/79 test ctest ile geçiyor
 
 ### Devam Eden
 
