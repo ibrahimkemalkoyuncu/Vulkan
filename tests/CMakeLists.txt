@@ -51,6 +51,7 @@ target_sources(vkt_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/mep/Database.cpp
     ${CMAKE_SOURCE_DIR}/src/mep/RiserDiagram.cpp
     ${CMAKE_SOURCE_DIR}/src/core/FloorManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/ProjectManager.cpp
     # CAD entity kaynakları
     ${CMAKE_SOURCE_DIR}/src/cad/Entity.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Line.cpp

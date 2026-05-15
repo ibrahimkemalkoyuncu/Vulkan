@@ -1,5 +1,6 @@
 #include "ui/MimariBelirleDialog.hpp"
 #include "core/FloorManager.hpp"
+#include "core/ProjectManager.hpp"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -10,6 +11,9 @@
 #include <QMessageBox>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QFile>
+#include <QDir>
+#include <QFileInfo>
 
 namespace vkt {
 namespace ui {
@@ -105,6 +109,18 @@ void MimariBelirleDialog::BuildUI() {
     hintLabel->setStyleSheet("QLabel { color: #555; font-size: 11px; }");
     form->addRow(hintLabel);
 
+    // ── Proje klasörüne kopyalama seçeneği ───────────────
+    m_chkKopyala = new QCheckBox("Dosyayı proje mimari/ klasörüne kopyala");
+    m_chkKopyala->setToolTip(
+        "İşaretlendiğinde, seçilen DXF/DWG dosyası proje klasörünün\n"
+        "\"mimari/\" alt dizinine kopyalanır ve dosya yolu güncellenir.\n"
+        "Aktif proje yoksa bu seçenek pasiftir.");
+    // Aktif proje varsa etkinleştir
+    bool hasProject = core::ProjectManager::Instance().HasActiveProject();
+    m_chkKopyala->setEnabled(hasProject);
+    m_chkKopyala->setChecked(hasProject);
+    form->addRow(m_chkKopyala);
+
     auto* btnRow = new QHBoxLayout();
     m_btnYenile = new QPushButton("Yenile");
     m_btnYenile->setToolTip("Girilen bilgileri listeye ekle / güncelle");
@@ -167,9 +183,30 @@ void MimariBelirleDialog::OnYenile() {
     def.katNo = m_spnKatNo->value();
     def.kod   = m_spnKod->value();
     def.isim  = m_edtIsim->text().trimmed().toStdString();
-    def.dosya = m_edtDosya->text().toStdString();
     def.refX  = m_spnRefX->value();
     def.refY  = m_spnRefY->value();
+
+    // Dosyayı proje mimari/ klasörüne kopyala (seçenek işaretliyse)
+    QString srcPath = m_edtDosya->text();
+    if (m_chkKopyala && m_chkKopyala->isChecked() &&
+        !srcPath.isEmpty() && QFile::exists(srcPath)) {
+        auto& pm = core::ProjectManager::Instance();
+        if (pm.HasActiveProject()) {
+            QString mimariDir = QString::fromStdString(pm.GetMimariFolder());
+            QDir().mkpath(mimariDir);
+            QFileInfo fi(srcPath);
+            QString destPath = mimariDir + "/" + fi.fileName();
+            if (destPath != srcPath) {
+                if (QFile::exists(destPath))
+                    QFile::remove(destPath);
+                if (QFile::copy(srcPath, destPath)) {
+                    srcPath = destPath;
+                    m_edtDosya->setText(destPath);
+                }
+            }
+        }
+    }
+    def.dosya = srcPath.toStdString();
 
     if (m_editRow >= 0 && m_editRow < (int)m_defs.size()) {
         m_defs[m_editRow] = def;

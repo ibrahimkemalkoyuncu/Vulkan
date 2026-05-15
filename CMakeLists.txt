@@ -93,6 +93,7 @@ set(SOURCES
     src/core/Document.cpp
     src/core/Persistence.cpp
     src/core/FloorManager.cpp
+    src/core/ProjectManager.cpp
     src/renderer/VulkanRenderer.cpp
     src/renderer/VulkanWindow.cpp
     src/renderer/Gizmo.cpp
@@ -143,6 +144,7 @@ set(HEADERS
     vkt/core/Command.hpp
     vkt/core/Persistence.hpp
     vkt/core/FloorManager.hpp
+    vkt/core/ProjectManager.hpp
     vkt/geom/Math.hpp
     vkt/geom/Quaternion.hpp
     vkt/geom/BRep.hpp

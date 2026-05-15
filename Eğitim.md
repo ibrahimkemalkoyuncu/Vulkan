@@ -142,7 +142,39 @@ Snap noktası sarı işaret ile gösterilir. Snap yakalandığında CommandBar'd
 
 ---
 
-## 7. Dosya Formatları
+## 7. Proje Çalışma Alanı (CC Klasörü Eşdeğeri)
+
+VKT'de her proje, merkezi bir kök dizin altında kendi alt klasörünü alır. Bu yapı FineSANI'deki CC klasörü konseptinin tam karşılığıdır.
+
+### Kök Dizini Ayarlama
+**Dosya → Proje Kök Klasörü Ayarla...** — Tüm projelerin tutulacağı ana dizini belirleyin. Bu ayar kalıcı olarak saklanır.
+
+### Yeni Proje Oluşturma
+**Dosya → Yeni Proje...** (Ctrl+Shift+N)
+- Proje adını girin → VKT otomatik olarak şu yapıyı oluşturur:
+
+```
+[ProjeKökü]/
+└── [ProjeAdı]/
+    ├── [ProjeAdı].vkt    ← ana proje dosyası (otomatik kaydedilir)
+    ├── mimari/           ← DXF/DWG mimari altlıkların kopyaları
+    ├── cikti/            ← dışa aktarılan DXF/blok dosyaları
+    └── rapor/            ← hesap raporları (XLS/PDF)
+```
+
+### Mimari Altlıkların Aktarımı
+**Mimari → Mimari Belirle...** (Ctrl+M) penceresinde dosya seçilirken **"Dosyayı proje mimari/ klasörüne kopyala"** seçeneği işaretlenirse, DXF/DWG dosyası otomatik olarak proje klasörüne kopyalanır ve yol güncellenir.
+
+### Proje Klasörünü Açma
+**Dosya → Proje Klasörünü Aç** — Aktif projenin klasörünü Dosya Gezgini'nde açar. Buradan rapor ve çıktı dosyalarına ulaşılabilir.
+
+### Rapor ve Çıktı Yönetimi
+- **Rapor kaydet** (Analiz → Rapor Dışa Aktar) — Aktif proje varsa otomatik olarak `rapor/` klasöründen başlar
+- **DXF dışa aktarım** — `cikti/` klasörüne kaydedilmesi önerilir
+
+---
+
+## 8. Dosya Formatları
 
 | Format | İçe Aktar | Dışa Aktar |
 |--------|-----------|------------|

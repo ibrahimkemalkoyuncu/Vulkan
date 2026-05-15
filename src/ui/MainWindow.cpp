@@ -6,6 +6,7 @@
 #include "ui/MainWindow.hpp"
 #include "ui/DXFImportDialog.hpp"
 #include "ui/MimariBelirleDialog.hpp"
+#include "core/ProjectManager.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
 #include "ui/SnapOverlay.hpp"
@@ -28,6 +29,9 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QInputDialog>
+#include <QSettings>
+#include <QDesktopServices>
+#include <QUrl>
 #include <iostream>
 #include <string>
 #include <cmath>
@@ -80,6 +84,12 @@ MainWindow::MainWindow(QWidget* parent)
     CreateMenus();
     CreateToolbars();
     CreateDockPanels();
+
+    // Proje kök dizinini kalıcı ayarlardan yükle
+    QSettings settings("VKT", "MekanikTesisatCAD");
+    QString projectsRoot = settings.value("projectsRoot", "").toString();
+    if (!projectsRoot.isEmpty())
+        core::ProjectManager::Instance().SetProjectsRoot(projectsRoot.toStdString());
 
     statusBar()->showMessage("VKT hazir - Muhendislik Modu ACIK");
 }
@@ -191,11 +201,26 @@ void MainWindow::CreateActions() {
     m_actMimariBelirle->setShortcut(QKeySequence("Ctrl+M"));
     m_actMimariBelirle->setToolTip("Kat tanımları ve mimari DXF/DWG dosyalarını belirle");
     connect(m_actMimariBelirle, &QAction::triggered, this, &MainWindow::OnMimariBelirle);
+
+    // Proje çalışma alanı (CC klasörü eşdeğeri)
+    m_actNewProject = new QAction("&Yeni Proje...", this);
+    m_actNewProject->setShortcut(QKeySequence("Ctrl+Shift+N"));
+    m_actNewProject->setToolTip("Proje kök dizininde yeni proje klasörü oluştur");
+    connect(m_actNewProject, &QAction::triggered, this, &MainWindow::OnNewProject);
+
+    m_actSetProjectsRoot = new QAction("Proje &Kök Klasörü Ayarla...", this);
+    m_actSetProjectsRoot->setToolTip("Tüm projelerin tutulduğu ana dizini belirle (CC klasörü eşdeğeri)");
+    connect(m_actSetProjectsRoot, &QAction::triggered, this, &MainWindow::OnSetProjectsRoot);
+
+    m_actOpenProjectFolder = new QAction("Proje &Klasörünü Aç", this);
+    m_actOpenProjectFolder->setToolTip("Aktif proje klasörünü Dosya Gezgini'nde aç");
+    connect(m_actOpenProjectFolder, &QAction::triggered, this, &MainWindow::OnOpenProjectFolder);
 }
 
 void MainWindow::CreateMenus() {
     // Dosya
     auto* fileMenu = menuBar()->addMenu("&Dosya");
+    fileMenu->addAction(m_actNewProject);
     fileMenu->addAction(m_actNew);
     fileMenu->addAction(m_actOpen);
     fileMenu->addSeparator();
@@ -203,6 +228,9 @@ void MainWindow::CreateMenus() {
     fileMenu->addAction(m_actSaveAs);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actImportDXF);
+    fileMenu->addSeparator();
+    fileMenu->addAction(m_actSetProjectsRoot);
+    fileMenu->addAction(m_actOpenProjectFolder);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actExit);
 
@@ -384,18 +412,29 @@ void MainWindow::OnNew() {
 }
 
 void MainWindow::OnOpen() {
+    // Proje kök klasörü varsa oradan başla
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasProjectsRoot()
+        ? QString::fromStdString(pm.GetProjectsRoot())
+        : "";
+
     QString filePath = QFileDialog::getOpenFileName(this,
-        "Proje Ac", "", "VKT Projesi (*.vkt);;Tum Dosyalar (*)");
+        "Proje Aç", startDir, "VKT Projesi (*.vkt);;Tüm Dosyalar (*)");
     if (filePath.isEmpty()) return;
+
+    // Projeyi ProjectManager'a bildir
+    QFileInfo fi(filePath);
+    pm.SetActiveProject(fi.dir().absolutePath().toStdString());
 
     auto& app = core::Application::Instance();
     auto* doc = app.OpenDocument(filePath.toStdString());
     if (doc) {
         SetDocument(doc);
-        setWindowTitle(QString("VKT - FINE SANI++ - %1").arg(filePath));
-        statusBar()->showMessage(QString("Proje acildi: %1").arg(filePath));
+        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
+            QString::fromStdString(pm.GetProjectName())));
+        statusBar()->showMessage(QString("Proje açıldı: %1").arg(filePath));
     } else {
-        QMessageBox::critical(this, "Hata", "Proje dosyasi acilamadi!");
+        QMessageBox::critical(this, "Hata", "Proje dosyası açılamadı!");
     }
 }
 
@@ -417,12 +456,25 @@ void MainWindow::OnSave() {
 void MainWindow::OnSaveAs() {
     if (!m_document) return;
 
+    // Aktif proje klasöründen başla; yoksa kök dizininden
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject()
+        ? QString::fromStdString(pm.GetProjectFolder())
+        : pm.HasProjectsRoot()
+            ? QString::fromStdString(pm.GetProjectsRoot())
+            : "";
+
     QString filePath = QFileDialog::getSaveFileName(this,
-        "Projeyi Kaydet", "", "VKT Projesi (*.vkt)");
+        "Projeyi Kaydet", startDir, "VKT Projesi (*.vkt)");
     if (filePath.isEmpty()) return;
 
+    // Proje klasörünü güncelle
+    QFileInfo fi(filePath);
+    pm.SetActiveProject(fi.dir().absolutePath().toStdString());
+
     if (m_document->Save(filePath.toStdString())) {
-        setWindowTitle(QString("VKT - FINE SANI++ - %1").arg(filePath));
+        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
+            QString::fromStdString(pm.GetProjectName())));
         statusBar()->showMessage(QString("Proje kaydedildi: %1").arg(filePath));
     } else {
         QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
@@ -958,8 +1010,14 @@ void MainWindow::OnGenerateSchedule() {
 void MainWindow::OnExportReport() {
     if (!m_document) return;
 
+    // Proje varsa rapor/ klasöründen başla
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject()
+        ? QString::fromStdString(pm.GetRaporFolder())
+        : "";
+
     QString filePath = QFileDialog::getSaveFileName(this,
-        "Rapor Kaydet", "",
+        "Rapor Kaydet", startDir,
         "Excel Raporu (*.xls);;"
         "CSV Dosyası (*.csv);;"
         "Metin Dosyası (*.txt)");
@@ -984,6 +1042,91 @@ void MainWindow::OnExportReport() {
     } else {
         QMessageBox::critical(this, "Hata", "Dosya yazılamadı!");
     }
+}
+
+void MainWindow::OnNewProject() {
+    auto& pm = core::ProjectManager::Instance();
+
+    // 1. Proje kök dizini yoksa önce belirlet
+    if (!pm.HasProjectsRoot()) {
+        QMessageBox::information(this, "Proje Kök Dizini Gerekli",
+            "Yeni proje oluşturmadan önce projelerin tutulacağı ana klasörü belirlemeniz gerekir.\n"
+            "(Dosya → Proje Kök Klasörü Ayarla...)");
+        OnSetProjectsRoot();
+        if (!pm.HasProjectsRoot()) return;
+    }
+
+    // 2. Proje adı al
+    bool ok = false;
+    QString name = QInputDialog::getText(this, "Yeni Proje",
+        QString("Proje adı:\n(Klasör: %1/[ad])")
+            .arg(QString::fromStdString(pm.GetProjectsRoot())),
+        QLineEdit::Normal, "", &ok);
+    if (!ok || name.trimmed().isEmpty()) return;
+
+    // 3. Proje klasörünü oluştur
+    std::string error;
+    if (!pm.CreateProject(name.trimmed().toStdString(), error)) {
+        QMessageBox::critical(this, "Proje Oluşturulamadı", QString::fromStdString(error));
+        return;
+    }
+
+    // 4. Yeni belge oluştur ve proje dosya yoluna kaydet
+    auto& app = core::Application::Instance();
+    auto* doc = app.CreateNewDocument();
+    SetDocument(doc);
+
+    // Ana .vkt dosyasına kaydet
+    std::string mainFile = pm.GetMainFilePath();
+    if (!mainFile.empty()) {
+        doc->Save(mainFile);
+    }
+
+    QString displayName = QString::fromStdString(pm.GetProjectName());
+    setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(displayName));
+    statusBar()->showMessage(
+        QString("Proje oluşturuldu: %1").arg(QString::fromStdString(pm.GetProjectFolder())));
+
+    if (m_logList)
+        m_logList->addItem(QString("Yeni proje: %1").arg(
+            QString::fromStdString(pm.GetProjectFolder())));
+}
+
+void MainWindow::OnSetProjectsRoot() {
+    QString current = QString::fromStdString(
+        core::ProjectManager::Instance().GetProjectsRoot());
+
+    QString dir = QFileDialog::getExistingDirectory(this,
+        "Proje Kök Klasörünü Seç (CC Klasörü Eşdeğeri)",
+        current.isEmpty() ? QDir::homePath() : current,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+
+    if (dir.isEmpty()) return;
+
+    core::ProjectManager::Instance().SetProjectsRoot(dir.toStdString());
+
+    // Kalıcı olarak kaydet
+    QSettings settings("VKT", "MekanikTesisatCAD");
+    settings.setValue("projectsRoot", dir);
+
+    statusBar()->showMessage(
+        QString("Proje kök klasörü ayarlandı: %1").arg(dir));
+}
+
+void MainWindow::OnOpenProjectFolder() {
+    auto& pm = core::ProjectManager::Instance();
+    std::string folder = pm.HasActiveProject()
+        ? pm.GetProjectFolder()
+        : pm.GetProjectsRoot();
+
+    if (folder.empty()) {
+        QMessageBox::information(this, "Proje Klasörü",
+            "Henüz aktif proje veya kök klasör belirlenmemiş.\n"
+            "Dosya → Proje Kök Klasörü Ayarla...");
+        return;
+    }
+
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdString(folder)));
 }
 
 void MainWindow::OnMimariBelirle() {

@@ -18,6 +18,7 @@
 #include <memory>
 #include "core/Document.hpp"
 #include "core/FloorManager.hpp"
+#include "core/ProjectManager.hpp"
 #include "cad/SpaceManager.hpp"
 #include "cad/Viewport.hpp"
 #include "cad/Entity.hpp"
@@ -110,6 +111,11 @@ private slots:
                                float r, float g, float b,
                                float lightAzimuth, float lightElevation);
 
+    // Proje çalışma alanı (CC klasörü eşdeğeri)
+    void OnNewProject();
+    void OnSetProjectsRoot();
+    void OnOpenProjectFolder();
+
     // Mimari kat yönetimi
     void OnMimariBelirle();
 
@@ -199,7 +205,10 @@ private:
     QAction* m_actAutoSizeDN = nullptr;
     QAction* m_actGenerateSchedule = nullptr;
     QAction* m_actExportReport = nullptr;
-    QAction* m_actMimariBelirle = nullptr;
+    QAction* m_actMimariBelirle    = nullptr;
+    QAction* m_actNewProject       = nullptr;
+    QAction* m_actSetProjectsRoot  = nullptr;
+    QAction* m_actOpenProjectFolder = nullptr;
 
     // Tool state
     ToolMode m_currentToolMode = ToolMode::Select;

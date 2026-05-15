@@ -377,6 +377,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **UZAKLIK/DISTANCE komutu** — CommandBar'dan `UZAKLIK`, `DISTANCE` veya `DIST` komutu; iki nokta tıklama ile mm + m mesafe hesabı; ESC ile iptal; mesafe log paneline ve status bar'a yazılır
 - **FloorManager MainWindow entegrasyonu** — `m_floorManager` üyesi; kat tanımları session boyunca korunur; 90/90 test geçiyor
 - **W-Block referans noktası hizalama** — `Floor::refX/refY` alanları; `MimariBelirleDialog`'da "Referans Noktası" X/Y spinbox; `DXFReader::SetInsertionOffset()` tüm entity'leri `(-refX, -refY)` kadar kaydırır; `DXFImportDialog::SetInsertionOffset()` ile pipeline'a aktarım; `Eğitim.md`'de W-Block baz noktası detaylı anlatım
+- **ProjectManager (CC klasörü eşdeğeri)** — `vkt/core/ProjectManager.hpp` + `src/core/ProjectManager.cpp`; Singleton; kök dizin → proje alt klasörü → `mimari/`, `cikti/`, `rapor/` alt dizinleri; `CreateProject()` std::filesystem ile; `QSettings` ile kalıcı kök dizin ayarı; MainWindow: Yeni Proje (Ctrl+Shift+N), Proje Kök Klasörü Ayarla, Proje Klasörünü Aç; `OnOpen/SaveAs/ExportReport` proje klasörüne duyarlı; `MimariBelirleDialog`: "mimari/ klasörüne kopyala" checkbox; `Eğitim.md`'de CC klasörü iş akışı 90/90 test korunuyor
 
 ### Devam Eden
 

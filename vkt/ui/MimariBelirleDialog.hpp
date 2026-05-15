@@ -7,6 +7,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QLabel>
+#include <QCheckBox>
 #include <vector>
 #include <string>
 
@@ -67,8 +68,9 @@ private:
     QPushButton*    m_btnDosya  = nullptr;
     QDoubleSpinBox* m_spnRefX   = nullptr;  ///< W-Block referans noktası X
     QDoubleSpinBox* m_spnRefY   = nullptr;  ///< W-Block referans noktası Y
-    QPushButton*    m_btnYenile = nullptr;
-    QPushButton*    m_btnSil    = nullptr;
+    QPushButton*    m_btnYenile    = nullptr;
+    QPushButton*    m_btnSil       = nullptr;
+    QCheckBox*      m_chkKopyala   = nullptr;  ///< Dosyayı proje mimari/ klasörüne kopyala
 
     QTableWidget*   m_table     = nullptr;
 
