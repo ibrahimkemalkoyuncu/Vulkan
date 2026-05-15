@@ -121,9 +121,23 @@ bool DXFReader::Read() {
         return false;
     }
     
+    // Birim dönüşümü ($INSUNITS → mm).
+    // Türkiye'de DXF dosyaları genellikle mm (insUnits=4) olarak kaydedilir.
+    // Metre (6), cm (5), inch (1) gibi birimlerde gelen dosyalar otomatik ölçeklenir.
+    double unitScale = m_header.GetScaleToMM();
+    if (m_header.insUnits != 0 && unitScale != 1.0) {
+        for (auto& ent : m_entities) {
+            if (ent) ent->Scale(geom::Vec3(unitScale, unitScale, unitScale));
+        }
+        // Insertion offset'i de aynı ölçekle dönüştür (native birimde girildiği varsayımı)
+        m_insertionOffsetX *= unitScale;
+        m_insertionOffsetY *= unitScale;
+    }
+
     // W-Block baz noktası ofseti — tüm entity'leri referans noktasına göre hizala.
     // Katlar arası hizalama için her katta ortak bir referans noktası (örn. kolon
     // köşesi) seçilmeli ve bu noktanın koordinatları SetInsertionOffset'e verilmelidir.
+    // NOT: Offset, birim dönüşümünden SONRA uygulanır, yani mm cinsinden girilmeli.
     if (m_insertionOffsetX != 0.0 || m_insertionOffsetY != 0.0) {
         geom::Vec3 shift(-m_insertionOffsetX, -m_insertionOffsetY, 0.0);
         for (auto& ent : m_entities) {

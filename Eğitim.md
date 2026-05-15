@@ -174,7 +174,91 @@ VKT'de her proje, merkezi bir kök dizin altında kendi alt klasörünü alır. 
 
 ---
 
-## 8. Dosya Formatları
+## 8. ST Cihazları — Sıhhi Tesisat Kütüphanesi
+
+VKT sağ panelinde **"ST Cihazları"** sekmesi, TS EN 806-3 Tablo 3'e göre tanımlı armatürleri listeler.
+
+### Kullanım
+1. Sağ panel → **ST Cihazları** sekmesini açın.
+2. Listeden yerleştirilecek cihazı seçip **çift tıklayın**.
+3. Status bar: `ST Cihaz [Lavabo]: Yerleştirme noktasını tıklayın`
+4. Çizim alanında noktaya tıklayın → armatür yerleştirilir, ağa otomatik eklenir.
+5. AutoHydro tetiklenir; DN etiketleri güncellenir.
+
+### TS EN 806-3 Tablo 3 — Yük Birimleri (LU)
+
+| Cihaz | LU | Boru çapı (min.) |
+|-------|----|-----------------|
+| Lavabo | 0.5 | DN 15 |
+| Duş | 1.0 | DN 15 |
+| WC (rezervuar) | 2.0 | DN 15 |
+| Küvet | 3.0 | DN 20 |
+| Evye (mutfak) | 1.5 | DN 15 |
+| Bulaşık Makinesi | 1.5 | DN 15 |
+| Çamaşır Makinesi | 2.0 | DN 15 |
+| Pisuar | 0.5 | DN 15 |
+| Bide | 0.5 | DN 15 |
+
+---
+
+## 9. Hesap Föyü — Boru Boyları ve Debiler
+
+### Boru Boyları Nasıl Güncellenir?
+
+VKT, her boruyu çizim üzerindeki iki uç nokta arasındaki Öklid mesafesiyle hesaplar. Güncelleme iş akışı:
+
+1. **Çizimde boru boyunu değiştir** — boruyu silin, yeniden çizin; VKT uzunluğu otomatik hesaplar.
+2. **Hidrolik analiz** — **Analiz → Hidrolik Analiz** (veya AutoHydro), hesaplanan boru boyunu Darcy-Weisbach formülünde kullanır.
+3. **Rapor** — **Analiz → Rapor Dışa Aktar** ile XLS/PDF raporu üretilir; her boru satırında `L (m)`, `DN`, `v (m/s)`, `ΔP (Pa/m)` gösterilir.
+
+> **FineSANI farkı:** VKT'de boru boyu "elle giriş" yoktur — çizimdeki gerçek uzunluk kullanılır; manuel giriş hatası riski yoktur.
+
+### Debiler Nasıl Belirlenir?
+
+| Büyüklük | Formül / Standart |
+|----------|------------------|
+| Toplam LU | Σ (armatür LU) — TS EN 806-3 T.3 |
+| Debi Q (L/s) | `Q = K × √(Σ LU)` — EN 806-3 Bölüm 9 |
+| K katsayısı | Konut: 0.5 / Otel: 0.7 / Endüstri: 1.0 |
+| DN seçimi | Darcy-Weisbach → v ≤ 2 m/s, ΔP ≤ 300 Pa/m |
+
+AutoHydro her boru ekleme/silme sonrası bu hesabı otomatik yapar; sonuçlar DN etiketi olarak boru üzerinde görünür.
+
+---
+
+## 10. Foseptik ve Kapalı Çukur Hesapları
+
+### Geçerli Standartlar
+
+| Konu | Standart |
+|------|---------|
+| Fosseptik boyutlandırma | **TS 822** — İçme ve Kullanma Suyu Kaynaklarının Korunması; İşlenmesi ve Dağıtımı |
+| Sızdırmaz kapalı çukur (sızdırmaz depo) | **TS EN 12566-1** — Küçük atıksu arıtma tesisleri |
+| Emici kuyu | **TS EN 12566-2** — Filtre yerleşimine uygunluk |
+| Arıtma tesisi çıkışı / deşarj | **TS EN 12255** serisi |
+| Koku bariyeri / çatı havalandırması | **EN 12056-2** — Bölüm 8 |
+
+### Fosseptik Hacim Hesabı (TS 822 / TS EN 12566-1)
+
+```
+V_fosseptik (m³) = n_kişi × V_kişi × T_boşaltma
+```
+
+- `n_kişi` — eşdeğer kullanıcı sayısı (PE — Population Equivalent)
+- `V_kişi` — kişi başına günlük atıksu hacmi (150–200 L/kişi/gün tipik)
+- `T_boşaltma` — boşaltma periyodu (EN 12566-1: min. 90 gün)
+
+**Örnek:** 10 kişi × 0.15 m³/kişi/gün × 90 gün = **135 m³ → 2 bölmeli, 3 m³/bölme minimum**
+
+> Kapalı (sızdırmaz) çukurlar için aynı formül uygulanır; boşaltma sıklığı yerel yönetim kısıtlarına göre belirlenir.
+
+### VKT'de Fosseptik Hesabı
+
+Mevcut sürümde fosseptik hacim hesabı **Analiz → Hidrolik Analiz** raporu içinde "Sistem Özeti" bölümünde gösterilir: toplam DU'dan EN 12056-2 Manning denklemi ile pik debi hesaplanır. Kapasite boyutlandırma için sonuçlar `rapor/` klasörüne dışa aktarılır.
+
+---
+
+## 11. Dosya Formatları
 
 | Format | İçe Aktar | Dışa Aktar |
 |--------|-----------|------------|

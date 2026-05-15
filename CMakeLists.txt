@@ -100,6 +100,7 @@ set(SOURCES
     src/ui/MainWindow.cpp
     src/ui/DXFImportDialog.cpp
     src/ui/MimariBelirleDialog.cpp
+    src/ui/STFixturePanel.cpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
     src/ui/FixturePropertiesPanel.cpp
@@ -160,6 +161,7 @@ set(HEADERS
     vkt/ui/MainWindow.hpp
     vkt/ui/DXFImportDialog.hpp
     vkt/ui/MimariBelirleDialog.hpp
+    vkt/ui/STFixturePanel.hpp
     vkt/ui/SpacePanel.hpp
     vkt/ui/PrintLayout.hpp
     vkt/ui/FixturePropertiesPanel.hpp

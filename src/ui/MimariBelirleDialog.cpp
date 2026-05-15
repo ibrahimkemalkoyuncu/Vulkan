@@ -22,7 +22,7 @@ MimariBelirleDialog::MimariBelirleDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle("Mimari Belirle");
-    setMinimumSize(760, 540);
+    setMinimumSize(760, 580);
     BuildUI();
 }
 
@@ -39,6 +39,39 @@ void MimariBelirleDialog::BuildUI() {
         "\"Yenile\" ile listeye ekleyin, tüm katları girdikten sonra \"Tamam\"a basın.");
     infoLabel->setWordWrap(true);
     mainLayout->addWidget(infoLabel);
+
+    // ── Global Referans Noktası (W-Block baz noktası) ───────
+    auto* refGroup = new QGroupBox("Global Referans Noktası (W-Block Baz Noktası)");
+    auto* refForm  = new QFormLayout(refGroup);
+
+    auto* refInfoLabel = new QLabel(
+        "Tüm katlarda ortak olan bir noktanın (kolon köşesi, asansör kenarı vb.) "
+        "DXF/DWG koordinatını girin. <b>Her katta aynı fiziksel noktanın seçilmesi zorunludur.</b> "
+        "Program bu koordinatı tüm katların origin'ine (0,0) eşler; "
+        "3D görünümde katlar bu sayede hizalanır.");
+    refInfoLabel->setWordWrap(true);
+    refForm->addRow(refInfoLabel);
+
+    auto* refXYRow = new QHBoxLayout();
+    m_spnGlobalRefX = new QDoubleSpinBox();
+    m_spnGlobalRefX->setRange(-1e9, 1e9);
+    m_spnGlobalRefX->setValue(0.0);
+    m_spnGlobalRefX->setDecimals(3);
+    m_spnGlobalRefX->setPrefix("X: ");
+    m_spnGlobalRefX->setMinimumWidth(180);
+    m_spnGlobalRefX->setToolTip("Tüm kat dosyalarında bu X koordinatı (0,0)'a eşlenir.");
+    m_spnGlobalRefY = new QDoubleSpinBox();
+    m_spnGlobalRefY->setRange(-1e9, 1e9);
+    m_spnGlobalRefY->setValue(0.0);
+    m_spnGlobalRefY->setDecimals(3);
+    m_spnGlobalRefY->setPrefix("Y: ");
+    m_spnGlobalRefY->setMinimumWidth(180);
+    m_spnGlobalRefY->setToolTip("Tüm kat dosyalarında bu Y koordinatı (0,0)'a eşlenir.");
+    refXYRow->addWidget(m_spnGlobalRefX);
+    refXYRow->addWidget(m_spnGlobalRefY);
+    refXYRow->addStretch();
+    refForm->addRow("Referans Koordinatı:", refXYRow);
+    mainLayout->addWidget(refGroup);
 
     // ── Giriş formu ─────────────────────────────────────────
     auto* formGroup = new QGroupBox("Kat Tanımı");
@@ -81,41 +114,19 @@ void MimariBelirleDialog::BuildUI() {
     dosyaRow->addWidget(m_btnDosya);
     form->addRow("Dosya:", dosyaRow);
 
-    // ── Referans noktası (W-Block baz noktası) ────────────
-    auto* refRow = new QHBoxLayout();
-    m_spnRefX = new QDoubleSpinBox();
-    m_spnRefX->setRange(-1e9, 1e9);
-    m_spnRefX->setValue(0.0);
-    m_spnRefX->setDecimals(3);
-    m_spnRefX->setPrefix("X: ");
-    m_spnRefX->setToolTip(
-        "Bu kattaki DXF/DWG dosyasında ortak referans noktasının X koordinatı.\n"
-        "Tüm katlarda aynı fiziksel noktanın (örn. A-B kolon köşesi) seçilmesi\n"
-        "gerekir. Program bu noktaları üst üste getirerek katları hizalar.");
-    m_spnRefY = new QDoubleSpinBox();
-    m_spnRefY->setRange(-1e9, 1e9);
-    m_spnRefY->setValue(0.0);
-    m_spnRefY->setDecimals(3);
-    m_spnRefY->setPrefix("Y: ");
-    m_spnRefY->setToolTip(m_spnRefX->toolTip());
-    refRow->addWidget(m_spnRefX);
-    refRow->addWidget(m_spnRefY);
-    form->addRow("Referans Noktası:", refRow);
-
-    // ── İpucu satırı ─────────────────────────────────────────
+    // İpucu satırı
     auto* hintLabel = new QLabel(
         "<i>İpucu: Kat No=1 / Kod=−1.00 / İsim=\"Bodrum Kat\" gibi bodrum kodu da girilebilir.</i>");
     hintLabel->setWordWrap(true);
     hintLabel->setStyleSheet("QLabel { color: #555; font-size: 11px; }");
     form->addRow(hintLabel);
 
-    // ── Proje klasörüne kopyalama seçeneği ───────────────
+    // Proje klasörüne kopyalama seçeneği
     m_chkKopyala = new QCheckBox("Dosyayı proje mimari/ klasörüne kopyala");
     m_chkKopyala->setToolTip(
         "İşaretlendiğinde, seçilen DXF/DWG dosyası proje klasörünün\n"
         "\"mimari/\" alt dizinine kopyalanır ve dosya yolu güncellenir.\n"
         "Aktif proje yoksa bu seçenek pasiftir.");
-    // Aktif proje varsa etkinleştir
     bool hasProject = core::ProjectManager::Instance().HasActiveProject();
     m_chkKopyala->setEnabled(hasProject);
     m_chkKopyala->setChecked(hasProject);
@@ -135,17 +146,14 @@ void MimariBelirleDialog::BuildUI() {
     mainLayout->addWidget(formGroup);
 
     // ── Kat listesi tablosu ──────────────────────────────────
-    m_table = new QTableWidget(0, 6);
-    m_table->setHorizontalHeaderLabels(
-        {"Kat No", "Kot (m)", "İsim", "Ref X", "Ref Y", "Dosya"});
+    m_table = new QTableWidget(0, 4);
+    m_table->setHorizontalHeaderLabels({"Kat No", "Kot (m)", "İsim", "Dosya"});
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
     m_table->setColumnWidth(0, 60);
     m_table->setColumnWidth(1, 70);
-    m_table->setColumnWidth(3, 90);
-    m_table->setColumnWidth(4, 90);
     mainLayout->addWidget(m_table, 1);
 
     // ── Tamam / İptal ────────────────────────────────────────
@@ -155,7 +163,6 @@ void MimariBelirleDialog::BuildUI() {
     buttons->button(QDialogButtonBox::Cancel)->setText("İptal");
     mainLayout->addWidget(buttons);
 
-    // Bağlantılar
     connect(m_btnDosya,  &QPushButton::clicked, this, &MimariBelirleDialog::OnDosyaSec);
     connect(m_btnYenile, &QPushButton::clicked, this, &MimariBelirleDialog::OnYenile);
     connect(m_btnSil,    &QPushButton::clicked, this, &MimariBelirleDialog::OnSil);
@@ -163,6 +170,14 @@ void MimariBelirleDialog::BuildUI() {
             this, &MimariBelirleDialog::OnRowSelected);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+}
+
+double MimariBelirleDialog::GetGlobalRefX() const {
+    return m_spnGlobalRefX ? m_spnGlobalRefX->value() : 0.0;
+}
+
+double MimariBelirleDialog::GetGlobalRefY() const {
+    return m_spnGlobalRefY ? m_spnGlobalRefY->value() : 0.0;
 }
 
 void MimariBelirleDialog::OnDosyaSec() {
@@ -183,8 +198,6 @@ void MimariBelirleDialog::OnYenile() {
     def.katNo = m_spnKatNo->value();
     def.kod   = m_spnKod->value();
     def.isim  = m_edtIsim->text().trimmed().toStdString();
-    def.refX  = m_spnRefX->value();
-    def.refY  = m_spnRefY->value();
 
     // Dosyayı proje mimari/ klasörüne kopyala (seçenek işaretliyse)
     QString srcPath = m_edtDosya->text();
@@ -197,8 +210,7 @@ void MimariBelirleDialog::OnYenile() {
             QFileInfo fi(srcPath);
             QString destPath = mimariDir + "/" + fi.fileName();
             if (destPath != srcPath) {
-                if (QFile::exists(destPath))
-                    QFile::remove(destPath);
+                if (QFile::exists(destPath)) QFile::remove(destPath);
                 if (QFile::copy(srcPath, destPath)) {
                     srcPath = destPath;
                     m_edtDosya->setText(destPath);
@@ -215,14 +227,10 @@ void MimariBelirleDialog::OnYenile() {
         m_defs.push_back(def);
     }
 
-    // Form sıfırla
     m_spnKatNo->setValue(m_spnKatNo->value() + 1);
     m_edtIsim->clear();
     m_edtDosya->clear();
-    // refX/Y sıfırlama: bir sonraki katın referans noktası muhtemelen aynı
-    // olduğundan değerleri koruyoruz.
     m_btnSil->setEnabled(false);
-
     RefreshTable();
 }
 
@@ -254,9 +262,7 @@ void MimariBelirleDialog::RefreshTable() {
         m_table->setItem(row, 0, new QTableWidgetItem(QString::number(d.katNo)));
         m_table->setItem(row, 1, new QTableWidgetItem(QString::number(d.kod, 'f', 2)));
         m_table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(d.isim)));
-        m_table->setItem(row, 3, new QTableWidgetItem(QString::number(d.refX, 'f', 3)));
-        m_table->setItem(row, 4, new QTableWidgetItem(QString::number(d.refY, 'f', 3)));
-        m_table->setItem(row, 5, new QTableWidgetItem(QString::fromStdString(d.dosya)));
+        m_table->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(d.dosya)));
     }
 }
 
@@ -265,8 +271,6 @@ void MimariBelirleDialog::PopulateForm(const FloorDef& def) {
     m_spnKod->setValue(def.kod);
     m_edtIsim->setText(QString::fromStdString(def.isim));
     m_edtDosya->setText(QString::fromStdString(def.dosya));
-    m_spnRefX->setValue(def.refX);
-    m_spnRefY->setValue(def.refY);
 }
 
 void MimariBelirleDialog::ApplyToFloorManager(core::FloorManager& fm) const {
@@ -276,9 +280,10 @@ void MimariBelirleDialog::ApplyToFloorManager(core::FloorManager& fm) const {
         f.index       = d.katNo;
         f.label       = d.isim;
         f.elevation_m = d.kod;
-        f.height_m    = 3.0; // varsayılan; ileride UI'da düzenlenebilir
-        f.refX        = d.refX;
-        f.refY        = d.refY;
+        f.height_m    = 3.0;
+        // Global referans noktası tüm katlara uygulanır
+        f.refX = m_spnGlobalRefX ? m_spnGlobalRefX->value() : 0.0;
+        f.refY = m_spnGlobalRefY ? m_spnGlobalRefY->value() : 0.0;
         fm.AddFloor(f);
     }
 }

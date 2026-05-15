@@ -336,7 +336,22 @@ void DXFImportDialog::OnImport() {
     m_layerCountLabel->setText(QString::number(layerCount));
     m_readTimeLabel->setText(QString::number(readTime, 'f', 2) + " ms");
     
-    m_statusLabel->setText("Import başarılı! ✓");
+    // Birim bilgisini durum etiketine ekle
+    QString unitInfo;
+    if (m_fileType == FileType::DXF && m_dxfReader) {
+        int insUnits = m_dxfReader->GetHeader().insUnits;
+        double scale = m_dxfReader->GetHeader().GetScaleToMM();
+        const char* unitName = (insUnits == 4) ? "mm (varsayılan)" :
+                               (insUnits == 6) ? "metre → ×1000" :
+                               (insUnits == 5) ? "cm → ×10" :
+                               (insUnits == 1) ? "inch → ×25.4" :
+                               (insUnits == 0) ? "birimsiz" : "bilinmiyor";
+        if (insUnits != 0 && scale != 1.0)
+            unitInfo = QString("  |  Birim: %1").arg(unitName);
+        else if (insUnits == 4)
+            unitInfo = QString("  |  Birim: mm");
+    }
+    m_statusLabel->setText(QString("Import başarılı! ✓%1").arg(unitInfo));
     m_statusLabel->setStyleSheet("QLabel { color: green; padding: 10px; }");
     
     // Mahal tespit butonunu aktif et

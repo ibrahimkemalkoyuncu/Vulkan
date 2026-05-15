@@ -30,7 +30,9 @@ void Database::InitializeFixtures() {
     m_fixtures["Bulaşık Makinesi"] = {"Bulaşık Makinesi", 1.5, 1.5, 1.5, 0.15};
     m_fixtures["Çamaşır Makinesi"] = {"Çamaşır Makinesi", 2.0, 2.0, 1.5, 0.2};
     m_fixtures["Pisuar"] = {"Pisuar", 0.5, 0.5, 1.0, 0.08};
-    m_fixtures["Bidе"] = {"Bidе", 0.5, 0.5, 1.0, 0.1};
+    m_fixtures["Küvet"] = {"Küvet", 3.0, 3.0, 1.0, 0.3};
+    m_fixtures["Bide"]  = {"Bide",  0.5, 0.5, 1.0, 0.1};
+    m_fixtures["Bidе"]  = {"Bidе",  0.5, 0.5, 1.0, 0.1}; // compat alias
 }
 
 void Database::InitializePipes() {

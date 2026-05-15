@@ -27,6 +27,7 @@
 #include "ui/CommandBar.hpp"
 #include "ui/SnapOverlay.hpp"
 #include "ui/PBRMaterialEditor.hpp"
+#include "ui/STFixturePanel.hpp"
 #include "cad/SnapManager.hpp"
 
 namespace vkt {
@@ -119,6 +120,9 @@ private slots:
     // Mimari kat yönetimi
     void OnMimariBelirle();
 
+    // ST Cihazları paneli — armatür seçimi
+    void OnSTFixtureSelected(const QString& name);
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -175,6 +179,9 @@ private:
 
     QDockWidget*            m_pbrDock      = nullptr;
     PBRMaterialEditor*      m_pbrEditor    = nullptr;
+
+    QDockWidget*            m_stDock       = nullptr;
+    STFixturePanel*         m_stPanel      = nullptr;
 
     // Komut satırı
     CommandBar*  m_commandBar  = nullptr;

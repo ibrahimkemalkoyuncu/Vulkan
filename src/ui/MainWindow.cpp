@@ -359,6 +359,17 @@ void MainWindow::CreateDockPanels() {
     connect(m_pbrEditor, &PBRMaterialEditor::MaterialChanged,
             this,        &MainWindow::OnPBRMaterialChanged);
 
+    // ST Cihazları Panel
+    m_stDock  = new QDockWidget("ST Cihazları", this);
+    m_stPanel = new STFixturePanel(this);
+    m_stDock->setWidget(m_stPanel);
+    m_stDock->setMinimumWidth(220);
+    addDockWidget(Qt::RightDockWidgetArea, m_stDock);
+    tabifyDockWidget(m_pbrDock, m_stDock);
+
+    connect(m_stPanel, &STFixturePanel::FixtureSelected,
+            this,      &MainWindow::OnSTFixtureSelected);
+
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
     m_logList = new QListWidget();
@@ -1142,16 +1153,29 @@ void MainWindow::OnMimariBelirle() {
         // Her kat için DXF/DWG dosyası varsa DXFImportDialog aç
         // Referans noktası ofseti: tüm entity'ler (-refX, -refY) kadar kaydırılır,
         // böylece seçilen ortak nokta (kolon köşesi vb.) projenin (0,0)'ına eşlenir.
+        // Global referans noktası — tüm katlarda aynı fiziksel nokta (0,0)'a eşlenir
+        double globalRefX = dlg.GetGlobalRefX();
+        double globalRefY = dlg.GetGlobalRefY();
+
         for (const auto& def : dlg.GetFloorDefs()) {
             if (def.dosya.empty()) continue;
             if (m_document) {
                 LogCAD("Mimari import baslatiyor: " + def.dosya + " (" + def.isim + ")");
                 DXFImportDialog importDlg(this);
-                importDlg.SetInsertionOffset(def.refX, def.refY);
+                importDlg.SetInsertionOffset(globalRefX, globalRefY);
                 importDlg.exec();
             }
         }
     }
+}
+
+void MainWindow::OnSTFixtureSelected(const QString& name) {
+    m_selectedFixtureType = name;
+    m_currentToolMode     = ToolMode::PlaceFixture;
+    m_drawState           = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage(
+        QString("ST Cihaz [%1]: Yerlestirme noktasini tiklayin").arg(name));
+    if (m_stDock) m_stDock->raise();
 }
 
 void MainWindow::OnSelectSpace() {
