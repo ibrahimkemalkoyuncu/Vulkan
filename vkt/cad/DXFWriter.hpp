@@ -58,7 +58,9 @@ private:
     // Entity yazıcıları
     void WriteEntityLine(std::ostream& out, const Entity& e) const;
     void WriteEntityPolyline(std::ostream& out, const Entity& e) const;
+    void WriteEntityArc(std::ostream& out, const Entity& e) const;
     void WriteEntityCircle(std::ostream& out, const Entity& e) const;
+    void WriteEntityEllipse(std::ostream& out, const Entity& e) const;
     void WriteEntityText(std::ostream& out, const Entity& e) const;
 
     // MEP network yazıcıları

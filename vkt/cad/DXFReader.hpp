@@ -302,6 +302,7 @@ private:
     std::unique_ptr<Entity> ReadArc();
     std::unique_ptr<Entity> ReadCircle();
     std::unique_ptr<Entity> ReadEllipse();
+    std::unique_ptr<Entity> ReadSpline();
     std::unique_ptr<Entity> ReadText();
     std::unique_ptr<Entity> ReadMText();
     std::unique_ptr<Entity> ReadHatch();

@@ -14,6 +14,7 @@
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Ellipse.hpp"
+#include "cad/Spline.hpp"
 #include "cad/Text.hpp"
 #include "cad/Hatch.hpp"
 #include <sstream>
@@ -303,6 +304,7 @@ std::unique_ptr<Entity> DXFReader::ReadEntity(const std::string& entityType) {
     else if (entityType == "ARC")        return ReadArc();
     else if (entityType == "CIRCLE")     return ReadCircle();
     else if (entityType == "ELLIPSE")    return ReadEllipse();
+    else if (entityType == "SPLINE")     return ReadSpline();
     else if (entityType == "INSERT")     return ReadInsert();
     else if (entityType == "TEXT")       return ReadText();
     else if (entityType == "MTEXT")      return ReadMText();
@@ -347,6 +349,55 @@ std::unique_ptr<Entity> DXFReader::ReadEllipse() {
                                               rotAngle, startParam, endParam);
     ApplyProps(ellipse.get(), props);
     return ellipse;
+}
+
+std::unique_ptr<Entity> DXFReader::ReadSpline() {
+    DXFCode code;
+    EntityProps props;
+    auto spline = std::make_unique<Spline>();
+
+    std::vector<geom::Vec3> ctrlPts, fitPts;
+    std::vector<double> knots;
+    int degree = 3;
+    bool closed = false;
+    int numKnots = 0, numCtrl = 0, numFit = 0;
+    // state for repeated group codes
+    bool readingCtrl = false, readingFit = false;
+    geom::Vec3 curPt;
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+
+        if (code.code == 70) {
+            int flags = std::stoi(code.value);
+            closed = (flags & 1) != 0;
+        }
+        else if (code.code == 71) degree  = std::stoi(code.value);
+        else if (code.code == 72) numKnots = std::stoi(code.value);
+        else if (code.code == 73) numCtrl  = std::stoi(code.value);
+        else if (code.code == 74) numFit   = std::stoi(code.value);
+        else if (code.code == 40) knots.push_back(code.AsDouble());
+        // Control points: 10/20/30 sequence
+        else if (code.code == 10) { readingCtrl = true; readingFit = false; curPt = {}; curPt.x = code.AsDouble(); }
+        else if (code.code == 20 && readingCtrl) curPt.y = code.AsDouble();
+        else if (code.code == 30 && readingCtrl) { curPt.z = code.AsDouble(); ctrlPts.push_back(curPt); }
+        // Fit points: 11/21/31 sequence
+        else if (code.code == 11) { readingFit = true; readingCtrl = false; curPt = {}; curPt.x = code.AsDouble(); }
+        else if (code.code == 21 && readingFit) curPt.y = code.AsDouble();
+        else if (code.code == 31 && readingFit) { curPt.z = code.AsDouble(); fitPts.push_back(curPt); }
+    }
+    (void)numKnots; (void)numCtrl; (void)numFit;
+
+    spline->SetDegree(degree);
+    spline->SetClosed(closed);
+    if (!fitPts.empty())  spline->SetFitPoints(std::move(fitPts));
+    if (!ctrlPts.empty()) spline->SetCtrlPoints(std::move(ctrlPts));
+    if (!knots.empty())   spline->SetKnots(std::move(knots));
+
+    if (!spline->HasFitPoints() && !spline->HasCtrlPoints()) return nullptr;
+    ApplyProps(spline.get(), props);
+    return spline;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadText() {

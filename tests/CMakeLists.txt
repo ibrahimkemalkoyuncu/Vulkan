@@ -57,6 +57,7 @@ target_sources(vkt_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cad/Circle.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Arc.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Ellipse.cpp
+    ${CMAKE_SOURCE_DIR}/src/cad/Spline.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Polyline.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Layer.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/LayerManager.cpp

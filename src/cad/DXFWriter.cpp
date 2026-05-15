@@ -6,7 +6,9 @@
 #include "cad/DXFWriter.hpp"
 #include "cad/Line.hpp"
 #include "cad/Polyline.hpp"
+#include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Ellipse.hpp"
 #include "cad/Layer.hpp"
 
 #include <fstream>
@@ -181,6 +183,12 @@ void DXFWriter::WriteEntitiesSection(std::ostream& out,
             case EntityType::Circle:
                 WriteEntityCircle(out, *e);
                 break;
+            case EntityType::Arc:
+                WriteEntityArc(out, *e);
+                break;
+            case EntityType::Ellipse:
+                WriteEntityEllipse(out, *e);
+                break;
             case EntityType::Text:
                 WriteEntityText(out, *e);
                 break;
@@ -242,6 +250,22 @@ void DXFWriter::WriteEntityPolyline(std::ostream& out, const Entity& e) const {
     }
 }
 
+void DXFWriter::WriteEntityArc(std::ostream& out, const Entity& e) const {
+    const auto& arc = static_cast<const Arc&>(e);
+    auto cen = arc.GetCenter();
+    auto c = e.GetColor();
+
+    WriteGroup(out, 0, "ARC");
+    WriteGroup(out, 8, e.GetLayerName().empty() ? "0" : e.GetLayerName());
+    if (c.a != 0) WriteGroup(out, 62, ColorToACI(c.r, c.g, c.b));
+    WriteGroup(out, 10, cen.x);
+    WriteGroup(out, 20, cen.y);
+    WriteGroup(out, 30, cen.z);
+    WriteGroup(out, 40, arc.GetRadius());
+    WriteGroup(out, 50, arc.GetStartAngle());
+    WriteGroup(out, 51, arc.GetEndAngle());
+}
+
 void DXFWriter::WriteEntityCircle(std::ostream& out, const Entity& e) const {
     const auto& circ = static_cast<const Circle&>(e);
     auto cen = circ.GetCenter();
@@ -255,6 +279,31 @@ void DXFWriter::WriteEntityCircle(std::ostream& out, const Entity& e) const {
     WriteGroup(out, 20, cen.y);
     WriteGroup(out, 30, cen.z);
     WriteGroup(out, 40, circ.GetRadius());
+}
+
+void DXFWriter::WriteEntityEllipse(std::ostream& out, const Entity& e) const {
+    const auto& ell = static_cast<const Ellipse&>(e);
+    auto cen = ell.GetCenter();
+    auto c = e.GetColor();
+
+    // DXF ELLIPSE: group 11/21/31 = major axis endpoint relative to center
+    double cosR = std::cos(ell.GetRotAngle());
+    double sinR = std::sin(ell.GetRotAngle());
+    double ax = ell.GetSemiMajor() * cosR;
+    double ay = ell.GetSemiMajor() * sinR;
+
+    WriteGroup(out, 0, "ELLIPSE");
+    WriteGroup(out, 8, e.GetLayerName().empty() ? "0" : e.GetLayerName());
+    if (c.a != 0) WriteGroup(out, 62, ColorToACI(c.r, c.g, c.b));
+    WriteGroup(out, 10, cen.x);
+    WriteGroup(out, 20, cen.y);
+    WriteGroup(out, 30, cen.z);
+    WriteGroup(out, 11, ax);   // major axis endpoint (relative)
+    WriteGroup(out, 21, ay);
+    WriteGroup(out, 31, 0.0);
+    WriteGroup(out, 40, ell.GetAxisRatio());
+    WriteGroup(out, 41, ell.GetStartParam());
+    WriteGroup(out, 42, ell.GetEndParam());
 }
 
 void DXFWriter::WriteEntityText(std::ostream& out, const Entity& e) const {

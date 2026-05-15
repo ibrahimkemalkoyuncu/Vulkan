@@ -120,6 +120,7 @@ set(SOURCES
     src/cad/Arc.cpp
     src/cad/Circle.cpp
     src/cad/Ellipse.cpp
+    src/cad/Spline.cpp
     src/cad/SelectionManager.cpp
     src/cad/Viewport.cpp
     src/cad/Space.cpp

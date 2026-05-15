@@ -9,6 +9,7 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Ellipse.hpp"
+#include "cad/Spline.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/LayerManager.hpp"
 #include <cmath>
@@ -251,6 +252,68 @@ TEST_CASE("Ellipse - Clone preserves parameters", "[cad][ellipse]") {
     REQUIRE_THAT(ec->GetAxisRatio(),  Catch::Matchers::WithinAbs(0.3, 1e-9));
     REQUIRE_THAT(ec->GetRotAngle(),   Catch::Matchers::WithinAbs(1.2, 1e-9));
     REQUIRE_THAT(ec->GetCenter().x,   Catch::Matchers::WithinAbs(3.0, 1e-9));
+}
+
+// ============================================================
+// SPLINE
+// ============================================================
+
+TEST_CASE("Spline - fit points used directly in Tessellate", "[cad][spline]") {
+    Spline s;
+    s.AddFitPoint({0,0,0});
+    s.AddFitPoint({1,2,0});
+    s.AddFitPoint({3,1,0});
+    REQUIRE(s.HasFitPoints());
+    auto pts = s.Tessellate();
+    REQUIRE(pts.size() == 3);
+    REQUIRE_THAT(pts[0].x, Catch::Matchers::WithinAbs(0.0, 1e-9));
+    REQUIRE_THAT(pts[1].x, Catch::Matchers::WithinAbs(1.0, 1e-9));
+}
+
+TEST_CASE("Spline - De Boor: cubic B-spline uniform knots", "[cad][spline]") {
+    // 4 control points, degree 3, uniform clamped knot vector [0,0,0,0,1,1,1,1]
+    Spline s;
+    s.SetDegree(3);
+    std::vector<Vec3> ctrl = {{0,0,0},{1,2,0},{2,2,0},{3,0,0}};
+    s.SetCtrlPoints(ctrl);
+    s.SetKnots({0,0,0,0,1,1,1,1});
+    REQUIRE(s.HasCtrlPoints());
+    REQUIRE_FALSE(s.HasFitPoints());
+    auto pts = s.Tessellate(16);
+    REQUIRE(pts.size() == 17);
+    // First and last should match first and last control points (clamped)
+    REQUIRE_THAT(pts.front().x, Catch::Matchers::WithinAbs(0.0, 1e-6));
+    REQUIRE_THAT(pts.back().x,  Catch::Matchers::WithinAbs(3.0, 1e-6));
+}
+
+TEST_CASE("Spline - Move transforms fit and ctrl points", "[cad][spline]") {
+    Spline s;
+    s.AddFitPoint({1,1,0});
+    s.SetCtrlPoints({{2,2,0}});
+    s.Move({5, -3, 0});
+    REQUIRE_THAT(s.GetFitPoints()[0].x,  Catch::Matchers::WithinAbs(6.0, 1e-9));
+    REQUIRE_THAT(s.GetFitPoints()[0].y,  Catch::Matchers::WithinAbs(-2.0, 1e-9));
+    REQUIRE_THAT(s.GetCtrlPoints()[0].x, Catch::Matchers::WithinAbs(7.0, 1e-9));
+}
+
+TEST_CASE("Spline - Clone preserves data", "[cad][spline]") {
+    Spline s;
+    s.SetDegree(2);
+    s.SetClosed(true);
+    s.AddFitPoint({1,0,0});
+    s.AddFitPoint({2,3,0});
+    auto c = s.Clone();
+    const auto* sc = static_cast<const Spline*>(c.get());
+    REQUIRE(sc->GetType() == EntityType::Spline);
+    REQUIRE(sc->GetDegree() == 2);
+    REQUIRE(sc->IsClosed());
+    REQUIRE(sc->GetFitPoints().size() == 2);
+}
+
+TEST_CASE("Spline - empty yields no tessellate output", "[cad][spline]") {
+    Spline s;
+    auto pts = s.Tessellate();
+    REQUIRE(pts.empty());
 }
 
 // ============================================================

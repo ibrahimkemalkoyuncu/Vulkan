@@ -8,6 +8,7 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/Ellipse.hpp"
+#include "cad/Spline.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Hatch.hpp"
 #include "cad/Text.hpp"
@@ -1126,10 +1127,7 @@ Entity* DWGReader::ParseEllipse(void* obj_ptr) {
 }
 
 /**
- * @brief SPLINE entity parse — Polyline olarak tessellate eder
- *
- * Fit noktaları varsa doğrudan kullanılır, yoksa kontrol noktaları ve
- * knot vektörü ile De Boor algoritması uygulanır.
+ * @brief SPLINE entity parse — Spline entity olarak sakla (tessellation render'da yapılır)
  */
 Entity* DWGReader::ParseSpline(void* obj_ptr) {
     Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
@@ -1137,79 +1135,36 @@ Entity* DWGReader::ParseSpline(void* obj_ptr) {
 
     Dwg_Entity_SPLINE* spl = obj->tio.entity->tio.SPLINE;
 
-    std::vector<Polyline::Vertex> vertices;
+    auto spline = std::make_unique<Spline>();
+    spline->SetDegree(spl->degree);
+    spline->SetClosed(spl->closed_b != 0);
 
-    // Yöntem 1: Fit noktaları varsa doğrudan kullan
+    // Fit noktaları
     if (spl->num_fit_pts > 1 && spl->fit_pts) {
-        vertices.reserve(spl->num_fit_pts);
-        for (BITCODE_BS i = 0; i < spl->num_fit_pts; ++i) {
-            Polyline::Vertex pv;
-            pv.pos = geom::Vec3(spl->fit_pts[i].x, spl->fit_pts[i].y, 0.0);
-            vertices.push_back(pv);
-        }
-    }
-    // Yöntem 2: Kontrol noktaları ile De Boor B-spline evaluation
-    else if (spl->num_ctrl_pts > 1 && spl->ctrl_pts && spl->num_knots > 0 && spl->knots) {
-        int n = spl->num_ctrl_pts;
-        int p = spl->degree;
-        int numKnots = spl->num_knots;
-
-        // Parametrik aralık: [knots[p], knots[n]]
-        double tStart = spl->knots[p];
-        double tEnd = spl->knots[n]; // knots[num_ctrl_pts]
-        if (tEnd <= tStart) return nullptr;
-
-        int segments = std::max(32, n * 8);
-        vertices.reserve(segments + 1);
-
-        for (int i = 0; i <= segments; ++i) {
-            double t = tStart + (tEnd - tStart) * i / segments;
-
-            // De Boor algoritması
-            // Knot aralığını bul: t ∈ [knots[k], knots[k+1])
-            int k = p;
-            for (int j = p; j < numKnots - 1; ++j) {
-                if (t >= spl->knots[j] && t < spl->knots[j + 1]) { k = j; break; }
-            }
-            if (i == segments) k = n - 1; // son nokta
-
-            // Kontrol noktalarını kopyala (De Boor geçici dizi)
-            std::vector<double> dx(p + 1), dy(p + 1);
-            for (int j = 0; j <= p; ++j) {
-                int idx = k - p + j;
-                if (idx < 0) idx = 0;
-                if (idx >= n) idx = n - 1;
-                dx[j] = spl->ctrl_pts[idx].x;
-                dy[j] = spl->ctrl_pts[idx].y;
-            }
-
-            // Triangular computation
-            for (int r = 1; r <= p; ++r) {
-                for (int j = p; j >= r; --j) {
-                    int knotIdx = k - p + j;
-                    if (knotIdx < 0) knotIdx = 0;
-                    int knotIdx2 = knotIdx + p - r + 1;
-                    if (knotIdx2 >= numKnots) knotIdx2 = numKnots - 1;
-
-                    double denom = spl->knots[knotIdx2] - spl->knots[knotIdx];
-                    double alpha = (denom > 1e-12) ?
-                        (t - spl->knots[knotIdx]) / denom : 0.0;
-
-                    dx[j] = (1.0 - alpha) * dx[j - 1] + alpha * dx[j];
-                    dy[j] = (1.0 - alpha) * dy[j - 1] + alpha * dy[j];
-                }
-            }
-
-            Polyline::Vertex pv;
-            pv.pos = geom::Vec3(dx[p], dy[p], 0.0);
-            vertices.push_back(pv);
-        }
+        std::vector<geom::Vec3> fitPts;
+        fitPts.reserve(spl->num_fit_pts);
+        for (BITCODE_BS i = 0; i < spl->num_fit_pts; ++i)
+            fitPts.emplace_back(spl->fit_pts[i].x, spl->fit_pts[i].y, 0.0);
+        spline->SetFitPoints(std::move(fitPts));
     }
 
-    if (vertices.size() < 2) return nullptr;
+    // Kontrol noktaları + knot vektörü
+    if (spl->num_ctrl_pts > 1 && spl->ctrl_pts) {
+        std::vector<geom::Vec3> ctrlPts;
+        ctrlPts.reserve(spl->num_ctrl_pts);
+        for (BITCODE_BS i = 0; i < spl->num_ctrl_pts; ++i)
+            ctrlPts.emplace_back(spl->ctrl_pts[i].x, spl->ctrl_pts[i].y, 0.0);
+        spline->SetCtrlPoints(std::move(ctrlPts));
+    }
+    if (spl->num_knots > 0 && spl->knots) {
+        std::vector<double> knots(spl->knots, spl->knots + spl->num_knots);
+        spline->SetKnots(std::move(knots));
+    }
 
-    bool closed = spl->closed_b != 0;
-    return new Polyline(vertices, closed);
+    // Minimum geçerlilik kontrolü
+    if (!spline->HasFitPoints() && !spline->HasCtrlPoints()) return nullptr;
+
+    return spline.release();
 }
 
 /**

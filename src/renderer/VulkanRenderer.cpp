@@ -8,6 +8,7 @@
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Ellipse.hpp"
+#include "cad/Spline.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Dimension.hpp"
 #include "cad/Hatch.hpp"
@@ -1874,6 +1875,21 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
             for (size_t i = 0; i + 1 < pts.size(); ++i) {
                 addVertex(pts[i].x,     pts[i].y,     pts[i].z);
                 addVertex(pts[i+1].x,   pts[i+1].y,   pts[i+1].z);
+            }
+            break;
+        }
+        case cad::EntityType::Spline: {
+            const auto* spl = static_cast<const cad::Spline*>(entity.get());
+            // Adaptive: base segment count on control/fit point count
+            int n = static_cast<int>(spl->HasFitPoints()
+                        ? spl->GetFitPoints().size()
+                        : spl->GetCtrlPoints().size());
+            int segments = std::max(32, n * 8);
+            segments = std::min(segments, 256);
+            auto pts = spl->Tessellate(segments);
+            for (size_t i = 0; i + 1 < pts.size(); ++i) {
+                addVertex(pts[i].x,   pts[i].y,   pts[i].z);
+                addVertex(pts[i+1].x, pts[i+1].y, pts[i+1].z);
             }
             break;
         }
