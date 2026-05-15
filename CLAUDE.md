@@ -370,6 +370,8 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Birim testleri: text rotation + MTEXT word-wrap** — `x_axis_dir`→derece dönüşümü (6 test), greedy word-wrap algoritması (8 test); `tests/test_geometry.cpp`
 - **CTest Windows encoding düzeltmesi** — TEST_CASE isimlerindeki em dash (`—`) → ASCII `-`; 79/79 test ctest ile geçiyor
 - **Ellipse entity class** — `vkt/cad/Ellipse.hpp` + `src/cad/Ellipse.cpp`; parametrik depolama (center, semiMajor, axisRatio, rotAngle, startParam/endParam); DWGReader artık `Polyline` yerine `Ellipse*` döndürüyor; DXFReader'a `ReadEllipse()` eklendi (group codes 10–42); VulkanRenderer'da adaptive tessellation (ppu-tabanlı, Circle/Arc ile aynı yaklaşım); 6 birim testi — 85/85 geçiyor
+- **Spline entity class** — `vkt/cad/Spline.hpp` + `src/cad/Spline.cpp`; fit noktaları veya kontrol noktası+knot+derece depolama; Tessellate() De Boor B-spline; DWGReader artık `Spline*` döndürüyor; DXFReader'a `ReadSpline()` eklendi; VulkanRenderer adaptive render; 5 birim testi — 90/90 geçiyor
+- **DXFWriter Arc + Ellipse export** — `WriteEntityArc()` (ARC group 50/51) + `WriteEntityEllipse()` (ELLIPSE major-axis vektörü + axis-ratio); WriteEntitiesSection() switch'e eklendi
 
 ### Devam Eden
 
@@ -378,7 +380,6 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 ### Planlanan
 
 - Multi-threading: GPU Vulkan senkronizasyonu ayrı thread
-- GPU Clash: device-local + staging buffer ile büyük proje performansı
 
 ---
 
