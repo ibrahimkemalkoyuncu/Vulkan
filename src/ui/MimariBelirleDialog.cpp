@@ -27,10 +27,12 @@ void MimariBelirleDialog::BuildUI() {
 
     // ── Bilgi etiketi ───────────────────────────────────────
     auto* infoLabel = new QLabel(
-        "Her kat için numara, kot değeri, isim ve mimari DXF/DWG dosyasını "
-        "girin. Referans noktası, tüm katlarda ortak olan bir noktanın "
-        "(kolon köşesi, asansör kenarı vb.) bu dosyadaki CAD koordinatıdır. "
-        "\"Yenile\" ile listeye ekleyin. Tüm katlar tanımlandıktan sonra \"Tamam\"a basın.");
+        "Her kat için numara, kot değeri, isim ve mimari DXF/DWG dosyasını girin. "
+        "Kat numarası sıralı bir tanımlayıcıdır ve her zaman 1'den başlar; "
+        "\"Kod\" alanı ise projedeki gerçek döşeme kotunu (metre) belirtir ve "
+        "istediğiniz değeri girebilirsiniz. "
+        "Örnek: Kat No = 1  |  Kod = -1.00  |  İsim = \"Bodrum Kat\". "
+        "\"Yenile\" ile listeye ekleyin, tüm katları girdikten sonra \"Tamam\"a basın.");
     infoLabel->setWordWrap(true);
     mainLayout->addWidget(infoLabel);
 
@@ -41,7 +43,10 @@ void MimariBelirleDialog::BuildUI() {
     m_spnKatNo = new QSpinBox();
     m_spnKatNo->setRange(1, 99);
     m_spnKatNo->setValue(1);
-    m_spnKatNo->setToolTip("Kat numarası (1'den başlar)");
+    m_spnKatNo->setToolTip(
+        "Sıralı kat tanımlayıcısı — program gereği her zaman 1'den başlar.\n"
+        "Bu numara gerçek kat adını etkilemez; bodrum katı da 1 olarak girilebilir.\n"
+        "Örn: Kat No=1, Kod=-1.00, İsim=\"Bodrum Kat\"");
     form->addRow("Kat Numarası:", m_spnKatNo);
 
     m_spnKod = new QDoubleSpinBox();
@@ -49,7 +54,12 @@ void MimariBelirleDialog::BuildUI() {
     m_spnKod->setValue(0.0);
     m_spnKod->setSuffix(" m");
     m_spnKod->setDecimals(2);
-    m_spnKod->setToolTip("Döşeme kotu (metre). Bodrum = negatif, örn. -3.00");
+    m_spnKod->setToolTip(
+        "Döşeme kotu (metre) — istediğiniz değeri girebilirsiniz.\n"
+        "Kat numarasından bağımsızdır.\n"
+        "Bodrum: negatif değer  (örn. -1.00, -3.00)\n"
+        "Zemin:  0.00\n"
+        "1. Kat: +3.00  (zemin yüksekliğine göre değişir)");
     form->addRow("Kot:", m_spnKod);
 
     m_edtIsim = new QLineEdit();
@@ -87,6 +97,13 @@ void MimariBelirleDialog::BuildUI() {
     refRow->addWidget(m_spnRefX);
     refRow->addWidget(m_spnRefY);
     form->addRow("Referans Noktası:", refRow);
+
+    // ── İpucu satırı ─────────────────────────────────────────
+    auto* hintLabel = new QLabel(
+        "<i>İpucu: Kat No=1 / Kod=−1.00 / İsim=\"Bodrum Kat\" gibi bodrum kodu da girilebilir.</i>");
+    hintLabel->setWordWrap(true);
+    hintLabel->setStyleSheet("QLabel { color: #555; font-size: 11px; }");
+    form->addRow(hintLabel);
 
     auto* btnRow = new QHBoxLayout();
     m_btnYenile = new QPushButton("Yenile");

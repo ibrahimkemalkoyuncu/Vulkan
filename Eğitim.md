@@ -47,11 +47,19 @@ Baz Nokta: A-1 kolon köşesini tıkla → 15250, 8300, 0
 Açılan pencerede:
 | Alan | Açıklama |
 |------|----------|
-| Kat Numarası | 1'den başlayan sıralı numara |
-| Kot (m) | Döşeme yüksekliği (bodrum = negatif, örn. -3.00) |
+| Kat Numarası | Sıralı tanımlayıcı — her zaman 1'den başlar, gerçek kat adını etkilemez |
+| Kot (m) | Gerçek döşeme kotu (metre) — istediğiniz değeri girebilirsiniz |
 | İsim | "Bodrum Kat", "Zemin Kat", "1. Kat" ... |
 | Dosya | İlgili katın DXF veya DWG dosyası |
 | Referans X / Y | W-Block baz noktasının bu dosyadaki CAD koordinatı (örn. 15250 / 8300) |
+
+**Kat Numarası ve Kot alanı bağımsızdır.** Program gereği kat numarası 1'den başlar; ancak bu, girilen kot değerini etkilemez. Aşağıdaki gibi bodrum katı da tanımlanabilir:
+
+| Kat No | Kot (m) | İsim |
+|--------|---------|------|
+| 1 | −1.00 | Bodrum Kat |
+| 2 | 0.00 | Zemin Kat |
+| 3 | 3.00 | 1. Kat |
 
 > **Referans noktası** tüm katlarda aynı fiziksel noktayı (kolon köşesi, asansör kenarı) göstermelidir. VKT, her katın entity'lerini bu koordinat kadar kaydırarak 3D'de hizalar. Referans noktası sıfır (0, 0) bırakılırsa VKT dosyayı olduğu gibi import eder — katlar hizalanamaz.
 
