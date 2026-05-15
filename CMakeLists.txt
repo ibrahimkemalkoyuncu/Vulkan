@@ -98,6 +98,7 @@ set(SOURCES
     src/renderer/Gizmo.cpp
     src/ui/MainWindow.cpp
     src/ui/DXFImportDialog.cpp
+    src/ui/MimariBelirleDialog.cpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
     src/ui/FixturePropertiesPanel.cpp
@@ -156,6 +157,7 @@ set(HEADERS
     vkt/render/Gizmo.hpp
     vkt/ui/MainWindow.hpp
     vkt/ui/DXFImportDialog.hpp
+    vkt/ui/MimariBelirleDialog.hpp
     vkt/ui/SpacePanel.hpp
     vkt/ui/PrintLayout.hpp
     vkt/ui/FixturePropertiesPanel.hpp

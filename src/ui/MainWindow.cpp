@@ -5,6 +5,7 @@
 
 #include "ui/MainWindow.hpp"
 #include "ui/DXFImportDialog.hpp"
+#include "ui/MimariBelirleDialog.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
 #include "ui/SnapOverlay.hpp"
@@ -185,6 +186,11 @@ void MainWindow::CreateActions() {
 
     m_actExportReport = new QAction("Rapor Dışa Aktar", this);
     connect(m_actExportReport, &QAction::triggered, this, &MainWindow::OnExportReport);
+
+    m_actMimariBelirle = new QAction("&Mimari Belirle...", this);
+    m_actMimariBelirle->setShortcut(QKeySequence("Ctrl+M"));
+    m_actMimariBelirle->setToolTip("Kat tanımları ve mimari DXF/DWG dosyalarını belirle");
+    connect(m_actMimariBelirle, &QAction::triggered, this, &MainWindow::OnMimariBelirle);
 }
 
 void MainWindow::CreateMenus() {
@@ -225,6 +231,10 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addAction(m_actRunHydraulics);
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
+
+    // Mimari
+    auto* mimariMenu = menuBar()->addMenu("&Mimari");
+    mimariMenu->addAction(m_actMimariBelirle);
 }
 
 void MainWindow::CreateToolbars() {
@@ -976,6 +986,28 @@ void MainWindow::OnExportReport() {
     }
 }
 
+void MainWindow::OnMimariBelirle() {
+    MimariBelirleDialog dlg(this);
+
+    if (dlg.exec() == QDialog::Accepted) {
+        dlg.ApplyToFloorManager(m_floorManager);
+        const auto& floors = m_floorManager.GetFloors();
+        statusBar()->showMessage(
+            QString("%1 kat tanımlandı.").arg((int)floors.size()));
+        LogCAD("Mimari Belirle: " + std::to_string(floors.size()) + " kat");
+
+        // Her kat için DXF/DWG dosyası varsa DXFImportDialog aç
+        for (const auto& def : dlg.GetFloorDefs()) {
+            if (def.dosya.empty()) continue;
+            if (m_document) {
+                LogCAD("Mimari import baslatiyor: " + def.dosya + " (" + def.isim + ")");
+                DXFImportDialog importDlg(this);
+                importDlg.exec();
+            }
+        }
+    }
+}
+
 void MainWindow::OnSelectSpace() {
     std::cout << "Mahal seçimi aktif (B-Rep engine)" << std::endl;
 }
@@ -1089,6 +1121,28 @@ void MainWindow::OnSlopeChanged(const QString& text) {
 
 void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton button) {
     if (button != Qt::LeftButton || !m_document) return;
+
+    // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
+    if (m_measureMode) {
+        if (!m_measureHasFirstPt) {
+            m_measurePt1 = geom::Vec3(worldX, worldY, 0.0);
+            m_measureHasFirstPt = true;
+            statusBar()->showMessage("Mesafe: İkinci nokta seçin");
+            if (m_commandBar) m_commandBar->SetPrompt("2. Nokta");
+        } else {
+            geom::Vec3 pt2(worldX, worldY, 0.0);
+            double dist = m_measurePt1.DistanceTo(pt2);
+            QString msg = QString("Mesafe: %1 mm  (%2 m)")
+                .arg(dist, 0, 'f', 2)
+                .arg(dist / 1000.0, 0, 'f', 3);
+            statusBar()->showMessage(msg);
+            if (m_logList) m_logList->addItem(msg);
+            m_measureMode = false;
+            m_measureHasFirstPt = false;
+            if (m_commandBar) m_commandBar->SetPrompt("Komut");
+        }
+        return;
+    }
 
     auto& network = m_document->GetNetwork();
 
@@ -1384,7 +1438,15 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("         ZOOM ZOOM-EXTENTS VIEW-PLAN VIEW-ISO");
             m_logList->addItem("         HYDRAULICS DRAINAGE SCHEDULE RISER");
             m_logList->addItem("         UNDO REDO SAVE EXPORT-DXF EXPORT-PDF");
+            m_logList->addItem("         UZAKLIK/DISTANCE  MIMARI");
         }
+    } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
+        m_measureMode = true;
+        m_measureHasFirstPt = false;
+        statusBar()->showMessage("Mesafe: İlk nokta seçin");
+        if (m_commandBar) m_commandBar->SetPrompt("1. Nokta");
+    } else if (c == "MIMARI") {
+        OnMimariBelirle();
     } else if (c == "PIPE" || c == "LINE") {
         OnDrawPipe();
         if (m_commandBar) m_commandBar->SetPrompt("Boru başlangıcı");
@@ -1560,6 +1622,8 @@ void MainWindow::OnCommandEscape() {
     m_drawState        = DrawState::Idle;
     m_currentToolMode  = ToolMode::Select;
     m_firstNodeInGraph = false;
+    m_measureMode      = false;
+    m_measureHasFirstPt = false;
     if (m_commandBar) m_commandBar->SetPrompt("Komut");
     if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
     statusBar()->showMessage("İptal edildi — Seçim modu");

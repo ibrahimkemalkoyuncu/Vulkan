@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <memory>
 #include "core/Document.hpp"
+#include "core/FloorManager.hpp"
 #include "cad/SpaceManager.hpp"
 #include "cad/Viewport.hpp"
 #include "cad/Entity.hpp"
@@ -109,6 +110,9 @@ private slots:
                                float r, float g, float b,
                                float lightAzimuth, float lightElevation);
 
+    // Mimari kat yönetimi
+    void OnMimariBelirle();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -195,6 +199,7 @@ private:
     QAction* m_actAutoSizeDN = nullptr;
     QAction* m_actGenerateSchedule = nullptr;
     QAction* m_actExportReport = nullptr;
+    QAction* m_actMimariBelirle = nullptr;
 
     // Tool state
     ToolMode m_currentToolMode = ToolMode::Select;
@@ -213,6 +218,14 @@ private:
 
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;
+
+    // Mimari kat yönetimi
+    core::FloorManager m_floorManager;
+
+    // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
+    bool       m_measureMode       = false;
+    bool       m_measureHasFirstPt = false;
+    geom::Vec3 m_measurePt1;
 
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);

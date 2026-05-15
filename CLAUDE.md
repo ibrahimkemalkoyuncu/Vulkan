@@ -372,6 +372,10 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Ellipse entity class** — `vkt/cad/Ellipse.hpp` + `src/cad/Ellipse.cpp`; parametrik depolama (center, semiMajor, axisRatio, rotAngle, startParam/endParam); DWGReader artık `Polyline` yerine `Ellipse*` döndürüyor; DXFReader'a `ReadEllipse()` eklendi (group codes 10–42); VulkanRenderer'da adaptive tessellation (ppu-tabanlı, Circle/Arc ile aynı yaklaşım); 6 birim testi — 85/85 geçiyor
 - **Spline entity class** — `vkt/cad/Spline.hpp` + `src/cad/Spline.cpp`; fit noktaları veya kontrol noktası+knot+derece depolama; Tessellate() De Boor B-spline; DWGReader artık `Spline*` döndürüyor; DXFReader'a `ReadSpline()` eklendi; VulkanRenderer adaptive render; 5 birim testi — 90/90 geçiyor
 - **DXFWriter Arc + Ellipse export** — `WriteEntityArc()` (ARC group 50/51) + `WriteEntityEllipse()` (ELLIPSE major-axis vektörü + axis-ratio); WriteEntitiesSection() switch'e eklendi
+- **MimariBelirleDialog** — `vkt/ui/MimariBelirleDialog.hpp` + `src/ui/MimariBelirleDialog.cpp`; QFormLayout + QTableWidget; kat no/kot/isim/DXF-DWG dosyası tanımlama; ApplyToFloorManager(); Tamam'da DXFImportDialog ile otomatik import zinciri; Ctrl+M kısayolu
+- **Mimari menüsü** — MainWindow menü çubuğuna "Mimari" menüsü eklendi; "Mimari Belirle..." eylemi
+- **UZAKLIK/DISTANCE komutu** — CommandBar'dan `UZAKLIK`, `DISTANCE` veya `DIST` komutu; iki nokta tıklama ile mm + m mesafe hesabı; ESC ile iptal; mesafe log paneline ve status bar'a yazılır
+- **FloorManager MainWindow entegrasyonu** — `m_floorManager` üyesi; kat tanımları session boyunca korunur; 90/90 test geçiyor
 
 ### Devam Eden
 
