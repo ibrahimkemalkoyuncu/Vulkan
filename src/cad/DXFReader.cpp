@@ -121,12 +121,22 @@ bool DXFReader::Read() {
         return false;
     }
     
+    // W-Block baz noktası ofseti — tüm entity'leri referans noktasına göre hizala.
+    // Katlar arası hizalama için her katta ortak bir referans noktası (örn. kolon
+    // köşesi) seçilmeli ve bu noktanın koordinatları SetInsertionOffset'e verilmelidir.
+    if (m_insertionOffsetX != 0.0 || m_insertionOffsetY != 0.0) {
+        geom::Vec3 shift(-m_insertionOffsetX, -m_insertionOffsetY, 0.0);
+        for (auto& ent : m_entities) {
+            if (ent) ent->Move(shift);
+        }
+    }
+
     // İstatistikleri güncelle
     auto endTime = std::chrono::high_resolution_clock::now();
     m_stats.totalEntities = m_entities.size();
     m_stats.totalLayers = m_layers.size();
     m_stats.readTimeMs = std::chrono::duration<double, std::milli>(endTime - startTime).count();
-    
+
     m_file.close();
     return true;
 }

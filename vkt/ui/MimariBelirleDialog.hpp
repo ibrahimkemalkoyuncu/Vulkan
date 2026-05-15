@@ -34,6 +34,10 @@ public:
         double      kod       = 0.0;     ///< Döşeme kotu (m), örn. -3.0
         std::string isim;               ///< "Bodrum Kat", "Zemin Kat" ...
         std::string dosya;              ///< DXF/DWG dosya yolu
+        /// W-Block baz noktası — katlar arasında ortak olan fiziksel noktanın
+        /// bu dosyadaki CAD koordinatı (örn. kolon köşesi, asansör kenarı).
+        double      refX = 0.0;
+        double      refY = 0.0;
     };
 
     explicit MimariBelirleDialog(QWidget* parent = nullptr);
@@ -61,6 +65,8 @@ private:
     QLineEdit*      m_edtIsim   = nullptr;
     QLineEdit*      m_edtDosya  = nullptr;
     QPushButton*    m_btnDosya  = nullptr;
+    QDoubleSpinBox* m_spnRefX   = nullptr;  ///< W-Block referans noktası X
+    QDoubleSpinBox* m_spnRefY   = nullptr;  ///< W-Block referans noktası Y
     QPushButton*    m_btnYenile = nullptr;
     QPushButton*    m_btnSil    = nullptr;
 

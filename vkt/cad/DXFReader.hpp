@@ -207,6 +207,23 @@ public:
      */
     std::vector<Entity*> GetFilteredEntities() const;
     
+    // ==================== W-BLOCK REFERANS NOKTASI ====================
+
+    /**
+     * @brief W-Block baz noktasını ayarla
+     *
+     * Bu noktanın koordinatları tüm entity'lerden çıkarılır, böylece
+     * her kattaki referans noktası projenin (0,0)'ına eşlenir. Katlar
+     * 3D görünümde doğru hizalanır. Read() çağrısından önce çağrılmalıdır.
+     *
+     * @param x  Bu kattaki DXF dosyasında referans noktasının X koordinatı
+     * @param y  Bu kattaki DXF dosyasında referans noktasının Y koordinatı
+     */
+    void SetInsertionOffset(double x, double y) {
+        m_insertionOffsetX = x;
+        m_insertionOffsetY = y;
+    }
+
     // ==================== LAYER MANAGER ENTEGRASYONU ====================
     
     /**
@@ -255,6 +272,11 @@ private:
     // Block tanımları: blockName → entity listesi
     std::map<std::string, std::vector<std::unique_ptr<Entity>>> m_blocks;
     
+    // W-Block baz noktası ofseti — Read() sonrası tüm entity'ler bu kadar kaydırılır.
+    // Tüm katlarda aynı fiziksel noktanın seçilmesiyle katlar 3D'de hizalanır.
+    double m_insertionOffsetX = 0.0;
+    double m_insertionOffsetY = 0.0;
+
     // Filtreleme
     std::vector<std::string> m_layerFilter;
     std::vector<EntityType> m_typeFilter;

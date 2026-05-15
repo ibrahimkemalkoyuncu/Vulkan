@@ -26,6 +26,11 @@ struct Floor {
     std::string label;            ///< Görünen ad ("Zemin Kat", "1. Kat" ...)
     double  elevation_m = 0.0;   ///< Döşeme kotu (metre)
     double  height_m    = 3.0;   ///< Kat yüksekliği (metre)
+    /// W-Block referans noktası — bu noktanın CAD koordinatı projenin (0,0)'ına eşlenir.
+    /// Tüm katlarda aynı fiziksel noktanın (kolon köşesi, asansör kenarı vb.) seçilmesi
+    /// gerekir; bu sayede 3D görünümde katlar doğru hizalanır.
+    double  refX = 0.0;          ///< W-Block baz noktası X (CAD birimi)
+    double  refY = 0.0;          ///< W-Block baz noktası Y (CAD birimi)
 };
 
 /**

@@ -376,6 +376,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Mimari menüsü** — MainWindow menü çubuğuna "Mimari" menüsü eklendi; "Mimari Belirle..." eylemi
 - **UZAKLIK/DISTANCE komutu** — CommandBar'dan `UZAKLIK`, `DISTANCE` veya `DIST` komutu; iki nokta tıklama ile mm + m mesafe hesabı; ESC ile iptal; mesafe log paneline ve status bar'a yazılır
 - **FloorManager MainWindow entegrasyonu** — `m_floorManager` üyesi; kat tanımları session boyunca korunur; 90/90 test geçiyor
+- **W-Block referans noktası hizalama** — `Floor::refX/refY` alanları; `MimariBelirleDialog`'da "Referans Noktası" X/Y spinbox; `DXFReader::SetInsertionOffset()` tüm entity'leri `(-refX, -refY)` kadar kaydırır; `DXFImportDialog::SetInsertionOffset()` ile pipeline'a aktarım; `Eğitim.md`'de W-Block baz noktası detaylı anlatım
 
 ### Devam Eden
 

@@ -997,11 +997,14 @@ void MainWindow::OnMimariBelirle() {
         LogCAD("Mimari Belirle: " + std::to_string(floors.size()) + " kat");
 
         // Her kat için DXF/DWG dosyası varsa DXFImportDialog aç
+        // Referans noktası ofseti: tüm entity'ler (-refX, -refY) kadar kaydırılır,
+        // böylece seçilen ortak nokta (kolon köşesi vb.) projenin (0,0)'ına eşlenir.
         for (const auto& def : dlg.GetFloorDefs()) {
             if (def.dosya.empty()) continue;
             if (m_document) {
                 LogCAD("Mimari import baslatiyor: " + def.dosya + " (" + def.isim + ")");
                 DXFImportDialog importDlg(this);
+                importDlg.SetInsertionOffset(def.refX, def.refY);
                 importDlg.exec();
             }
         }

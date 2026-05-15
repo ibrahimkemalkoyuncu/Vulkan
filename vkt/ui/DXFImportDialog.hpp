@@ -72,6 +72,17 @@ public:
      */
     std::unordered_map<std::string, cad::Layer> GetLayers() const;
 
+    /**
+     * @brief W-Block baz noktası ofseti — import öncesi çağrılmalı.
+     *
+     * MimariBelirleDialog'dan gelen referans nokta koordinatı buraya verilir;
+     * DXFReader tüm entity'leri bu kadar kaydırır. Böylece katlar 3D'de hizalanır.
+     */
+    void SetInsertionOffset(double x, double y) {
+        m_insertionOffsetX = x;
+        m_insertionOffsetY = y;
+    }
+
 private slots:
     void OnBrowseFile();
     void OnImport();
@@ -114,6 +125,10 @@ private:
     
     QLabel* m_candidateCountLabel = nullptr;
     
+    // W-Block baz noktası ofseti (MimariBelirleDialog'dan gelir)
+    double m_insertionOffsetX = 0.0;
+    double m_insertionOffsetY = 0.0;
+
     // Data
     enum class FileType { DXF, DWG, Unknown };
     FileType m_fileType = FileType::Unknown;

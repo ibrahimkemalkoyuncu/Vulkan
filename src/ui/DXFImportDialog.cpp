@@ -245,6 +245,8 @@ void DXFImportDialog::OnImport() {
     // Dosya tipine göre uygun reader kullan
     if (m_fileType == FileType::DXF) {
         m_dxfReader = std::make_unique<cad::DXFReader>(filePath.toStdString());
+        if (m_insertionOffsetX != 0.0 || m_insertionOffsetY != 0.0)
+            m_dxfReader->SetInsertionOffset(m_insertionOffsetX, m_insertionOffsetY);
         if (m_dxfReader->Read()) {
             readSuccess = true;
             const auto& stats = m_dxfReader->GetStatistics();

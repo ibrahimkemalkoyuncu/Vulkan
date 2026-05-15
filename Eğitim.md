@@ -14,13 +14,32 @@ Tesisat projesi başlamadan önce yapının mimari planı programa referans olar
 - VKT, `$INSUNITS` başlık değişkenini okuyarak mm/cm/m/inch arasında otomatik dönüşüm yapar.
 - Import sonrası otomatik zoom-to-extents ile mimari planın doğru boyutta geldiği doğrulanır.
 
-### Adım 3: W-Block / Blok Hazırlama (AutoCAD tarafında)
-- FineSANI ile uyumlu proje dosyaları AutoCAD W-Block (WBLOCK) komutu ile tek dosyaya aktarılır.
-- Önerilen katmanlar:
-  - `DUVAR` — bina dış/iç duvarları
-  - `KAT-PLANI` — kat planı ana çizgisi
-  - `PENCERE`, `KAPI` — doğrama
-- Gereksiz katmanlar dışarıda bırakılarak dosya boyutu küçültülür.
+### Adım 3: W-Block / Blok Hazırlama ve Referans Noktası (AutoCAD tarafında)
+
+W-Block (WBLOCK) komutu ile kat planı tek bir DXF dosyasına aktarılır. **En kritik adım referans noktası seçimidir:**
+
+> **Referans Noktası** — Tüm katlarda ortak olan, katlar üst üste getirildiğinde aynı hizada olmasını sağlayan bir noktadır. Kolon köşesi, asansör boşluğu köşesi veya yapının referans aksı başlangıcı gibi tüm planlarda net görülebilen bir nokta seçilmelidir.
+
+**W-Block referans noktası neden önemlidir?**
+- AutoCAD'de WBLOCK komutu çalıştırılırken istenilen "baz noktası" bu referans noktasıdır.
+- Zemin kat planında A-1 kolon köşesi `(15250, 8300)` ise, 1. kat planında da aynı A-1 köşesi `(15250, 8300)` olmalıdır.
+- VKT bu koordinatı alıp tüm entity'leri `(-15250, -8300)` kadar kaydırır; böylece her katta bu nokta `(0, 0)`'a eşlenir.
+- 3D görünümde katlar yatayda mükemmel hizalanır; yalnızca Z ekseni (kot) farklıdır.
+
+**AutoCAD'de doğru W-Block çıktısı:**
+```
+Command: WBLOCK
+Dosya adı: zemin_kat.dxf
+Kaydet formatı: 2013 DXF
+Nesneleri Seç: Tümü (A + Enter)
+Baz Nokta: A-1 kolon köşesini tıkla → 15250, 8300, 0
+```
+
+Önerilen katmanlar:
+- `DUVAR` — bina dış/iç duvarları
+- `KAT-PLANI` — kat planı ana çizgisi
+- `PENCERE`, `KAPI` — doğrama
+- Gereksiz katmanlar (hatch, kota vb.) dışarıda bırakılarak dosya boyutu küçültülür.
 
 ### Adım 4: Mimari Belirle — Kat Tanımları
 **Menü: Mimari → Mimari Belirle...** (Ctrl+M)
@@ -32,6 +51,9 @@ Açılan pencerede:
 | Kot (m) | Döşeme yüksekliği (bodrum = negatif, örn. -3.00) |
 | İsim | "Bodrum Kat", "Zemin Kat", "1. Kat" ... |
 | Dosya | İlgili katın DXF veya DWG dosyası |
+| Referans X / Y | W-Block baz noktasının bu dosyadaki CAD koordinatı (örn. 15250 / 8300) |
+
+> **Referans noktası** tüm katlarda aynı fiziksel noktayı (kolon köşesi, asansör kenarı) göstermelidir. VKT, her katın entity'lerini bu koordinat kadar kaydırarak 3D'de hizalar. Referans noktası sıfır (0, 0) bırakılırsa VKT dosyayı olduğu gibi import eder — katlar hizalanamaz.
 
 **İş akışı:**
 1. Kat bilgilerini doldurun → **Yenile** ile listeye ekleyin.
