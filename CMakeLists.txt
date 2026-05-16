@@ -100,6 +100,8 @@ set(SOURCES
     src/ui/MainWindow.cpp
     src/ui/DXFImportDialog.cpp
     src/ui/MimariBelirleDialog.cpp
+    src/ui/NewProjectDialog.cpp
+    src/ui/FloorAlignmentDialog.cpp
     src/ui/STFixturePanel.cpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
@@ -161,6 +163,8 @@ set(HEADERS
     vkt/ui/MainWindow.hpp
     vkt/ui/DXFImportDialog.hpp
     vkt/ui/MimariBelirleDialog.hpp
+    vkt/ui/NewProjectDialog.hpp
+    vkt/ui/FloorAlignmentDialog.hpp
     vkt/ui/STFixturePanel.hpp
     vkt/ui/SpacePanel.hpp
     vkt/ui/PrintLayout.hpp

@@ -120,6 +120,7 @@ private slots:
 
     // Mimari kat yönetimi
     void OnMimariBelirle();
+    void OnFloorAlignment();   ///< 3D Hizalama Kontrolü
 
     // ST Cihazları paneli — armatür seçimi
     void OnSTFixtureSelected(const QString& name);
@@ -254,6 +255,7 @@ private:
     QAction* m_actGenerateSchedule = nullptr;
     QAction* m_actExportReport = nullptr;
     QAction* m_actMimariBelirle    = nullptr;
+    QAction* m_actFloorAlignment   = nullptr;
     QAction* m_actNewProject       = nullptr;
     QAction* m_actSetProjectsRoot  = nullptr;
     QAction* m_actOpenProjectFolder = nullptr;

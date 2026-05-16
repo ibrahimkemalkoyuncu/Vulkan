@@ -6,6 +6,8 @@
 #include "ui/MainWindow.hpp"
 #include "ui/DXFImportDialog.hpp"
 #include "ui/MimariBelirleDialog.hpp"
+#include "ui/NewProjectDialog.hpp"
+#include "ui/FloorAlignmentDialog.hpp"
 #include "core/ProjectManager.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
@@ -263,6 +265,11 @@ void MainWindow::CreateActions() {
     m_actMimariBelirle->setToolTip("Kat tanımları ve mimari DXF/DWG dosyalarını belirle");
     connect(m_actMimariBelirle, &QAction::triggered, this, &MainWindow::OnMimariBelirle);
 
+    m_actFloorAlignment = new QAction("&3D Hizalama Kontrolü...", this);
+    m_actFloorAlignment->setShortcut(QKeySequence("Ctrl+Shift+H"));
+    m_actFloorAlignment->setToolTip("Katlara göre Z kotlarını ve boru hizalamasını doğrula");
+    connect(m_actFloorAlignment, &QAction::triggered, this, &MainWindow::OnFloorAlignment);
+
     // Proje çalışma alanı (CC klasörü eşdeğeri)
     m_actNewProject = new QAction("&Yeni Proje...", this);
     m_actNewProject->setShortcut(QKeySequence("Ctrl+Shift+N"));
@@ -343,6 +350,8 @@ void MainWindow::CreateMenus() {
     // Mimari
     auto* mimariMenu = menuBar()->addMenu("&Mimari");
     mimariMenu->addAction(m_actMimariBelirle);
+    mimariMenu->addSeparator();
+    mimariMenu->addAction(m_actFloorAlignment);
 }
 
 void MainWindow::CreateToolbars() {
@@ -1148,20 +1157,24 @@ void MainWindow::OnNewProject() {
         if (!pm.HasProjectsRoot()) return;
     }
 
-    // 2. Proje adı al
-    bool ok = false;
-    QString name = QInputDialog::getText(this, "Yeni Proje",
-        QString("Proje adı:\n(Klasör: %1/[ad])")
-            .arg(QString::fromStdString(pm.GetProjectsRoot())),
-        QLineEdit::Normal, "", &ok);
-    if (!ok || name.trimmed().isEmpty()) return;
+    // 2. Detaylı proje bilgilerini al
+    NewProjectDialog dlg(QString::fromStdString(pm.GetProjectsRoot()), this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    QString name = dlg.ProjectName();
+    if (name.isEmpty()) return;
 
     // 3. Proje klasörünü oluştur
     std::string error;
-    if (!pm.CreateProject(name.trimmed().toStdString(), error)) {
+    if (!pm.CreateProject(name.toStdString(), error)) {
         QMessageBox::critical(this, "Proje Oluşturulamadı", QString::fromStdString(error));
         return;
     }
+
+    // Norm seçimini uygula
+    if (dlg.Norm().contains("DIN"))
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
+    else
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
 
     // 4. Yeni belge oluştur ve proje dosya yoluna kaydet
     auto& app = core::Application::Instance();
@@ -1175,13 +1188,24 @@ void MainWindow::OnNewProject() {
     }
 
     QString displayName = QString::fromStdString(pm.GetProjectName());
+    QString normLabel = (mep::HydraulicSolver::GlobalNorm() == mep::HydroNorm::DIN1988)
+                        ? "DIN 1988-300" : "EN 806-3";
     setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(displayName));
     statusBar()->showMessage(
-        QString("Proje oluşturuldu: %1").arg(QString::fromStdString(pm.GetProjectFolder())));
+        QString("Proje oluşturuldu: %1 | Norm: %2 | Müşteri: %3")
+            .arg(QString::fromStdString(pm.GetProjectFolder()))
+            .arg(normLabel)
+            .arg(dlg.CustomerName().isEmpty() ? "-" : dlg.CustomerName()));
 
-    if (m_logList)
+    if (m_logList) {
         m_logList->addItem(QString("Yeni proje: %1").arg(
             QString::fromStdString(pm.GetProjectFolder())));
+        if (!dlg.CustomerName().isEmpty())
+            m_logList->addItem(QString("  Müşteri: %1  |  Mühendis: %2")
+                .arg(dlg.CustomerName()).arg(dlg.EngineerName()));
+        m_logList->addItem(QString("  Bina Tipi: %1  |  Norm: %2  |  Tarih: %3")
+            .arg(dlg.BuildingType()).arg(normLabel).arg(dlg.ProjectDate()));
+    }
 }
 
 void MainWindow::OnSetProjectsRoot() {
@@ -1247,6 +1271,26 @@ void MainWindow::OnMimariBelirle() {
                 importDlg.exec();
             }
         }
+    }
+}
+
+void MainWindow::OnFloorAlignment() {
+    if (m_floorManager.GetFloors().empty()) {
+        QMessageBox::information(this, "3D Hizalama Kontrolü",
+            "Henüz kat tanımlanmamış.\n"
+            "Önce Mimari → Mimari Belirle (Ctrl+M) ile katları tanımlayın.");
+        return;
+    }
+
+    if (!m_document) {
+        QMessageBox::warning(this, "3D Hizalama Kontrolü", "Aktif belge yok.");
+        return;
+    }
+
+    FloorAlignmentDialog dlg(m_floorManager, m_document->GetNetwork(), this);
+    if (dlg.exec() == QDialog::Accepted) {
+        statusBar()->showMessage("Kat yükseklikleri güncellendi.");
+        LogCAD("3D hizalama: kat yükseklikleri guncellendi");
     }
 }
 
@@ -1938,7 +1982,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
-            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI");
+            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -1954,6 +1998,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnRiserDiagram();
     } else if (c == "DN-OVERRIDE" || c == "DN-DEGISTIR") {
         OnDNOverride();
+    } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
+        OnFloorAlignment();
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
         m_measureHasFirstPt = false;
