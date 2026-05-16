@@ -58,6 +58,15 @@ public:
         update();
     }
 
+    /**
+     * @brief Açık uç (bağlantısız) node'ları kırmızı halka ile işaretle
+     * @param screenPoints Ekran koordinatlarında açık uç pozisyonları
+     */
+    void SetOpenEndMarkers(std::vector<QPoint> screenPoints) {
+        m_openEndMarkers = std::move(screenPoints);
+        update();
+    }
+
     /** @brief Boru çizimi sırasında birinci noktadan imlece uzanan önizleme çizgisi */
     void SetRubberBand(QPoint from, QPoint to, bool active) {
         m_rubberFrom   = from;
@@ -86,6 +95,7 @@ private:
     bool   m_rubberActive = false;
 
     std::vector<TextLabel> m_textLabels;
+    std::vector<QPoint>    m_openEndMarkers; ///< Açık uç node ekran pozisyonları
 };
 
 } // namespace ui

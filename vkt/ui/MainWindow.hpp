@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <memory>
 #include "core/Document.hpp"
+#include "mep/NetworkGraph.hpp"
 #include "core/FloorManager.hpp"
 #include "core/ProjectManager.hpp"
 #include "cad/SpaceManager.hpp"
@@ -35,7 +36,7 @@ namespace render { class VulkanWindow; }
 namespace ui {
 
 /// Aktif cizim araci
-enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction };
+enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction, PlaceDrain };
 enum class DrawState { Idle, WaitingFirstPoint, WaitingSecondPoint };
 
 /**
@@ -123,6 +124,14 @@ private slots:
     // ST Cihazları paneli — armatür seçimi
     void OnSTFixtureSelected(const QString& name);
 
+    // Pis su çizim komutları
+    void OnDrawDrainPipe();
+    void OnPlaceYerSuzgeci();
+    void OnPlaceRogar();
+
+    // Tesisat Kopyalama — seçili katı başka kata kopyala (kolonlar hariç)
+    void OnCopyFloor();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -201,9 +210,13 @@ private:
     QAction* m_actUndo = nullptr;
     QAction* m_actRedo = nullptr;
     QAction* m_actDelete = nullptr;
-    QAction* m_actDrawPipe = nullptr;
-    QAction* m_actDrawFixture = nullptr;
-    QAction* m_actDrawJunction = nullptr;
+    QAction* m_actDrawPipe        = nullptr;
+    QAction* m_actDrawFixture     = nullptr;
+    QAction* m_actDrawJunction    = nullptr;
+    QAction* m_actDrawDrainPipe   = nullptr;
+    QAction* m_actPlaceYerSuzgeci = nullptr;
+    QAction* m_actPlaceRogar      = nullptr;
+    QAction* m_actCopyFloor       = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -227,6 +240,10 @@ private:
 
     // Armatür tipi (PlaceFixture modu)
     QString m_selectedFixtureType = "Lavabo";
+
+    // Pis su modu: drawn pipes ve drain label
+    mep::EdgeType m_currentPipeType = mep::EdgeType::Supply;
+    QString       m_drainLabel      = "Yer Süzgeci";
 
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok

@@ -221,6 +221,21 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
             break;
     }
 
+    // ── Açık uç (bağlantısız node) uyarı halkası ──────────
+    if (!m_openEndMarkers.empty()) {
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(QColor(255, 60, 60, 220), 2.0f)); // kırmızı halka
+        for (const auto& pt : m_openEndMarkers) {
+            constexpr int R = 7;
+            p.drawEllipse(pt, R, R);
+            // Küçük ünlem çizgisi (görünürlük için)
+            p.setPen(QPen(QColor(255, 60, 60, 220), 1.5f));
+            p.drawLine(pt.x(), pt.y() - R - 4, pt.x(), pt.y() - R - 8);
+            p.drawPoint(pt.x(), pt.y() - R - 11);
+            p.setPen(QPen(QColor(255, 60, 60, 220), 2.0f));
+        }
+    }
+
     // ── Tooltip etiketi ────────────────────────────────────
     {
         const QString label = SnapLabel(m_snapResult.type);

@@ -168,6 +168,23 @@ void MainWindow::CreateActions() {
     m_actDrawJunction = new QAction("Bağlantı Noktası", this);
     connect(m_actDrawJunction, &QAction::triggered, this, &MainWindow::OnDrawJunction);
 
+    // Pis su araçları
+    m_actDrawDrainPipe = new QAction("Pis Su Borusu", this);
+    m_actDrawDrainPipe->setToolTip("Pis su/atık su borusu çiz (EN 12056-2)");
+    connect(m_actDrawDrainPipe, &QAction::triggered, this, &MainWindow::OnDrawDrainPipe);
+
+    m_actPlaceYerSuzgeci = new QAction("Yer Süzgeci", this);
+    m_actPlaceYerSuzgeci->setToolTip("Yer süzgeci / tahliye süzgeci yerleştir");
+    connect(m_actPlaceYerSuzgeci, &QAction::triggered, this, &MainWindow::OnPlaceYerSuzgeci);
+
+    m_actPlaceRogar = new QAction("Rögar (Boşaltma)", this);
+    m_actPlaceRogar->setToolTip("Pis su boşaltma noktası (rögar) yerleştir");
+    connect(m_actPlaceRogar, &QAction::triggered, this, &MainWindow::OnPlaceRogar);
+
+    m_actCopyFloor = new QAction("Tesisat Kopyala...", this);
+    m_actCopyFloor->setToolTip("Seçilen katın yatay borularını ve armatürlerini başka kata kopyala (kolonlar hariç)");
+    connect(m_actCopyFloor, &QAction::triggered, this, &MainWindow::OnCopyFloor);
+
     m_actSelect = new QAction("Seç", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -246,6 +263,12 @@ void MainWindow::CreateMenus() {
     drawMenu->addAction(m_actDrawPipe);
     drawMenu->addAction(m_actDrawFixture);
     drawMenu->addAction(m_actDrawJunction);
+    drawMenu->addSeparator();
+    drawMenu->addAction(m_actDrawDrainPipe);
+    drawMenu->addAction(m_actPlaceYerSuzgeci);
+    drawMenu->addAction(m_actPlaceRogar);
+    drawMenu->addSeparator();
+    drawMenu->addAction(m_actCopyFloor);
 
     // Görünüm
     auto* viewMenu = menuBar()->addMenu("&Görünüm");
@@ -1178,6 +1201,124 @@ void MainWindow::OnSTFixtureSelected(const QString& name) {
     if (m_stDock) m_stDock->raise();
 }
 
+void MainWindow::OnDrawDrainPipe() {
+    m_currentPipeType  = mep::EdgeType::Drainage;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Pis su borusu: Baslangic noktasini tiklayin (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Pis su bas.");
+}
+
+void MainWindow::OnPlaceYerSuzgeci() {
+    m_drainLabel      = "Yer Suzgeci";
+    m_currentToolMode = ToolMode::PlaceDrain;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Yer suzgeci: Konumu tiklayin");
+    if (m_commandBar) m_commandBar->SetPrompt("Yer suzgeci");
+}
+
+void MainWindow::OnPlaceRogar() {
+    m_drainLabel      = "Rogar";
+    m_currentToolMode = ToolMode::PlaceDrain;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Bosaltma noktasi (Rogar): Konumu tiklayin");
+    if (m_commandBar) m_commandBar->SetPrompt("Rogar konumu");
+}
+
+void MainWindow::OnCopyFloor() {
+    if (!m_document) return;
+
+    const auto& floors = m_floorManager.GetFloors();
+    if (floors.size() < 2) {
+        QMessageBox::information(this, "Tesisat Kopyala",
+            "En az 2 kat tanımlanmış olmalıdır.\n"
+            "Önce Mimari → Mimari Belirle ile katları tanımlayın.");
+        return;
+    }
+
+    // Kat listesi için string listesi oluştur
+    QStringList floorNames;
+    for (const auto& f : floors)
+        floorNames << QString("%1 — %2 m (%3)")
+            .arg(f.index).arg(f.elevation_m, 0, 'f', 2)
+            .arg(QString::fromStdString(f.label));
+
+    bool ok = false;
+    QString srcChoice = QInputDialog::getItem(this, "Tesisat Kopyala",
+        "Kaynak kat (kopyalanacak):", floorNames, 0, false, &ok);
+    if (!ok) return;
+
+    QString dstChoice = QInputDialog::getItem(this, "Tesisat Kopyala",
+        "Hedef kat (kopyalanacağı yer):", floorNames, 1, false, &ok);
+    if (!ok || srcChoice == dstChoice) return;
+
+    int srcIdx = floorNames.indexOf(srcChoice);
+    int dstIdx = floorNames.indexOf(dstChoice);
+    if (srcIdx < 0 || dstIdx < 0 || srcIdx >= (int)floors.size() || dstIdx >= (int)floors.size()) return;
+
+    double srcZ = floors[srcIdx].elevation_m;
+    double dstZ = floors[dstIdx].elevation_m;
+    double dz   = dstZ - srcZ;
+
+    auto& network = m_document->GetNetwork();
+
+    // Kaynak kattaki node'ları bul (z ≈ srcZ, tolerans 0.1 m)
+    constexpr double kZTol = 0.1;
+    std::unordered_map<uint32_t, uint32_t> oldToNew; // srcNodeId → dstNodeId
+
+    auto composite = std::make_unique<core::CompositeCommand>();
+
+    // 1. Node'ları kopyala (kolonlar hariç tutmak için sadece srcZ'deki node'lar)
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (std::abs(node.position.z - srcZ) > kZTol) continue;
+
+        mep::Node newNode = node;
+        newNode.position.z += dz;
+        auto cmd = std::make_unique<core::AddNodeCommand>(network, newNode);
+        cmd->Execute();
+        uint32_t newId = cmd->GetNodeId();
+        oldToNew[nid] = newId;
+        composite->AddCommand(std::move(cmd));
+    }
+
+    if (oldToNew.empty()) {
+        QMessageBox::warning(this, "Tesisat Kopyala",
+            QString("Kaynak katta (%1 m) hiç node bulunamadı.\n"
+                    "Node'ların Z koordinatları kat kotuna eşlenmiş olmalıdır.")
+            .arg(srcZ, 0, 'f', 2));
+        return;
+    }
+
+    // 2. Yatay edge'leri kopyala — her iki ucu da srcZ'de olan borular (kolonlar değil)
+    int copiedEdges = 0;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        auto itA = oldToNew.find(edge.nodeA);
+        auto itB = oldToNew.find(edge.nodeB);
+        if (itA == oldToNew.end() || itB == oldToNew.end()) continue; // kolon veya dışarıdaki
+
+        mep::Edge newEdge = edge;
+        newEdge.nodeA = itA->second;
+        newEdge.nodeB = itB->second;
+        auto cmd = std::make_unique<core::AddEdgeCommand>(network, newEdge);
+        cmd->Execute();
+        composite->AddCommand(std::move(cmd));
+        ++copiedEdges;
+    }
+
+    m_document->TrackExecuted(std::move(composite));
+    m_document->SetModified(true);
+    UpdateUI();
+    ScheduleAutoHydro();
+
+    LogCAD(std::string("FloorCopy: ") + std::to_string(oldToNew.size()) +
+           " node, " + std::to_string(copiedEdges) + " boru kopyalandi.");
+    statusBar()->showMessage(
+        QString("Tesisat kopyalandi: %1 node, %2 boru (%3 m → %4 m)")
+        .arg((int)oldToNew.size()).arg(copiedEdges)
+        .arg(srcZ, 0, 'f', 2).arg(dstZ, 0, 'f', 2));
+}
+
 void MainWindow::OnSelectSpace() {
     std::cout << "Mahal seçimi aktif (B-Rep engine)" << std::endl;
 }
@@ -1368,7 +1509,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             mep::Edge edge;
             edge.nodeA = m_firstNodeId;
             edge.nodeB = secondNodeId;
-            edge.type = mep::EdgeType::Supply;
+            edge.type = m_currentPipeType;
             edge.diameter_mm = diameter;
             edge.roughness_mm = roughness;
             edge.material = material;
@@ -1426,6 +1567,20 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         UpdateUI();
         statusBar()->showMessage(QString("Bağlantı noktası eklendi (x=%1, y=%2)")
             .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        break;
+    }
+    case ToolMode::PlaceDrain: {
+        mep::Node node;
+        node.type     = mep::NodeType::Drain;
+        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.label    = m_drainLabel.toStdString();
+        auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+        m_document->ExecuteCommand(std::move(cmd));
+        m_document->SetModified(true);
+        UpdateUI();
+        ScheduleAutoHydro();
+        statusBar()->showMessage(QString("%1 eklendi (x=%2, y=%3)")
+            .arg(m_drainLabel).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;
     }
     case ToolMode::Select:
@@ -1604,11 +1759,11 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
 
     if (c == "HELP") {
         if (m_logList) {
-            m_logList->addItem("Komutlar: LINE PIPE FIXTURE JUNCTION SOURCE DRAIN");
-            m_logList->addItem("         ZOOM ZOOM-EXTENTS VIEW-PLAN VIEW-ISO");
-            m_logList->addItem("         HYDRAULICS DRAINAGE SCHEDULE RISER");
-            m_logList->addItem("         UNDO REDO SAVE EXPORT-DXF EXPORT-PDF");
-            m_logList->addItem("         UZAKLIK/DISTANCE  MIMARI");
+            m_logList->addItem("Komutlar: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
+            m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR/BOSALTMA");
+            m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
+            m_logList->addItem("Analiz  : HYDRAULICS  DRAINAGE  SCHEDULE  RISER");
+            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI");
         }
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
@@ -1618,6 +1773,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     } else if (c == "MIMARI") {
         OnMimariBelirle();
     } else if (c == "PIPE" || c == "LINE") {
+        m_currentPipeType = mep::EdgeType::Supply;
         OnDrawPipe();
         if (m_commandBar) m_commandBar->SetPrompt("Boru başlangıcı");
     } else if (c == "FIXTURE") {
@@ -1626,6 +1782,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     } else if (c == "JUNCTION") {
         OnDrawJunction();
         if (m_commandBar) m_commandBar->SetPrompt("Bağlantı noktası");
+    } else if (c == "PIS-SU" || c == "DRAINAGE-PIPE" || c == "DRAIN-PIPE") {
+        OnDrawDrainPipe();
+    } else if (c == "YER-SUZGECI" || c == "FLOOR-DRAIN") {
+        OnPlaceYerSuzgeci();
+    } else if (c == "ROGAR" || c == "BOSALTMA") {
+        OnPlaceRogar();
+    } else if (c == "KOPYA-KAT" || c == "FLOOR-COPY") {
+        OnCopyFloor();
     } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
         OnZoomExtents();
     } else if (c == "VIEW-PLAN") {
@@ -1786,6 +1950,31 @@ void MainWindow::RefreshTextOverlay() {
     }
 
     m_snapOverlay->SetTextLabels(std::move(labels));
+
+    // ── Açık uç (bağlantısız / dead-end) node uyarıları ──────
+    {
+        std::vector<QPoint> openEndPts;
+        for (const auto& [nid, node] : network.GetNodeMap()) {
+            auto edges = network.GetConnectedEdges(nid);
+            bool isOpenEnd = false;
+            if (edges.empty()) {
+                // Hiç boru bağlı değil — kesinlikle hata
+                isOpenEnd = true;
+            } else if (edges.size() == 1 &&
+                       node.type == mep::NodeType::Junction) {
+                // Tek kenar bağlı Junction = dead-end boru ucu
+                isOpenEnd = true;
+            }
+            if (isOpenEnd) {
+                geom::Vec3 sp = vp.WorldToScreen(node.position);
+                if (sp.x >= -20 && sp.x <= vp.GetWidth() + 20 &&
+                    sp.y >= -20 && sp.y <= vp.GetHeight() + 20)
+                    openEndPts.emplace_back(static_cast<int>(sp.x),
+                                            static_cast<int>(sp.y));
+            }
+        }
+        m_snapOverlay->SetOpenEndMarkers(std::move(openEndPts));
+    }
 }
 
 void MainWindow::OnCommandEscape() {
@@ -1794,6 +1983,7 @@ void MainWindow::OnCommandEscape() {
     m_firstNodeInGraph = false;
     m_measureMode      = false;
     m_measureHasFirstPt = false;
+    m_currentPipeType  = mep::EdgeType::Supply; // pis su modunu sıfırla
     if (m_commandBar) m_commandBar->SetPrompt("Komut");
     if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
     statusBar()->showMessage("İptal edildi — Seçim modu");
