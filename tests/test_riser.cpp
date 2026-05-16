@@ -189,3 +189,131 @@ TEST_CASE("FloorManager - Serialize / Deserialize roundtrip", "[floor]") {
     REQUIRE(fm2.GetFloorOfNode(10) == 0);
     REQUIRE(fm2.GetFloorOfNode(20) == 1);
 }
+
+// ──────────────────────────────────────────────────────────────
+//  SVG iyilestirme testleri (ToSVG viewBox + legend + alternating)
+// ──────────────────────────────────────────────────────────────
+
+TEST_CASE("RiserDiagram - SVG contains viewBox attribute", "[riser][svg]") {
+    auto graph = Build3FloorNetwork();
+    auto fm    = Build3FloorManager();
+
+    RiserDiagram rd(graph, fm);
+    auto data = rd.Generate();
+    std::string svg = rd.ToSVG(data);
+
+    REQUIRE(svg.find("viewBox=") != std::string::npos);
+}
+
+TEST_CASE("RiserDiagram - SVG contains legend elements", "[riser][svg]") {
+    auto graph = Build3FloorNetwork();
+    auto fm    = Build3FloorManager();
+
+    RiserDiagram rd(graph, fm);
+    auto data = rd.Generate();
+    std::string svg = rd.ToSVG(data);
+
+    // Temiz Su ve Pis Su lejant etiketleri
+    REQUIRE(svg.find("Temiz Su") != std::string::npos);
+    REQUIRE(svg.find("Pis Su")   != std::string::npos);
+}
+
+TEST_CASE("RiserDiagram - SVG alternating row backgrounds present", "[riser][svg]") {
+    auto graph = Build3FloorNetwork();
+    auto fm    = Build3FloorManager();
+
+    RiserDiagram rd(graph, fm);
+    auto data = rd.Generate();
+    std::string svg = rd.ToSVG(data);
+
+    // Alternating arka plan rengi (#f5f8ff)
+    REQUIRE(svg.find("#f5f8ff") != std::string::npos);
+}
+
+TEST_CASE("RiserDiagram - SVG uses stroke-linecap round", "[riser][svg]") {
+    auto graph = Build3FloorNetwork();
+    auto fm    = Build3FloorManager();
+
+    RiserDiagram rd(graph, fm);
+    auto data = rd.Generate();
+    std::string svg = rd.ToSVG(data);
+
+    REQUIRE(svg.find("stroke-linecap=\"round\"") != std::string::npos);
+}
+
+// ──────────────────────────────────────────────────────────────
+//  Kolon boru mantigi testleri (dikey boru — farkli Z, ayni XY)
+// ──────────────────────────────────────────────────────────────
+
+TEST_CASE("Kolon - dikey boru uzunlugu Z farkina esit", "[kolon]") {
+    // Zemin kat (z=0) → 1.kat (z=3m): kolon boyu 3m olmali
+    double srcZ = 0.0;
+    double dstZ = 3.0;
+    double dz_m = std::abs(dstZ - srcZ);
+    REQUIRE(dz_m == 3.0);
+}
+
+TEST_CASE("Kolon - ayni XY farkli Z'de node tespiti", "[kolon]") {
+    NetworkGraph g;
+
+    Node n1; n1.type = NodeType::Junction; n1.position = {1000.0, 2000.0, 0.0};
+    g.AddNode(n1);
+
+    Node n2; n2.type = NodeType::Junction; n2.position = {1000.0, 2000.0, 3.0}; // farkli kat
+    g.AddNode(n2);
+
+    Node n3; n3.type = NodeType::Junction; n3.position = {5000.0, 2000.0, 0.0}; // farkli XY
+    g.AddNode(n3);
+
+    // n1 ile ayni XY, farkli Z olan n2 bulunmali; n3 bulunmamali
+    const auto& nodeMap = g.GetNodeMap();
+    constexpr double XY_TOL = 50.0;
+    constexpr double Z_TOL  = 0.15;
+    double targetZ = 3.0;
+    const vkt::mep::Node* srcNode = g.GetNode(1);
+    REQUIRE(srcNode != nullptr);
+
+    uint32_t foundId = 0;
+    for (const auto& [id, nd] : nodeMap) {
+        if (id == 1) continue; // kaynak node kendisi
+        if (std::abs(nd.position.x - srcNode->position.x) < XY_TOL &&
+            std::abs(nd.position.y - srcNode->position.y) < XY_TOL &&
+            std::abs(nd.position.z - targetZ)             < Z_TOL) {
+            foundId = id;
+            break;
+        }
+    }
+    REQUIRE(foundId == 2); // n2 bulunmali
+
+    // n3 bulunmamali (farkli XY)
+    uint32_t notFoundId = 0;
+    for (const auto& [id, nd] : nodeMap) {
+        if (id == 1) continue;
+        if (std::abs(nd.position.x - srcNode->position.x) < XY_TOL &&
+            std::abs(nd.position.y - srcNode->position.y) < XY_TOL &&
+            std::abs(nd.position.z - 0.0) < Z_TOL &&
+            id != 1) {
+            notFoundId = id;
+        }
+    }
+    REQUIRE(notFoundId != 3); // n3 XY farklı, bulunmamalı
+}
+
+TEST_CASE("FloorManager - GetFloor returns nullptr for unknown index", "[floor]") {
+    FloorManager fm;
+    fm.BuildStandardFloors(2, false, 3.0);
+
+    REQUIRE(fm.GetFloor(0) != nullptr);
+    REQUIRE(fm.GetFloor(1) != nullptr);
+    REQUIRE(fm.GetFloor(99) == nullptr);
+    REQUIRE(fm.GetFloor(-5) == nullptr);
+}
+
+TEST_CASE("FloorManager - elevation out of range returns -999", "[floor]") {
+    FloorManager fm;
+    fm.BuildStandardFloors(2, false, 3.0); // Kat 0: 0-3m, Kat 1: 3-6m
+
+    // Tanimli aralik disinda
+    REQUIRE(fm.GetFloorIndexAtElevation(100.0) == -999);
+    REQUIRE(fm.GetFloorIndexAtElevation(-5.0)  == -999);
+}

@@ -205,6 +205,11 @@ void MainWindow::CreateActions() {
     m_actConnectFixture->setShortcut(QKeySequence("Ctrl+B"));
     connect(m_actConnectFixture, &QAction::triggered, this, &MainWindow::OnConnectFixture);
 
+    m_actDrawColumn = new QAction("Kolon Boru Ciz", this);
+    m_actDrawColumn->setToolTip("Dikey kolon borusu: bir node sec, hedef kati sec — ayni XY, farkli Z (Ctrl+Shift+K)");
+    m_actDrawColumn->setShortcut(QKeySequence("Ctrl+Shift+K"));
+    connect(m_actDrawColumn, &QAction::triggered, this, &MainWindow::OnDrawColumn);
+
     m_actHidrofor = new QAction("Hidrofor Boyutlandirma...", this);
     m_actHidrofor->setToolTip("Kritik devre analizi sonucuna gore hidrofor/pompa secimi");
     connect(m_actHidrofor, &QAction::triggered, this, &MainWindow::OnHidrofor);
@@ -315,6 +320,7 @@ void MainWindow::CreateMenus() {
     drawMenu->addAction(m_actDrawFixture);
     drawMenu->addAction(m_actDrawJunction);
     drawMenu->addAction(m_actConnectFixture);
+    drawMenu->addAction(m_actDrawColumn);
     drawMenu->addSeparator();
     drawMenu->addAction(m_actDrawDrainPipe);
     drawMenu->addAction(m_actPlaceYerSuzgeci);
@@ -362,6 +368,7 @@ void MainWindow::CreateToolbars() {
     m_drawToolbar->addAction(m_actDrawFixture);
     m_drawToolbar->addAction(m_actDrawJunction);
     m_drawToolbar->addAction(m_actConnectFixture);
+    m_drawToolbar->addAction(m_actDrawColumn);
 
     // Düzenleme toolbar
     m_editToolbar = addToolBar("Düzenleme");
@@ -1982,7 +1989,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
-            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA");
+            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -2000,6 +2007,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnDNOverride();
     } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
         OnFloorAlignment();
+    } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
+        OnDrawColumn();
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
         m_measureHasFirstPt = false;
@@ -2234,6 +2243,158 @@ void MainWindow::OnConnectFixture() {
     m_connectFixtureNodeId = 0;
     statusBar()->showMessage("BAGLA: Armaturu tiklayin (1/2)");
     if (m_commandBar) m_commandBar->SetPrompt("Armatur sec");
+}
+
+// ============================================================
+//  KOLON BAĞLANTI ASİSTANI — dikey boru (Z ekseni)
+// ============================================================
+void MainWindow::OnDrawColumn() {
+    if (!m_document) {
+        QMessageBox::warning(this, "Kolon Boru", "Aktif belge yok.");
+        return;
+    }
+    const auto& floors = m_floorManager.GetFloors();
+    if (floors.size() < 2) {
+        QMessageBox::information(this, "Kolon Boru Ciz",
+            "Kolon cizmek icin en az 2 kat tanimlanmis olmali.\n"
+            "Once Mimari → Mimari Belirle (Ctrl+M) ile katlari ekleyin.");
+        return;
+    }
+
+    auto& network = m_document->GetNetwork();
+    const auto& nodeMap = network.GetNodeMap();
+    if (nodeMap.empty()) {
+        QMessageBox::information(this, "Kolon Boru Ciz",
+            "Once en az bir node (boru bitti, armatur veya kavsis) cizin.");
+        return;
+    }
+
+    // ── Kaynak Node Seçimi ──────────────────────────────────
+    // Kullanıcıya mevcut node'ları listele (ID + pozisyon + kat)
+    QStringList nodeItems;
+    std::vector<uint32_t> nodeIds;
+    for (const auto& [id, nd] : nodeMap) {
+        int fi = m_floorManager.GetFloorIndexAtElevation(nd.position.z);
+        QString katLabel = (fi == -999) ? QString("z=%1m").arg(nd.position.z, 0, 'f', 2)
+                                        : QString("Kat %1").arg(fi);
+        QString typeStr;
+        switch (nd.type) {
+            case mep::NodeType::Junction: typeStr = "Kavsis"; break;
+            case mep::NodeType::Fixture:  typeStr = "Armatur"; break;
+            case mep::NodeType::Source:   typeStr = "Kaynak"; break;
+            case mep::NodeType::Drain:    typeStr = "Gider"; break;
+            default:                      typeStr = "Node"; break;
+        }
+        nodeItems << QString("[%1] %2 @ %3 (X=%4, Y=%5)")
+            .arg(id).arg(typeStr).arg(katLabel)
+            .arg(nd.position.x, 0, 'f', 0)
+            .arg(nd.position.y, 0, 'f', 0);
+        nodeIds.push_back(id);
+    }
+
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(this,
+        "Kolon Boru Ciz — Kaynak Node",
+        "Kolon baslasin/bitsin diye hangi mevcut node'u kullanmak istiyorsunuz?",
+        nodeItems, 0, false, &ok);
+    if (!ok) return;
+
+    int selIdx = nodeItems.indexOf(chosen);
+    if (selIdx < 0 || selIdx >= (int)nodeIds.size()) return;
+    uint32_t srcNodeId = nodeIds[selIdx];
+    const mep::Node* srcNode = network.GetNode(srcNodeId);
+    if (!srcNode) return;
+
+    // ── Hedef Kat Seçimi ───────────────────────────────────
+    QStringList floorItems;
+    int srcFloor = m_floorManager.GetFloorIndexAtElevation(srcNode->position.z);
+    for (const auto& fl : floors) {
+        if (fl.index == srcFloor) continue; // aynı kat — kolon olmaz
+        floorItems << QString("Kat %1: %2 (z=%3 m)")
+            .arg(fl.index)
+            .arg(QString::fromStdString(fl.label))
+            .arg(fl.elevation_m, 0, 'f', 2);
+    }
+    if (floorItems.isEmpty()) {
+        QMessageBox::information(this, "Kolon Boru Ciz",
+            "Tum katlar secili node ile ayni kat (farkli z yok).");
+        return;
+    }
+
+    QString chosenFloor = QInputDialog::getItem(this,
+        "Kolon Boru Ciz — Hedef Kat",
+        "Kolonun uzanacagi kati secin:",
+        floorItems, 0, false, &ok);
+    if (!ok) return;
+
+    int flIdx = floorItems.indexOf(chosenFloor);
+    // Map back to actual floor (skipping srcFloor)
+    int actualFloorIdx = 0;
+    int mapped = 0;
+    for (const auto& fl : floors) {
+        if (fl.index == srcFloor) continue;
+        if (mapped == flIdx) { actualFloorIdx = fl.index; break; }
+        ++mapped;
+    }
+    const core::Floor* targetFloor = m_floorManager.GetFloor(actualFloorIdx);
+    if (!targetFloor) return;
+
+    // ── Kolon Boru Oluştur ─────────────────────────────────
+    // Node Z değerleri elevation_m ile aynı ölçektedir (metre)
+    double targetZ = targetFloor->elevation_m;
+
+    auto composite = std::make_unique<core::CompositeCommand>();
+
+    // Hedef katta aynı XY'de node var mı? Yoksa oluştur.
+    uint32_t dstNodeId = 0;
+    bool foundExisting = false;
+    constexpr double XY_TOL = 50.0;  // mm tolerans (X,Y düzlemi)
+    constexpr double Z_TOL  = 0.15;  // m tolerans  (Z düzlemi — elevation_m ile aynı birim)
+    for (const auto& [id, nd] : nodeMap) {
+        if (std::abs(nd.position.x - srcNode->position.x) < XY_TOL &&
+            std::abs(nd.position.y - srcNode->position.y) < XY_TOL &&
+            std::abs(nd.position.z - targetZ)             < Z_TOL) {
+            dstNodeId = id;
+            foundExisting = true;
+            break;
+        }
+    }
+    if (!foundExisting) {
+        mep::Node dstNode;
+        dstNode.type     = mep::NodeType::Junction;
+        dstNode.position = geom::Vec3(srcNode->position.x, srcNode->position.y, targetZ);
+        dstNode.label    = "J";
+        auto addDst = std::make_unique<core::AddNodeCommand>(network, dstNode);
+        addDst->Execute();
+        dstNodeId = addDst->GetNodeId();
+        composite->AddCommand(std::move(addDst));
+    }
+
+    // Dikey boru uzunluğu — Z farkından hesapla (her ikisi de metre)
+    double dz_m = std::abs(targetFloor->elevation_m - srcNode->position.z);
+    if (dz_m < 0.01) dz_m = 3.0;
+
+    mep::Edge edge;
+    edge.nodeA       = srcNodeId;
+    edge.nodeB       = dstNodeId;
+    edge.type        = m_currentPipeType;
+    edge.diameter_mm = 25.0;
+    edge.roughness_mm = 0.0015;
+    edge.material    = "PVC";
+    edge.length_m    = dz_m;
+    auto addEdge = std::make_unique<core::AddEdgeCommand>(network, edge);
+    addEdge->Execute();
+    composite->AddCommand(std::move(addEdge));
+
+    m_document->TrackExecuted(std::move(composite));
+    m_document->SetModified(true);
+    UpdateUI();
+    ScheduleAutoHydro();
+
+    QString msg = QString("Kolon boru eklendi: Kat %1 → Kat %2 (%3 m, Ø25 mm)")
+        .arg(srcFloor).arg(actualFloorIdx).arg(dz_m, 0, 'f', 2);
+    statusBar()->showMessage(msg);
+    if (m_logList) m_logList->addItem(msg);
 }
 
 // ============================================================

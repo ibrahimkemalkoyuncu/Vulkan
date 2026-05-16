@@ -136,6 +136,9 @@ private slots:
     // Cihazları Tesisata Bağla (FineSANI BAGLA eşdeğeri)
     void OnConnectFixture();
 
+    // Kolon Bağlantı Asistanı — dikey boru (Z ekseni)
+    void OnDrawColumn();
+
     // Hidrofor / Ekipman Boyutlandırma
     void OnHidrofor();
 
@@ -240,6 +243,7 @@ private:
     QAction* m_actPlaceRogar      = nullptr;
     QAction* m_actCopyFloor        = nullptr;
     QAction* m_actConnectFixture   = nullptr;
+    QAction* m_actDrawColumn       = nullptr;
     QAction* m_actHidrofor         = nullptr;
     QAction* m_actNormSelection    = nullptr;
     QAction* m_actYagmurSuyu       = nullptr;
