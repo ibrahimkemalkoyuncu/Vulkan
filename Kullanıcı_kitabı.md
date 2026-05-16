@@ -22,6 +22,14 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 12. [Dosya Formatları](#12-dosya-formatları)
 13. [Hesap Föyü ve Raporlama](#13-hesap-föyü)
 14. [Fosseptik ve Atıksu Standartları](#14-fosseptik-standartları)
+15. [Cihazları Tesisata Bağla (BAGLA)](#bagla)
+16. [Hesap Normu Seçimi](#norm)
+17. [Hidrofor Boyutlandırma](#hidrofor)
+18. [Yağmur Suyu Modülü](#yagmur)
+19. [Keşif Listesi (BOM)](#bom)
+20. [3D Hizalama Kontrolü](#hizalama)
+21. [Kolon Şeması (Riser Diyagramı)](#riser)
+22. [DN Manuel Override — Hesap Föyü XLS](#dn-override)
 
 ---
 
@@ -37,7 +45,21 @@ Tüm projelerin tutulacağı ana dizini seçin. Ayar kalıcı olarak saklanır.
 
 **Dosya → Yeni Proje...** `Ctrl+Shift+N`
 
-Proje adını girin — VKT otomatik olarak şu yapıyı oluşturur:
+Proje oluşturma penceresi şu bilgileri toplar:
+
+| Alan | Açıklama |
+|------|----------|
+| **Proje Adı** \* | Klasör adı (özel karakter yasak) |
+| Müşteri | İşveren / müşteri adı |
+| Mühendis | Proje sorumlusu |
+| Bina Tipi | Konut, Ofis, Otel, Hastane... |
+| **Hesap Normu** | EN 806-3 (Türkiye/AB) veya DIN 1988-300 |
+| Proje Tarihi | Takvimden seçilir |
+
+Proje oluşturulunca VKT:
+- Seçilen norm otomatik uygulanır (sonradan Analiz → Hesap Normu ile değiştirilebilir)
+- Müşteri ve mühendis bilgisi log paneline ve status bar'a yazılır
+- Şu dizin yapısı oluşturulur:
 
 ```
 [ProjeKökü]/
@@ -358,6 +380,13 @@ ESC ile iptal.
 | Komut | Açıklama |
 |-------|----------|
 | `HYDRAULICS` | Tam hidrolik çözüm |
+| `HIDROFOR` | Kritik devre + pompa boyutlandırma |
+| `NORM` | Hesap normu seç (EN 806-3 / DIN 1988-300) |
+| `YAGMUR` | Yağmur suyu tahliye boyutlandırması |
+| `BOM` / `KESIF` | Keşif listesi (metraj + bağlantı sayımı) |
+| `RISER` / `KOLON-SEMA` | Kolon şeması (SVG/PDF) |
+| `DN-OVERRIDE` / `DN-DEGISTIR` | DN manuel override + XLS föy |
+| `HIZALAMA` / `FLOOR-ALIGN` | 3D hizalama kontrolü |
 | `UZAKLIK` / `DISTANCE` | Mesafe ölç |
 | `ZOOM-EXTENTS` / `ZE` | Tümünü göster |
 | `VIEW-PLAN` | Plan (2D) görünüm |
@@ -575,27 +604,130 @@ veya: BOM veya KESIF komutu  (Ctrl+K)
 
 ---
 
-## Hızlı Başlangıç — Örnek Proje
+## Bölüm 20 — 3D Hizalama Kontrolü {#hizalama}
+
+Mimari altlıklar import edildikten sonra her katın Z kotunun doğru olduğunu ve tesisat node'larının kat kotlarına atandığını kontrol edin.
+
+### Kullanım
 
 ```
-1. Dosya → Yeni Proje... → "OrnekBina" girin
-2. Mimari → Mimari Belirle... → 2 kat tanımlayın (0.00 m, +3.00 m)
-   Global Ref X/Y: AutoCAD'deki ortak köşe koordinatı
-3. Her kat için DXF seçin → Tamam → DXF import
-4. ST Cihazları panelinden Lavabo ve WC'yi çizime yerleştirin
-5. PIPE komutu ile ana boru hatlarını çizin (snap'e dikkat)
-6. SOURCE komutu ile şebeke giriş noktası ekleyin
-7. BAGLA komutu → her armatürü ana boru hattına bağlayın
-8. HYDRAULICS → DN etiketleri boruların üzerinde görünür
-9. HIDROFOR → kritik devre ve pompa boyutlandırma kontrolü
-10. PIS-SU komutu → pis su borularını çizin
-11. YER-SUZGECI → yer süzgeçlerini ekleyin
-12. ROGAR → boşaltma noktasını tanımlayın
-13. 2. kat için KOPYA-KAT → kaynak: Zemin, hedef: 1. Kat
-14. YAGMUR → yağmur suyu tahliye borusu boyutlandırması
-15. BOM → keşif listesini görüntüleyin
-16. Analiz → Rapor Dışa Aktar → rapor/ klasörüne kaydedin
+Mimari → 3D Hizalama Kontrolü...
+veya: Ctrl+Shift+H
+veya: HIZALAMA komutu
 ```
+
+### Kontrol Tablosu
+
+| Sütun | Açıklama |
+|-------|---------|
+| **Kat No** | MimariBelirleDialog'daki kat numarası |
+| **İsim** | Kat ismi (Bodrum, Zemin, 1. Kat...) |
+| **Kot (m)** | Tanımlanan döşeme kotu |
+| **Kat Yük. (m)** | Kat yüksekliği (düzenlenebilir — çift tıkla) |
+| **Node Sayısı** | O kata atanan boru/armatür sayısı |
+| **Durum** | OK / HATA: Kot çakışıyor / Boş (node yok) |
+
+### Renk Kodları
+
+| Renk | Anlam |
+|------|-------|
+| Kırmızı | İki kat aynı Z kotunda — **düzeltilmeli** |
+| Sarı | Kat tanımlı ama hiç node yok — import edilmemiş olabilir |
+| Normal | Her şey yolunda |
+
+### Kat Yüksekliği Düzenleme
+
+"Kat Yük. (m)" sütununu çift tıklayıp yeni değer girin. **Uygula ve Kapat** ile değişiklikler FloorManager'a yazılır.
+
+> Node sayısı 0 olan kat sarı renkte görünür. Bu katın DXF'i henüz import edilmemiş demektir — Mimari → Mimari Belirle ile dosya ekleyin.
+
+---
+
+## Bölüm 21 — Kolon Şeması (Riser Diyagramı) {#riser}
+
+Tesisat sisteminin dikey kesit görünümü — her kolon hat üzerindeki boruları, armatürleri ve DN değerlerini gösterir.
+
+### Kullanım
+
+```
+Analiz → Kolon Şeması...
+veya: Ctrl+R
+veya: RISER veya KOLON-SEMA komutu
+```
+
+### Çıktı Seçenekleri
+
+| Düğme | İşlev |
+|-------|-------|
+| **SVG Kaydet** | Vektörel SVG dosyası (rapor/ klasörüne) |
+| **PDF Kaydet** | A3 Landscape PDF (QPrinter) |
+
+Diyagram önizlemesi pencerede görüntülenir (QTextBrowser). SVG/PDF kaydedilmeden önce önizleme kontrol edilebilir.
+
+---
+
+## Bölüm 22 — DN Manuel Override ve Hesap Föyü XLS {#dn-override}
+
+Otomatik boyutlandırmanın dışına çıkmak istediğiniz borulara manuel DN atayabilirsiniz.
+
+### Kullanım
+
+```
+Analiz → Hesap Föyü — DN Override...
+veya: DN-OVERRIDE veya DN-DEGISTIR komutu
+```
+
+### Override Tablosu
+
+Her boru satırında:
+- **ID** — boru kimliği
+- **Tip** — Supply / Drainage
+- **Malzeme** — çelik, bakır, PPR...
+- **DN** — açılır liste (DN16 → DN200)
+- **Uzunluk** — otomatik hesaplanan boru boyu
+- **Debi / Hız / ΔH** — son hidrolik çözümden
+
+Bir satırda DN değiştirilip **Tamam** basıldığında:
+1. Seçilen DN anında uygulanır
+2. Overlay etiketleri güncellenir
+3. Hidrolik çözüm otomatik yeniden çalışır
+
+### XLS Dışa Aktarım
+
+Tablonun altındaki **XLS Olarak Kaydet** butonu üç sekme içeren Excel dosyası üretir:
+
+| Sekme | İçerik |
+|-------|--------|
+| **Özet** | Proje bilgileri, toplam boru metrajı |
+| **Boru Hesap Föyü** | ID, Tip, Malzeme, DN, L(m), Q(l/s), v(m/s), dH(mSS) |
+| **Armatür Listesi** | Tip ve sayı |
+
+---
+
+## Hızlı Başlangıç — Tam İş Akışı
+
+```
+1.  Dosya → Yeni Proje...     → ad, müşteri, norm seçimi, Tamam
+2.  Mimari → Mimari Belirle... → kat tanımla + global ref X/Y + DXF dosyaları
+3.  Mimari → 3D Hizalama Kontrolü... → kot/yükseklik doğrula, sarı/kırmızı satır yok mu?
+4.  ST Cihazları panelinden Lavabo, WC, Duş yerleştir
+5.  PIPE → ana boru hatları (snap aktif)
+6.  SOURCE → şebeke giriş noktası
+7.  BAGLA → armatürleri boru hattına bağla
+8.  HYDRAULICS → DN etiketleri görünür
+9.  HIDROFOR → pompa boyutlandırma
+10. NORM → gerekirse DIN 1988-300'e geç, otomatik yeniden hesaplar
+11. PIS-SU → pis su borularını çiz
+12. YER-SUZGECI + ROGAR → drenaj bağlantısı
+13. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
+14. YAGMUR → yağmur suyu boyutlandırması
+15. RISER → kolon şeması önizle, PDF/SVG kaydet
+16. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü al
+17. BOM → keşif listesi (metraj + bağlantı)
+18. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
+```
+
+---
 
 ---
 
