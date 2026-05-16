@@ -395,6 +395,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Hesap Föyü DN Manuel Override** — `OnDNOverride()`: QTableWidget ile tüm edge'lerin DN tablosu; satır başına QComboBox (16→200 DN serisi); Tamam → anında uygulama + overlay refresh; `DN-OVERRIDE`/`DN-DEGISTIR` komutu
 - **Riser PDF Export** — `OnRiserDiagram()` "PDF Kaydet" butonu: `QPrinter(PdfFormat)` + `QSvgRenderer` → A3 Landscape PDF; "SVG Kaydet" butonu da eklendi
 - **Hesap Föyü XLS Export** — `XLSXWriter::ExportCalculationSheet()`: Özet + Boru Hesap Föyü (ID/Tip/Malzeme/DN/L/Q/v/dH) + Armatür sekmeli .xls; `OnDNOverride()` "XLS Olarak Kaydet" butonundan tetiklenir; solver önce çalıştırılır
+- **NewProjectDialog** — `vkt/ui/NewProjectDialog.hpp` + `src/ui/NewProjectDialog.cpp`; Proje Bilgileri (ad/müşteri/mühendis, klasör önizleme) + Teknik Parametreler (bina tipi/norm/tarih); norm seçimi `HydroNorm::GlobalNorm()`'a uygulanır; Ctrl+Shift+N
+- **FloorAlignmentDialog** — `vkt/ui/FloorAlignmentDialog.hpp` + `src/ui/FloorAlignmentDialog.cpp`; 3D hizalama kontrolü; 6 sütunlu tablo (Kat/İsim/Kot/Yükseklik/Node sayısı/Durum); kırmızı=kot çakışma, sarı=boş kat; `ApplyChanges()` FloorManager'ı günceller; Ctrl+Shift+H / `HIZALAMA`
+- **RiserDiagram SVG iyileştirmesi** — `ToSVG()` yeniden yazıldı: viewBox, beyaz arka plan border, başlık/alt çizgi, çift sıra mavi alternating (#f5f8ff), stroke-linecap=round, kat etiketleri koyu/bold, DN etiketleri mavi (#2255aa), kolon başlıkları siyah/bold, sağ alt lejant kutusu (Temiz Su + Pis Su)
+- **Kolon Bağlantı Asistanı** — `OnDrawColumn()`: 2-adım dialog (kaynak node listesi → hedef kat seçimi); aynı XY'de hedef katta node bulma (50mm/0.15m tolerans); yoksa Junction oluştur; dikey boru uzunluğu Z farkından; CompositeCommand ile undo/redo; Ctrl+Shift+K + `KOLON`/`COLUMN`/`DIKEY-BORU` komutu
+- **Test kapsamı genişletme** — `test_riser.cpp`'ye 8 yeni test: SVG viewBox/legend/alternating/linecap, kolon dz hesabı, node-at-elevation arama algoritması, FloorManager null dönüşü, elevation aralik disi
 
 ### Devam Eden
 

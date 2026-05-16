@@ -30,6 +30,7 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 20. [3D Hizalama Kontrolü](#hizalama)
 21. [Kolon Şeması (Riser Diyagramı)](#riser)
 22. [DN Manuel Override — Hesap Föyü XLS](#dn-override)
+23. [Kolon Bağlantı Asistanı (KOLON)](#kolon-asistan)
 
 ---
 
@@ -387,6 +388,7 @@ ESC ile iptal.
 | `RISER` / `KOLON-SEMA` | Kolon şeması (SVG/PDF) |
 | `DN-OVERRIDE` / `DN-DEGISTIR` | DN manuel override + XLS föy |
 | `HIZALAMA` / `FLOOR-ALIGN` | 3D hizalama kontrolü |
+| `KOLON` / `COLUMN` | Kolon bağlantı asistanı (dikey boru) |
 | `UZAKLIK` / `DISTANCE` | Mesafe ölç |
 | `ZOOM-EXTENTS` / `ZE` | Tümünü göster |
 | `VIEW-PLAN` | Plan (2D) görünüm |
@@ -704,6 +706,47 @@ Tablonun altındaki **XLS Olarak Kaydet** butonu üç sekme içeren Excel dosyas
 
 ---
 
+## Bölüm 23 — Kolon Bağlantı Asistanı (KOLON) {#kolon-asistan}
+
+Kolon, farklı katlardaki tesisatları birbirine bağlayan **dikey boru**dur. Temiz su kolonları ana şebekeden yukarı kata su taşır; pis su kolonları atıksuyu aşağıya iletir.
+
+FineSANI'de kolon çizimi standart boru aracıyla yapılır ve kullanıcı Z kotunu elle girmek zorundadır. VKT'de **Kolon Bağlantı Asistanı** bu adımı otomatikleştirir:
+
+1. Mevcut node'ları (kavşak, armatür, kaynak) bir listeden seçersiniz.
+2. Hedef katı açılır menüden seçersiniz.
+3. Program **aynı XY konumunda** hedef kat yüksekliğinde yeni bir node oluşturur (veya mevcut olanı bulur) ve dikey boruyu ekler.
+
+### Nasıl Kullanılır
+
+```
+Yöntem 1: Çizim → Kolon Boru Ciz (Ctrl+Shift+K)
+Yöntem 2: Komut satırına KOLON yazın
+```
+
+**Ön koşullar:**
+- En az 2 kat tanımlanmış olmalı (Mimari → Mimari Belirle, Ctrl+M).
+- En az 1 mevcut node (kavşak/armatür/kaynak) çizilmiş olmalı.
+
+**Adımlar:**
+
+| Adım | Açıklama |
+|------|----------|
+| 1 | "Kaynak Node" listesinden kolon başlangıcını seçin |
+| 2 | "Hedef Kat" listesinden kolonun uzanacağı katı seçin |
+| 3 | Tamam → kolon otomatik oluşur, DN hesabı güncellenir |
+
+### Teknik Detaylar
+
+- **Boru tipi:** Aktif pis su/temiz su modu korunur (son seçilen `PIS-SU` veya normal boru)
+- **Boru çapı:** Otomatik Ø25mm ile başlar; `HYDRAULICS` veya `DN-OVERRIDE` ile güncelleyin
+- **Uzunluk:** Kat elevasyonları arasındaki Z farkından hesaplanır (m)
+- **Undo/Redo:** `Ctrl+Z` ile geri alınabilir
+- **Mevcut node tespiti:** Hedef katta aynı XY konumunda ±50mm/±0.15m tolerans içinde node varsa yeni node oluşturulmaz, var olan kullanılır
+
+> **İpucu:** Temiz su kolonlarından önce her katın yatay borularını çizin, sonra KOPYA-KAT ile diğer katlara kopyalayın, ardından KOLON ile katları bağlayın. Bu sıralama en az hata riski taşır.
+
+---
+
 ## Hızlı Başlangıç — Tam İş Akışı
 
 ```
@@ -720,6 +763,7 @@ Tablonun altındaki **XLS Olarak Kaydet** butonu üç sekme içeren Excel dosyas
 11. PIS-SU → pis su borularını çiz
 12. YER-SUZGECI + ROGAR → drenaj bağlantısı
 13. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
+13b. KOLON → katlar arası dikey boru bağlantısı (aynı XY, farklı Z)
 14. YAGMUR → yağmur suyu boyutlandırması
 15. RISER → kolon şeması önizle, PDF/SVG kaydet
 16. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü al
