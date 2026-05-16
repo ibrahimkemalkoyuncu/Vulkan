@@ -267,36 +267,99 @@ int RiserDiagram::InferFloor(uint32_t nodeId) const {
 std::string RiserDiagram::ToSVG(const RiserDiagramData& data) const {
     std::ostringstream ss;
 
+    // Viewbox ile ölçeklendirilebilir
+    int W = static_cast<int>(data.canvasWidth);
+    int H = static_cast<int>(data.canvasHeight);
+
     ss << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
        << "<svg xmlns=\"http://www.w3.org/2000/svg\""
-       << " width=\"" << static_cast<int>(data.canvasWidth) << "\""
-       << " height=\"" << static_cast<int>(data.canvasHeight) << "\""
-       << " style=\"background:#fff;font-family:Arial,sans-serif;\">\n";
+       << " width=\"" << W << "\" height=\"" << H << "\""
+       << " viewBox=\"0 0 " << W << " " << H << "\""
+       << " style=\"background:#fff;font-family:Arial,Helvetica,sans-serif;\">\n";
+
+    // Arka plan dikdörtgeni
+    ss << "<rect width=\"" << W << "\" height=\"" << H
+       << "\" fill=\"#ffffff\" stroke=\"#cccccc\" stroke-width=\"1\"/>\n";
 
     // Başlık
-    ss << "<text x=\"" << data.canvasWidth / 2.0f
-       << "\" y=\"20\" text-anchor=\"middle\""
-       << " style=\"font-size:14px;font-weight:bold;\">KOLON ŞEMASI</text>\n";
+    ss << "<text x=\"" << W / 2
+       << "\" y=\"22\" text-anchor=\"middle\""
+       << " font-size=\"15\" font-weight=\"bold\" fill=\"#222\">KOLON ŞEMASI</text>\n";
+    // Alt çizgi başlık
+    ss << "<line x1=\"" << MARGIN_LEFT - 10 << "\" y1=\"30\""
+       << " x2=\"" << W - 10 << "\" y2=\"30\""
+       << " stroke=\"#888\" stroke-width=\"1\"/>\n";
+
+    // Kat alanı arka plan alternating
+    if (!data.columns.empty()) {
+        int maxFloor = 0, minFloor = 0;
+        for (const auto& col : data.columns)
+            for (const auto& seg : col.segments) {
+                maxFloor = std::max(maxFloor, seg.floorIndex);
+                minFloor = std::min(minFloor, seg.floorIndex);
+            }
+        for (int fi = minFloor; fi <= maxFloor; ++fi) {
+            float y = MARGIN_TOP + (maxFloor - fi) * FLOOR_HEIGHT;
+            if ((fi % 2) == 0) {
+                ss << "<rect x=\"" << MARGIN_LEFT - 10 << "\" y=\"" << y
+                   << "\" width=\"" << (W - MARGIN_LEFT) << "\" height=\"" << FLOOR_HEIGHT
+                   << "\" fill=\"#f5f8ff\" opacity=\"0.5\"/>\n";
+            }
+        }
+    }
 
     // Çizgiler
     for (const auto& line : data.lines) {
+        int r = static_cast<int>(line.a.r * 255);
+        int g = static_cast<int>(line.a.g * 255);
+        int b = static_cast<int>(line.a.b * 255);
         ss << "<line"
-           << " x1=\"" << line.a.x << "\" y1=\"" << line.a.y << "\""
-           << " x2=\"" << line.b.x << "\" y2=\"" << line.b.y << "\""
-           << " stroke=\"rgb(" << static_cast<int>(line.a.r * 255) << ","
-                               << static_cast<int>(line.a.g * 255) << ","
-                               << static_cast<int>(line.a.b * 255) << ")\""
-           << " stroke-width=\"" << line.thickness << "\"/>\n";
+           << " x1=\"" << std::fixed << std::setprecision(1) << line.a.x
+           << "\" y1=\"" << line.a.y << "\""
+           << " x2=\"" << line.b.x
+           << "\" y2=\"" << line.b.y << "\""
+           << " stroke=\"rgb(" << r << "," << g << "," << b << ")\""
+           << " stroke-width=\"" << line.thickness
+           << "\" stroke-linecap=\"round\"/>\n";
     }
 
-    // Etiketler
+    // Etiketler — kat etiketi sol kenarda farklı stil
     for (const auto& lbl : data.labels) {
-        ss << "<text"
-           << " x=\"" << lbl.x << "\" y=\"" << lbl.y << "\""
-           << " style=\"font-size:" << lbl.fontSize << "px;\">"
-           << lbl.text
-           << "</text>\n";
+        bool isFloorLabel = (lbl.x < MARGIN_LEFT - 5.0f);
+        if (isFloorLabel) {
+            ss << "<text"
+               << " x=\"" << lbl.x << "\" y=\"" << lbl.y << "\""
+               << " font-size=\"" << lbl.fontSize << "\" fill=\"#444\""
+               << " font-weight=\"bold\">"
+               << lbl.text << "</text>\n";
+        } else {
+            // DN / debi etiketi — kolon üstü siyah, segment etiketi gri
+            bool isColumnHeader = (lbl.fontSize >= 10.0f && lbl.y < MARGIN_TOP);
+            ss << "<text"
+               << " x=\"" << lbl.x << "\" y=\"" << lbl.y << "\""
+               << " font-size=\"" << lbl.fontSize << "\""
+               << " fill=\"" << (isColumnHeader ? "#111" : "#2255aa") << "\""
+               << (isColumnHeader ? " font-weight=\"bold\"" : "")
+               << ">"
+               << lbl.text << "</text>\n";
+        }
     }
+
+    // Lejant (sağ alt)
+    float lx = W - 130.0f, ly = H - 45.0f;
+    ss << "<rect x=\"" << lx - 5 << "\" y=\"" << ly - 12
+       << "\" width=\"125\" height=\"50\" rx=\"4\""
+       << " fill=\"#f9f9f9\" stroke=\"#ccc\" stroke-width=\"1\"/>\n";
+    ss << "<line x1=\"" << lx << "\" y1=\"" << ly + 5 << "\""
+       << " x2=\"" << lx + 30 << "\" y2=\"" << ly + 5 << "\""
+       << " stroke=\"rgb(26,120,181)\" stroke-width=\"3\"/>\n";
+    ss << "<text x=\"" << lx + 35 << "\" y=\"" << ly + 9
+       << "\" font-size=\"8\" fill=\"#333\">Temiz Su</text>\n";
+    ss << "<line x1=\"" << lx << "\" y1=\"" << ly + 22 << "\""
+       << " x2=\"" << lx + 30 << "\" y2=\"" << ly + 22 << "\""
+       << " stroke=\"rgb(140,89,26)\" stroke-width=\"3\"/>\n";
+    ss << "<text x=\"" << lx + 35 << "\" y=\"" << ly + 26
+       << "\" font-size=\"8\" fill=\"#333\">Pis Su</text>\n";
 
     ss << "</svg>\n";
     return ss.str();
