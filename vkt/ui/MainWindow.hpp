@@ -147,6 +147,12 @@ private slots:
     // Keşif Listesi / BOM
     void OnBOM();
 
+    // Kolon Şeması (Riser Diagram)
+    void OnRiserDiagram();
+
+    // Hesap Föyü — DN Manuel Override
+    void OnDNOverride();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -237,6 +243,8 @@ private:
     QAction* m_actNormSelection    = nullptr;
     QAction* m_actYagmurSuyu       = nullptr;
     QAction* m_actBOM              = nullptr;
+    QAction* m_actRiserDiagram     = nullptr;
+    QAction* m_actDNOverride       = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;

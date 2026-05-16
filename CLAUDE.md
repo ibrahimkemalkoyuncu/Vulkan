@@ -390,6 +390,9 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Hidrofor Boyutlandırma** — `OnHidrofor()`: `CalculateCriticalPath()` sonuçlarını rich-text dialog ile gösterir; kritik basınç kaybı kırmızı, önerilen pompa modeli + güç; Analiz menüsü + `HIDROFOR` komutu
 - **Yağmur Suyu Modülü (EN 12056-3)** — `OnYagmurSuyu()`: alan + yüzey tipi (C katsayısı) + r_D=0.03 l/(s·m²) ile Q hesabı; DN seçim tablosu; kaç boru gerektiğini hesaplar; Analiz menüsü + `YAGMUR` komutu
 - **Keşif Listesi / BOM** — `OnBOM()`: NetworkGraph'tan DN'e göre boru metraj toplamı; T-parça + dirsek + armatür bağlantı sayımı; rich-text dialog + log kaydı; Ctrl+K + `BOM`/`KESIF` komutu
+- **DWGReader SetInsertionOffset** — `DWGReader::m_insertionOffsetX/Y`; `Read()` sonrası tüm entity'lere `Move(-x, -y)` uygulanır; `DXFImportDialog` DWG dalında da `SetInsertionOffset` çağrısı eklendi; DXFReader ile aynı davranış
+- **Kolon Şeması (Riser Diagram) UI** — `OnRiserDiagram()`: `RiserDiagram::Generate() + ToSVG()` çağrısı; QTextBrowser'da SVG önizleme + metin özeti; "SVG Olarak Kaydet" butonu (rapor/ klasörüne); Ctrl+R + `RISER` komutu
+- **Hesap Föyü DN Manuel Override** — `OnDNOverride()`: QTableWidget ile tüm edge'lerin DN tablosu; satır başına QComboBox (16→200 DN serisi); Tamam → anında uygulama + overlay refresh; `DN-OVERRIDE`/`DN-DEGISTIR` komutu
 
 ### Devam Eden
 

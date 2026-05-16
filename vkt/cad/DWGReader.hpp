@@ -140,6 +140,18 @@ public:
     void AddXrefSearchPath(const std::string& dir) { m_xrefSearchPaths.push_back(dir); }
     void ClearXrefSearchPaths()                    { m_xrefSearchPaths.clear(); }
 
+    /**
+     * @brief W-Block referans noktası ofseti — Read() öncesi çağrılmalı.
+     *
+     * DXFReader::SetInsertionOffset() ile aynı anlama gelir:
+     * tüm entity'ler (-x, -y) kadar kaydırılır; böylece
+     * seçilen fiziksel nokta projenin (0,0)'ına eşlenir.
+     */
+    void SetInsertionOffset(double x, double y) {
+        m_insertionOffsetX = x;
+        m_insertionOffsetY = y;
+    }
+
 private:
     // Entity parsing helpers
     bool ParseEntities(void* dwg_data);
@@ -181,6 +193,10 @@ private:
     std::unordered_set<std::string> m_visitedXrefs;  ///< Circular ref koruması
     std::vector<std::string>        m_missingXrefs;   ///< Bulunamayan xref dosyaları
     std::vector<std::string>        m_xrefSearchPaths; ///< Kullanıcı tanımlı ek arama dizinleri
+
+    // W-Block referans noktası ofseti (opsiyonel, default 0)
+    double m_insertionOffsetX = 0.0;
+    double m_insertionOffsetY = 0.0;
     
     // LibreDWG data handle (opaque pointer)
     void* m_dwgData = nullptr;

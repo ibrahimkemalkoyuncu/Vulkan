@@ -260,6 +260,8 @@ void DXFImportDialog::OnImport() {
 #ifdef HAVE_LIBREDWG
     else if (m_fileType == FileType::DWG) {
         m_dwgReader = std::make_unique<cad::DWGReader>();
+        if (m_insertionOffsetX != 0.0 || m_insertionOffsetY != 0.0)
+            m_dwgReader->SetInsertionOffset(m_insertionOffsetX, m_insertionOffsetY);
         if (m_dwgReader->Read(filePath.toStdString())) {
             readSuccess = true;
             const auto& stats = m_dwgReader->GetStatistics();

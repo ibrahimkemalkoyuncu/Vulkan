@@ -4,6 +4,7 @@
  */
 
 #include "cad/DWGReader.hpp"
+#include "geom/Math.hpp"
 #include "cad/Line.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
@@ -150,7 +151,16 @@ bool DWGReader::Read(const std::string& filepath) {
         m_errorMessage = "DWG dosyası okundu ancak desteklenen entity bulunamadı. Desteklenenler: LINE, ARC, CIRCLE, LWPOLYLINE.";
         return false;
     }
-    
+
+    // W-Block referans noktası ofseti — DXFReader ile aynı davranış
+    if (m_insertionOffsetX != 0.0 || m_insertionOffsetY != 0.0) {
+        geom::Vec3 shift(-m_insertionOffsetX, -m_insertionOffsetY, 0.0);
+        for (auto& ent : m_entities)
+            if (ent) ent->Move(shift);
+        std::cout << "[DWGReader] Insertion offset applied: ("
+                  << -m_insertionOffsetX << ", " << -m_insertionOffsetY << ")" << std::endl;
+    }
+
     return true;
 }
 

@@ -12,6 +12,7 @@
 #include "ui/SnapOverlay.hpp"
 #include "render/VulkanWindow.hpp"
 #include "mep/HydraulicSolver.hpp"
+#include "mep/RiserDiagram.hpp"
 #include "mep/ScheduleGenerator.hpp"
 #include "mep/Database.hpp"
 #include "mep/XLSXWriter.hpp"
@@ -25,6 +26,7 @@
 #include <QFileDialog>
 #include <QCloseEvent>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QFormLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -32,7 +34,12 @@
 #include <QSettings>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QTextBrowser>
+#include <QTableWidget>
+#include <QHeaderView>
+#include <QSpinBox>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <cmath>
 #include <algorithm>
@@ -208,6 +215,15 @@ void MainWindow::CreateActions() {
     m_actBOM->setShortcut(QKeySequence("Ctrl+K"));
     connect(m_actBOM, &QAction::triggered, this, &MainWindow::OnBOM);
 
+    m_actRiserDiagram = new QAction("Kolon Semasi (Riser)...", this);
+    m_actRiserDiagram->setToolTip("SVG kolon semasi uret ve goster");
+    m_actRiserDiagram->setShortcut(QKeySequence("Ctrl+R"));
+    connect(m_actRiserDiagram, &QAction::triggered, this, &MainWindow::OnRiserDiagram);
+
+    m_actDNOverride = new QAction("DN Manuel Override...", this);
+    m_actDNOverride->setToolTip("Hesap foyunde boru caplarinI manuel duzenle");
+    connect(m_actDNOverride, &QAction::triggered, this, &MainWindow::OnDNOverride);
+
     m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -312,6 +328,10 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addAction(m_actYagmurSuyu);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actBOM);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actRiserDiagram);
+    analyzeMenu->addAction(m_actDNOverride);
+    analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
 
@@ -1911,7 +1931,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
             m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR/BOSALTMA");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
-            m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM");
+            m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
+            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
@@ -1924,6 +1945,10 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnYagmurSuyu();
     } else if (c == "BOM" || c == "KESIF") {
         OnBOM();
+    } else if (c == "RISER" || c == "KOLON-SEMA") {
+        OnRiserDiagram();
+    } else if (c == "DN-OVERRIDE" || c == "DN-DEGISTIR") {
+        OnDNOverride();
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
         m_measureHasFirstPt = false;
@@ -2402,6 +2427,187 @@ void MainWindow::OnBOM() {
         for (const auto& [dn, len] : pipeLength_m)
             m_logList->addItem(QString("  DN%1: %2 m").arg(dn).arg(len, 0, 'f', 2));
     }
+
+    dlg.exec();
+}
+
+// ============================================================
+//  KOLON ŞEMASI (RISER DIAGRAM)
+// ============================================================
+void MainWindow::OnRiserDiagram() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Kolon Semasi",
+            "Once tesisat sebekesi cizin (boru + kaynak + armaturler).");
+        return;
+    }
+
+    mep::RiserDiagram riser(network, m_floorManager);
+    auto data = riser.Generate();
+    std::string svgContent = riser.ToSVG(data);
+    std::string txtContent = riser.ToText(data);
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Kolon Semasi (Riser Diagram)");
+    dlg.resize(720, 520);
+
+    auto* layout   = new QVBoxLayout(&dlg);
+    auto* browser  = new QTextBrowser(&dlg);
+    browser->setOpenLinks(false);
+    // SVG'yi HTML iframe olarak goster
+    QString svgHtml = QString(
+        "<html><body style='margin:0;background:#1a1a2e;'>"
+        "<div style='padding:8px;'>%1</div>"
+        "<pre style='color:#ccc;font-size:11px;padding:8px;'>%2</pre>"
+        "</body></html>"
+    ).arg(QString::fromStdString(svgContent))
+     .arg(QString::fromStdString(txtContent).toHtmlEscaped());
+
+    browser->setHtml(svgHtml);
+    layout->addWidget(browser);
+
+    auto* btnRow   = new QHBoxLayout();
+    auto* btnSave  = new QPushButton("SVG Olarak Kaydet...", &dlg);
+    auto* btnClose = new QPushButton("Kapat", &dlg);
+    btnRow->addWidget(btnSave);
+    btnRow->addStretch();
+    btnRow->addWidget(btnClose);
+    layout->addLayout(btnRow);
+
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(btnSave, &QPushButton::clicked, [&]() {
+        auto& pm = core::ProjectManager::Instance();
+        QString startDir = pm.HasActiveProject()
+            ? QString::fromStdString(pm.GetRaporFolder()) : "";
+        QString path = QFileDialog::getSaveFileName(&dlg,
+            "Kolon Semasi Kaydet", startDir, "SVG Dosyasi (*.svg)");
+        if (path.isEmpty()) return;
+        std::ofstream f(path.toStdString());
+        if (f.is_open()) {
+            f << svgContent;
+            statusBar()->showMessage(QString("Kolon semasi kaydedildi: %1").arg(path));
+        } else {
+            QMessageBox::critical(&dlg, "Hata", "Dosya yazılamadi!");
+        }
+    });
+
+    if (m_logList)
+        m_logList->addItem(QString("Kolon semasi: %1 kolon, %2 kat")
+            .arg((int)data.columns.size()).arg((int)m_floorManager.GetFloorCount()));
+
+    dlg.exec();
+}
+
+// ============================================================
+//  HESAP FÖYÜ — DN MANUEL OVERRIDE
+// ============================================================
+void MainWindow::OnDNOverride() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "DN Override",
+            "Oncelikle tesisat sebekesi cizin.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Hesap Foyu — DN Manuel Override");
+    dlg.resize(650, 400);
+
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* info   = new QLabel(
+        "<b>Boru caplarinizi asagidaki tablodan duzenleyebilirsiniz.</b><br>"
+        "Tamam'a basinca secilen degerler aninda uygulanir ve DN etiketleri guncellenir.", &dlg);
+    info->setWordWrap(true);
+    layout->addWidget(info);
+
+    // Tablo: Boru ID | Tip | Malzeme | Mevcut DN | Yeni DN (editable)
+    auto* table = new QTableWidget(&dlg);
+    static const QStringList kDNList = {
+        "16","20","25","32","40","50","63","75","90","110","125","160","200"
+    };
+
+    // Edge'leri sabit sirayla al
+    std::vector<std::pair<uint32_t, const mep::Edge*>> edges;
+    for (const auto& [eid, edge] : network.GetEdgeMap())
+        edges.emplace_back(eid, &edge);
+    std::sort(edges.begin(), edges.end(),
+        [](const auto& a, const auto& b){ return a.first < b.first; });
+
+    table->setColumnCount(5);
+    table->setHorizontalHeaderLabels({"Boru ID","Tip","Malzeme","Mevcut DN","Yeni DN"});
+    table->setRowCount(static_cast<int>(edges.size()));
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+    for (int row = 0; row < static_cast<int>(edges.size()); ++row) {
+        auto [eid, edge] = edges[row];
+        // Boru ID
+        auto* idItem = new QTableWidgetItem(QString::number(eid));
+        idItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table->setItem(row, 0, idItem);
+        // Tip
+        QString tipStr = (edge->type == mep::EdgeType::Supply) ? "Temiz Su"
+                       : (edge->type == mep::EdgeType::Drainage) ? "Pis Su" : "Hava";
+        auto* tipItem = new QTableWidgetItem(tipStr);
+        tipItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table->setItem(row, 1, tipItem);
+        // Malzeme
+        auto* matItem = new QTableWidgetItem(QString::fromStdString(edge->material));
+        matItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table->setItem(row, 2, matItem);
+        // Mevcut DN
+        int curDN = static_cast<int>(std::round(edge->diameter_mm));
+        auto* curItem = new QTableWidgetItem(QString("DN%1").arg(curDN));
+        curItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        table->setItem(row, 3, curItem);
+        // Yeni DN: ComboBox
+        auto* combo = new QComboBox(&dlg);
+        combo->addItems(kDNList);
+        // Mevcut secimi bul
+        int curIdx = kDNList.indexOf(QString::number(curDN));
+        if (curIdx < 0) curIdx = 0;
+        combo->setCurrentIndex(curIdx);
+        table->setCellWidget(row, 4, combo);
+    }
+    table->resizeColumnsToContents();
+    layout->addWidget(table);
+
+    auto* btnRow    = new QHBoxLayout();
+    auto* btnApply  = new QPushButton("Tamam (Uygula)", &dlg);
+    auto* btnCancel = new QPushButton("Iptal", &dlg);
+    btnRow->addStretch();
+    btnRow->addWidget(btnApply);
+    btnRow->addWidget(btnCancel);
+    layout->addLayout(btnRow);
+
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnApply, &QPushButton::clicked, [&]() {
+        int changed = 0;
+        for (int row = 0; row < table->rowCount(); ++row) {
+            uint32_t eid = table->item(row, 0)->text().toUInt();
+            auto* combo  = qobject_cast<QComboBox*>(table->cellWidget(row, 4));
+            if (!combo) continue;
+            double newDN = combo->currentText().toDouble();
+            mep::Edge* edge = network.GetEdge(eid);
+            if (edge && std::abs(edge->diameter_mm - newDN) > 0.5) {
+                edge->diameter_mm = newDN;
+                edge->label = "DN" + std::to_string(static_cast<int>(newDN));
+                ++changed;
+            }
+        }
+        if (changed > 0) {
+            m_document->SetModified(true);
+            RefreshTextOverlay();
+            if (m_vulkanWindow) m_vulkanWindow->requestUpdate();
+            if (m_logList)
+                m_logList->addItem(QString("DN Override: %1 boru guncellendi").arg(changed));
+            statusBar()->showMessage(
+                QString("DN Override: %1 boru capl degistirildi").arg(changed));
+        }
+        dlg.accept();
+    });
 
     dlg.exec();
 }
