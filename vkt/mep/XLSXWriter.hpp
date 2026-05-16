@@ -33,6 +33,19 @@ public:
     static bool ExportProjectReport(const std::string& path,
                                     const NetworkGraph& network,
                                     const HydraulicSolver* solver = nullptr);
+
+    /**
+     * @brief Hesap föyü — DN override tablosu + hidrolik sonuçlar
+     *
+     * Her boru için: ID, Tip, Malzeme, DN, Uzunluk, Debi (l/s), Hız (m/s),
+     * Sürtünme kaybı (mSS) + Armatür özet sekmesi.
+     *
+     * @param path  Kayıt yolu (.xls)
+     * @param network Kaynak şebeke (solver çalıştırılmış olmalı)
+     * @return Başarı durumu
+     */
+    static bool ExportCalculationSheet(const std::string& path,
+                                       const NetworkGraph& network);
 };
 
 } // namespace vkt::mep

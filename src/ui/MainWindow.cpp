@@ -38,6 +38,11 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QSpinBox>
+#include <QComboBox>
+#include <QPrinter>
+#include <QPainter>
+#include <QPageLayout>
+#include <QSvgRenderer>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -2467,29 +2472,66 @@ void MainWindow::OnRiserDiagram() {
     browser->setHtml(svgHtml);
     layout->addWidget(browser);
 
-    auto* btnRow   = new QHBoxLayout();
-    auto* btnSave  = new QPushButton("SVG Olarak Kaydet...", &dlg);
-    auto* btnClose = new QPushButton("Kapat", &dlg);
-    btnRow->addWidget(btnSave);
+    auto* btnRow    = new QHBoxLayout();
+    auto* btnSvg    = new QPushButton("SVG Kaydet...", &dlg);
+    auto* btnPdf    = new QPushButton("PDF Kaydet...", &dlg);
+    auto* btnClose  = new QPushButton("Kapat", &dlg);
+    btnRow->addWidget(btnSvg);
+    btnRow->addWidget(btnPdf);
     btnRow->addStretch();
     btnRow->addWidget(btnClose);
     layout->addLayout(btnRow);
 
     connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
-    connect(btnSave, &QPushButton::clicked, [&]() {
+
+    // SVG kaydet
+    connect(btnSvg, &QPushButton::clicked, [&]() {
         auto& pm = core::ProjectManager::Instance();
         QString startDir = pm.HasActiveProject()
             ? QString::fromStdString(pm.GetRaporFolder()) : "";
         QString path = QFileDialog::getSaveFileName(&dlg,
-            "Kolon Semasi Kaydet", startDir, "SVG Dosyasi (*.svg)");
+            "Kolon Semasi — SVG Kaydet", startDir, "SVG Dosyasi (*.svg)");
         if (path.isEmpty()) return;
         std::ofstream f(path.toStdString());
         if (f.is_open()) {
             f << svgContent;
-            statusBar()->showMessage(QString("Kolon semasi kaydedildi: %1").arg(path));
+            statusBar()->showMessage(QString("SVG kaydedildi: %1").arg(path));
         } else {
             QMessageBox::critical(&dlg, "Hata", "Dosya yazılamadi!");
         }
+    });
+
+    // PDF kaydet (QPrinter + QSvgRenderer)
+    connect(btnPdf, &QPushButton::clicked, [&]() {
+        auto& pm = core::ProjectManager::Instance();
+        QString startDir = pm.HasActiveProject()
+            ? QString::fromStdString(pm.GetRaporFolder()) : "";
+        QString path = QFileDialog::getSaveFileName(&dlg,
+            "Kolon Semasi — PDF Kaydet", startDir, "PDF Dosyasi (*.pdf)");
+        if (path.isEmpty()) return;
+
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName(path);
+        printer.setPageSize(QPageSize(QPageSize::A3));
+        printer.setPageOrientation(QPageLayout::Landscape);
+
+        QSvgRenderer renderer(QByteArray::fromStdString(svgContent));
+        if (!renderer.isValid()) {
+            QMessageBox::critical(&dlg, "PDF Hatasi", "SVG gecersiz — PDF olusturulamadi.");
+            return;
+        }
+
+        QPainter painter;
+        if (!painter.begin(&printer)) {
+            QMessageBox::critical(&dlg, "PDF Hatasi", "PDF yazici baslatılamadi.");
+            return;
+        }
+        QRectF pageRect = printer.pageLayout().paintRectPixels(printer.resolution());
+        renderer.render(&painter, pageRect);
+        painter.end();
+
+        statusBar()->showMessage(QString("PDF kaydedildi: %1").arg(path));
     });
 
     if (m_logList)
@@ -2575,14 +2617,39 @@ void MainWindow::OnDNOverride() {
     layout->addWidget(table);
 
     auto* btnRow    = new QHBoxLayout();
+    auto* btnExport = new QPushButton("XLS Olarak Kaydet...", &dlg);
     auto* btnApply  = new QPushButton("Tamam (Uygula)", &dlg);
     auto* btnCancel = new QPushButton("Iptal", &dlg);
+    btnRow->addWidget(btnExport);
     btnRow->addStretch();
     btnRow->addWidget(btnApply);
     btnRow->addWidget(btnCancel);
     layout->addLayout(btnRow);
 
     connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+
+    // XLS export — mevcut ag durumunu yaz (solver once calistirilmali)
+    connect(btnExport, &QPushButton::clicked, [&]() {
+        auto& pm = core::ProjectManager::Instance();
+        QString startDir = pm.HasActiveProject()
+            ? QString::fromStdString(pm.GetRaporFolder()) : "";
+        QString path = QFileDialog::getSaveFileName(&dlg,
+            "Hesap Foyu Kaydet", startDir, "Excel Dosyasi (*.xls)");
+        if (path.isEmpty()) return;
+
+        // Solver'ı çalıştır (güncel flowRate/velocity/headLoss ile)
+        mep::HydraulicSolver solver(network);
+        solver.Solve();
+        solver.SolveDrainage();
+
+        if (mep::XLSXWriter::ExportCalculationSheet(path.toStdString(), network)) {
+            statusBar()->showMessage(QString("Hesap foyu kaydedildi: %1").arg(path));
+            if (m_logList) m_logList->addItem(QString("Hesap foyu XLS: %1").arg(path));
+        } else {
+            QMessageBox::critical(&dlg, "Hata", "XLS dosyasi yazılamadi!");
+        }
+    });
+
     connect(btnApply, &QPushButton::clicked, [&]() {
         int changed = 0;
         for (int row = 0; row < table->rowCount(); ++row) {

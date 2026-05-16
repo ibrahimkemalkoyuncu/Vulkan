@@ -280,4 +280,83 @@ bool XLSXWriter::ExportProjectReport(const std::string& path,
     return true;
 }
 
+bool XLSXWriter::ExportCalculationSheet(const std::string& path,
+                                        const NetworkGraph& network) {
+    std::ofstream f(path);
+    if (!f.is_open()) return false;
+
+    WriteHeader(f);
+
+    // ── Başlık sayfası ──────────────────────────────────────────────────────
+    BeginSheet(f, "Ozet");
+    f << "   <Column ss:Width=\"200\"/><Column ss:Width=\"120\"/>\n";
+    f << "   <Row><Cell ss:StyleID=\"T\"><Data ss:Type=\"String\">"
+         "VKT MEP - Hesap Foyu</Data></Cell></Row>\n"
+         "   <Row/>\n";
+    double totalLen = 0.0;
+    int nFixture = 0; double totalLU = 0.0;
+    for (const auto& e : network.GetEdges()) totalLen += e.length_m;
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.type == NodeType::Fixture) { nFixture++; totalLU += node.loadUnit; }
+    }
+    auto row = [&](const std::string& label, double val) {
+        f << "   <Row><Cell><Data ss:Type=\"String\">" << XmlEscape(label) << "</Data></Cell>"
+             "<Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << std::fixed << std::setprecision(2) << val << "</Data></Cell></Row>\n";
+    };
+    row("Toplam Boru Uzunlugu (m)", totalLen);
+    row("Toplam Boru Sayisi", static_cast<double>(network.GetEdgeCount()));
+    row("Toplam Armatur Sayisi", static_cast<double>(nFixture));
+    row("Toplam LU", totalLU);
+    EndSheet(f);
+
+    // ── Boru Hesap Foyu sekmesi ─────────────────────────────────────────────
+    BeginSheet(f, "Boru Hesap Foyu");
+    f << "   <Column ss:Width=\"55\"/>\n"   // ID
+         "   <Column ss:Width=\"75\"/>\n"   // Tip
+         "   <Column ss:Width=\"70\"/>\n"   // Malzeme
+         "   <Column ss:Width=\"55\"/>\n"   // DN
+         "   <Column ss:Width=\"80\"/>\n"   // Uzunluk
+         "   <Column ss:Width=\"70\"/>\n"   // Debi
+         "   <Column ss:Width=\"70\"/>\n"   // Hiz
+         "   <Column ss:Width=\"80\"/>\n";  // Kayip
+    HeaderRow(f, {"Boru No", "Tip", "Malzeme", "DN (mm)",
+                  "L (m)", "Q (l/s)", "v (m/s)", "dH (mSS)"});
+
+    // ID'ye gore sirali
+    std::vector<std::pair<uint32_t, const Edge*>> edges;
+    for (const auto& [eid, edge] : network.GetEdgeMap())
+        edges.emplace_back(eid, &edge);
+    std::sort(edges.begin(), edges.end(),
+        [](const auto& a, const auto& b){ return a.first < b.first; });
+
+    for (const auto& [eid, edge] : edges) {
+        std::string tipStr = (edge->type == EdgeType::Drainage) ? "Pis Su" :
+                             (edge->type == EdgeType::Vent)     ? "Hava"   : "Temiz Su";
+        double qLs  = edge->flowRate_m3s * 1000.0;
+        f << "   <Row>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">" << eid << "</Data></Cell>\n"
+             "    <Cell><Data ss:Type=\"String\">" << tipStr << "</Data></Cell>\n"
+             "    <Cell><Data ss:Type=\"String\">" << XmlEscape(edge->material) << "</Data></Cell>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << static_cast<int>(edge->diameter_mm) << "</Data></Cell>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << std::fixed << std::setprecision(2) << edge->length_m << "</Data></Cell>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << std::fixed << std::setprecision(3) << qLs << "</Data></Cell>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << std::fixed << std::setprecision(2) << edge->velocity_ms << "</Data></Cell>\n"
+             "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">"
+          << std::fixed << std::setprecision(3) << edge->headLoss_m << "</Data></Cell>\n"
+             "   </Row>\n";
+    }
+    EndSheet(f);
+
+    // Armatur sekmesi
+    WriteFixtureSheet(f, network);
+
+    WriteFooter(f);
+    return true;
+}
+
 } // namespace vkt::mep

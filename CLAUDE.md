@@ -393,6 +393,8 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DWGReader SetInsertionOffset** — `DWGReader::m_insertionOffsetX/Y`; `Read()` sonrası tüm entity'lere `Move(-x, -y)` uygulanır; `DXFImportDialog` DWG dalında da `SetInsertionOffset` çağrısı eklendi; DXFReader ile aynı davranış
 - **Kolon Şeması (Riser Diagram) UI** — `OnRiserDiagram()`: `RiserDiagram::Generate() + ToSVG()` çağrısı; QTextBrowser'da SVG önizleme + metin özeti; "SVG Olarak Kaydet" butonu (rapor/ klasörüne); Ctrl+R + `RISER` komutu
 - **Hesap Föyü DN Manuel Override** — `OnDNOverride()`: QTableWidget ile tüm edge'lerin DN tablosu; satır başına QComboBox (16→200 DN serisi); Tamam → anında uygulama + overlay refresh; `DN-OVERRIDE`/`DN-DEGISTIR` komutu
+- **Riser PDF Export** — `OnRiserDiagram()` "PDF Kaydet" butonu: `QPrinter(PdfFormat)` + `QSvgRenderer` → A3 Landscape PDF; "SVG Kaydet" butonu da eklendi
+- **Hesap Föyü XLS Export** — `XLSXWriter::ExportCalculationSheet()`: Özet + Boru Hesap Föyü (ID/Tip/Malzeme/DN/L/Q/v/dH) + Armatür sekmeli .xls; `OnDNOverride()` "XLS Olarak Kaydet" butonundan tetiklenir; solver önce çalıştırılır
 
 ### Devam Eden
 
