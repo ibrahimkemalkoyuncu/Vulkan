@@ -443,6 +443,138 @@ A_emici (m²) = Q_atık (m³/gün) / k (m/gün)
 
 ---
 
+## Bölüm 15 — Cihazları Tesisata Bağla (BAGLA)
+
+FineSANI'nin en sık kullanılan "Cihazları Tesisata Bağla" özelliği VKT'de `BAGLA` komutu olarak implementedir.
+
+### Çalışma Prensibi
+
+Armatür (lavabo, WC, vb.) çizime yerleştirildikten sonra ana boru hattına dik bir dal boru ile bağlanır.
+
+### Adım Adım Kullanım
+
+```
+1. BAGLA yazın (veya Çizim → Cihazı Tesisata Bağla ya da Ctrl+B)
+2. Bağlanacak armatürü tıklayın   [1/2 — Armatür seç]
+   → Status bar: "[Lavabo] seçildi — boru hattını tıklayın (2/2)"
+3. Bağlanacak ana boru hattını tıklayın  [2/2]
+   → VKT otomatik olarak:
+      a) Borunun en yakın noktasına (dik ayak) Junction ekler
+      b) Armatür → Junction arası dal boru çizer
+      c) Dal borunun çapı ve malzemesi ana borudan kopyalanır
+4. Komut devam eder — bir sonraki armatürü tıklayabilirsiniz
+5. ESC ile çıkın
+```
+
+### Notlar
+
+- Dal borunun uzunluğu otomatik hesaplanır (mm → m dönüşümü)
+- Undo/Redo destekler (CompositeCommand)
+- Boru bağlandıktan sonra Gerçek Zamanlı Hidrolik (AutoHydro) devreye girer ve DN etiketleri güncellenir
+
+---
+
+## Bölüm 16 — Hesap Normu Seçimi
+
+VKT iki farklı hesap normu destekler:
+
+| Norm | Formül | Kullanım |
+|------|--------|---------|
+| **TS EN 806-3** (varsayılan) | Q = 0.682 × LU^0.45 l/s | Türkiye / AB projeleri |
+| **DIN 1988-300** | Q = φ × √ΣLU × 0.5 l/s | Alman norm gereksinimi |
+
+DIN 1988-300'de eşzamanlılık faktörü: φ = 1 / (1 + √LU / 10)
+
+DIN normu genellikle daha küçük boru çapları verir — büyük binalarda belirgin fark.
+
+### Norm Seçimi
+
+```
+Analiz → Hesap Normu...
+veya: NORM komutu
+```
+
+Seçim sonrası AutoHydro otomatik tetiklenir, DN etiketleri güncellenir.
+
+---
+
+## Bölüm 17 — Hidrofor Boyutlandırma
+
+### Kullanım
+
+```
+Analiz → Hidrofor Boyutlandırma...
+veya: HIDROFOR komutu
+```
+
+VKT kritik devre analizini çalıştırır ve şu bilgileri gösterir:
+
+| Bilgi | Açıklama |
+|-------|---------|
+| **Kritik devre kaybı** | Kırmızı değer — minimum gereken pompa yüksekliği |
+| **Gerekli pompa basma yüksekliği** | mSS (metre su sütunu) |
+| **Gerekli debi** | m³/h |
+| **Önerilen ekipman** | Model adı + max basınç + max debi + güç |
+
+> Bu değer FineSANI'deki "kırmızı değer" ile eşdeğerdir.
+
+---
+
+## Bölüm 18 — Yağmur Suyu Modülü
+
+EN 12056-3 standardına göre yağmur suyu tahliye borusu boyutlandırması.
+
+### Kullanım
+
+```
+Analiz → Yağmur Suyu Modülü...
+veya: YAGMUR komutu
+```
+
+### Girdi Parametreleri
+
+| Parametre | Açıklama |
+|-----------|---------|
+| **Tahliye alanı (m²)** | Çatı / zemin alanı |
+| **Yüzey tipi** | Çatı (C=1.0), Beton/Asfalt (C=0.9), Yeşil çatı (C=0.5), Çakıllı (C=0.6) |
+
+### Hesap Yöntemi
+
+```
+Q = C × A × r_D
+r_D = 0.03 l/(s·m²)  (Türkiye iklim bölgesi, 2 yıllık dönüş periyodu)
+```
+
+Çıktı: Önerilen boru sayısı ve DN boyutu (Manning denklemi, %2 eğim, PVC n=0.012)
+
+---
+
+## Bölüm 19 — Keşif Listesi (BOM)
+
+### Kullanım
+
+```
+Analiz → Keşif Listesi (BOM)...
+veya: BOM veya KESIF komutu  (Ctrl+K)
+```
+
+### Çıktı İçeriği
+
+**Boru Metrajları:**
+- DN'e ve malzemeye göre gruplanmış toplam boru boyu (m)
+- Her DN'deki parça sayısı
+- Genel toplam
+
+**Bağlantı Elemanları (tahmini):**
+- T-parça: üç veya daha fazla boru bağlantısı olan kavşak noktaları
+- Dirsek: iki borulu kavşak noktaları
+- Armatür bağlantısı: Fixture node sayısı
+- Kaynak / Tahliye noktası sayıları
+
+> Tüm sonuçlar Analiz Logu'na da yazılır.
+
+---
+
 ## Hızlı Başlangıç — Örnek Proje
 
 ```
@@ -451,16 +583,20 @@ A_emici (m²) = Q_atık (m³/gün) / k (m/gün)
    Global Ref X/Y: AutoCAD'deki ortak köşe koordinatı
 3. Her kat için DXF seçin → Tamam → DXF import
 4. ST Cihazları panelinden Lavabo ve WC'yi çizime yerleştirin
-5. PIPE komutu ile boruları çizin (snap'e dikkat)
+5. PIPE komutu ile ana boru hatlarını çizin (snap'e dikkat)
 6. SOURCE komutu ile şebeke giriş noktası ekleyin
-7. HYDRAULICS → DN etiketleri boruların üzerinde görünür
-8. PIS-SU komutu → pis su borularını çizin
-9. YER-SUZGECI → yer süzgeçlerini ekleyin
-10. ROGAR → boşaltma noktasını tanımlayın
-11. 2. kat için KOPYA-KAT → kaynak: Zemin, hedef: 1. Kat
-12. Analiz → Rapor Dışa Aktar → rapor/ klasörüne kaydedin
+7. BAGLA komutu → her armatürü ana boru hattına bağlayın
+8. HYDRAULICS → DN etiketleri boruların üzerinde görünür
+9. HIDROFOR → kritik devre ve pompa boyutlandırma kontrolü
+10. PIS-SU komutu → pis su borularını çizin
+11. YER-SUZGECI → yer süzgeçlerini ekleyin
+12. ROGAR → boşaltma noktasını tanımlayın
+13. 2. kat için KOPYA-KAT → kaynak: Zemin, hedef: 1. Kat
+14. YAGMUR → yağmur suyu tahliye borusu boyutlandırması
+15. BOM → keşif listesini görüntüleyin
+16. Analiz → Rapor Dışa Aktar → rapor/ klasörüne kaydedin
 ```
 
 ---
 
-*VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · TS 822 · EN 12566-1 uyumlu*
+*VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

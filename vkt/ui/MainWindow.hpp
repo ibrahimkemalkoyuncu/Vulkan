@@ -36,7 +36,7 @@ namespace render { class VulkanWindow; }
 namespace ui {
 
 /// Aktif cizim araci
-enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction, PlaceDrain };
+enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction, PlaceDrain, ConnectFixture };
 enum class DrawState { Idle, WaitingFirstPoint, WaitingSecondPoint };
 
 /**
@@ -132,6 +132,21 @@ private slots:
     // Tesisat Kopyalama — seçili katı başka kata kopyala (kolonlar hariç)
     void OnCopyFloor();
 
+    // Cihazları Tesisata Bağla (FineSANI BAGLA eşdeğeri)
+    void OnConnectFixture();
+
+    // Hidrofor / Ekipman Boyutlandırma
+    void OnHidrofor();
+
+    // Hesap Normu Seçimi (EN 806-3 / DIN 1988)
+    void OnNormSelection();
+
+    // Yağmur Suyu Modülü (EN 12056-3)
+    void OnYagmurSuyu();
+
+    // Keşif Listesi / BOM
+    void OnBOM();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -216,7 +231,12 @@ private:
     QAction* m_actDrawDrainPipe   = nullptr;
     QAction* m_actPlaceYerSuzgeci = nullptr;
     QAction* m_actPlaceRogar      = nullptr;
-    QAction* m_actCopyFloor       = nullptr;
+    QAction* m_actCopyFloor        = nullptr;
+    QAction* m_actConnectFixture   = nullptr;
+    QAction* m_actHidrofor         = nullptr;
+    QAction* m_actNormSelection    = nullptr;
+    QAction* m_actYagmurSuyu       = nullptr;
+    QAction* m_actBOM              = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -244,6 +264,9 @@ private:
     // Pis su modu: drawn pipes ve drain label
     mep::EdgeType m_currentPipeType = mep::EdgeType::Supply;
     QString       m_drainLabel      = "Yer Süzgeci";
+
+    // ConnectFixture durumu
+    uint32_t m_connectFixtureNodeId = 0; ///< Seçili armatür node ID (0 = henüz seçilmedi)
 
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok

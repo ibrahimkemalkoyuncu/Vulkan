@@ -37,6 +37,7 @@
 #include <cmath>
 #include <algorithm>
 #include <functional>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -185,7 +186,29 @@ void MainWindow::CreateActions() {
     m_actCopyFloor->setToolTip("Seçilen katın yatay borularını ve armatürlerini başka kata kopyala (kolonlar hariç)");
     connect(m_actCopyFloor, &QAction::triggered, this, &MainWindow::OnCopyFloor);
 
-    m_actSelect = new QAction("Seç", this);
+    m_actConnectFixture = new QAction("Cihazı Tesisata Bagla", this);
+    m_actConnectFixture->setToolTip("Armaturu ana boru hattina kisa dal boru ile bagla (BAGLA komutu)");
+    m_actConnectFixture->setShortcut(QKeySequence("Ctrl+B"));
+    connect(m_actConnectFixture, &QAction::triggered, this, &MainWindow::OnConnectFixture);
+
+    m_actHidrofor = new QAction("Hidrofor Boyutlandirma...", this);
+    m_actHidrofor->setToolTip("Kritik devre analizi sonucuna gore hidrofor/pompa secimi");
+    connect(m_actHidrofor, &QAction::triggered, this, &MainWindow::OnHidrofor);
+
+    m_actNormSelection = new QAction("Hesap Normu...", this);
+    m_actNormSelection->setToolTip("Besleme debisi hesaplama normunu sec: EN 806-3 veya DIN 1988-300");
+    connect(m_actNormSelection, &QAction::triggered, this, &MainWindow::OnNormSelection);
+
+    m_actYagmurSuyu = new QAction("Yagmur Suyu Modulu...", this);
+    m_actYagmurSuyu->setToolTip("EN 12056-3: Yagmur suyu tahliye boru boyutlandirmasi");
+    connect(m_actYagmurSuyu, &QAction::triggered, this, &MainWindow::OnYagmurSuyu);
+
+    m_actBOM = new QAction("Kesif Listesi (BOM)...", this);
+    m_actBOM->setToolTip("Boru metrajlari ve baglanti elemanlari dokumu");
+    m_actBOM->setShortcut(QKeySequence("Ctrl+K"));
+    connect(m_actBOM, &QAction::triggered, this, &MainWindow::OnBOM);
+
+    m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
     // Görünüm
@@ -263,6 +286,7 @@ void MainWindow::CreateMenus() {
     drawMenu->addAction(m_actDrawPipe);
     drawMenu->addAction(m_actDrawFixture);
     drawMenu->addAction(m_actDrawJunction);
+    drawMenu->addAction(m_actConnectFixture);
     drawMenu->addSeparator();
     drawMenu->addAction(m_actDrawDrainPipe);
     drawMenu->addAction(m_actPlaceYerSuzgeci);
@@ -280,6 +304,14 @@ void MainWindow::CreateMenus() {
     // Analiz
     auto* analyzeMenu = menuBar()->addMenu("&Analiz");
     analyzeMenu->addAction(m_actRunHydraulics);
+    analyzeMenu->addAction(m_actAutoSizeDN);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actHidrofor);
+    analyzeMenu->addAction(m_actNormSelection);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actYagmurSuyu);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actBOM);
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
 
@@ -295,6 +327,7 @@ void MainWindow::CreateToolbars() {
     m_drawToolbar->addAction(m_actDrawPipe);
     m_drawToolbar->addAction(m_actDrawFixture);
     m_drawToolbar->addAction(m_actDrawJunction);
+    m_drawToolbar->addAction(m_actConnectFixture);
 
     // Düzenleme toolbar
     m_editToolbar = addToolBar("Düzenleme");
@@ -1583,6 +1616,121 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             .arg(m_drainLabel).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;
     }
+    case ToolMode::ConnectFixture: {
+        if (m_connectFixtureNodeId == 0) {
+            // 1. Adim: en yakin Fixture node'u sec
+            constexpr double SNAP = 50.0;
+            uint32_t bestId = 0;
+            double bestD2 = SNAP * SNAP;
+            for (const auto& [nid, node] : network.GetNodeMap()) {
+                if (node.type != mep::NodeType::Fixture) continue;
+                double dx = node.position.x - worldX;
+                double dy = node.position.y - worldY;
+                double d2 = dx*dx + dy*dy;
+                if (d2 < bestD2) { bestD2 = d2; bestId = nid; }
+            }
+            if (bestId == 0) {
+                statusBar()->showMessage("BAGLA: Armatur bulunamadi — armatur konumuna daha yakin tiklayin");
+                break;
+            }
+            m_connectFixtureNodeId = bestId;
+            const mep::Node* fn = network.GetNode(bestId);
+            statusBar()->showMessage(QString("BAGLA: [%1] secildi — boru hattini tiklayin (2/2)")
+                .arg(fn ? QString::fromStdString(fn->fixtureType) : "?"));
+            if (m_commandBar) m_commandBar->SetPrompt("Boru hatti");
+        } else {
+            // 2. Adim: en yakin edge'i bul, dis noktadan dik ayak cikar, dal boru ekle
+            constexpr double SNAP_EDGE = 100.0;
+            uint32_t bestEdgeId = 0;
+            double bestDist = SNAP_EDGE;
+
+            for (const auto& [eid, edge] : network.GetEdgeMap()) {
+                const mep::Node* nA = network.GetNode(edge.nodeA);
+                const mep::Node* nB = network.GetNode(edge.nodeB);
+                if (!nA || !nB) continue;
+                double ex = nB->position.x - nA->position.x;
+                double ey = nB->position.y - nA->position.y;
+                double len2 = ex*ex + ey*ey;
+                double dist;
+                if (len2 < 1e-9) {
+                    double dx = nA->position.x - worldX, dy = nA->position.y - worldY;
+                    dist = std::sqrt(dx*dx + dy*dy);
+                } else {
+                    double t = ((worldX - nA->position.x)*ex + (worldY - nA->position.y)*ey) / len2;
+                    t = std::max(0.0, std::min(1.0, t));
+                    double px = nA->position.x + t*ex, py = nA->position.y + t*ey;
+                    double dx = px - worldX, dy = py - worldY;
+                    dist = std::sqrt(dx*dx + dy*dy);
+                }
+                if (dist < bestDist) { bestDist = dist; bestEdgeId = eid; }
+            }
+
+            if (bestEdgeId == 0) {
+                statusBar()->showMessage("BAGLA: Boru bulunamadi — boru hattina daha yakin tiklayin");
+                break;
+            }
+
+            const mep::Edge* srcEdge = network.GetEdge(bestEdgeId);
+            const mep::Node* nA = network.GetNode(srcEdge->nodeA);
+            const mep::Node* nB = network.GetNode(srcEdge->nodeB);
+            const mep::Node* fixtureNode = network.GetNode(m_connectFixtureNodeId);
+            if (!nA || !nB || !fixtureNode) { m_connectFixtureNodeId = 0; break; }
+
+            // Dik ayak noktasi hesapla (en yakin nokta boru uzerinde)
+            double ex = nB->position.x - nA->position.x;
+            double ey = nB->position.y - nA->position.y;
+            double len2 = ex*ex + ey*ey;
+            double t = 0.5;
+            if (len2 > 1e-9) {
+                t = ((fixtureNode->position.x - nA->position.x)*ex
+                   + (fixtureNode->position.y - nA->position.y)*ey) / len2;
+                t = std::max(0.05, std::min(0.95, t)); // uca cok yakin olmasin
+            }
+            geom::Vec3 footPos{
+                nA->position.x + t * ex,
+                nA->position.y + t * ey,
+                fixtureNode->position.z
+            };
+
+            auto composite = std::make_unique<core::CompositeCommand>();
+
+            // Junction boru uzerinde
+            mep::Node jNode;
+            jNode.type     = mep::NodeType::Junction;
+            jNode.position = footPos;
+            jNode.label    = "J";
+            auto addJ = std::make_unique<core::AddNodeCommand>(network, jNode);
+            addJ->Execute();
+            uint32_t jId = addJ->GetNodeId();
+            composite->AddCommand(std::move(addJ));
+
+            // Dal boru: fixture → junction
+            mep::Edge branchEdge;
+            branchEdge.nodeA = m_connectFixtureNodeId;
+            branchEdge.nodeB = jId;
+            branchEdge.type  = srcEdge->type;
+            branchEdge.diameter_mm = srcEdge->diameter_mm;
+            branchEdge.roughness_mm = srcEdge->roughness_mm;
+            branchEdge.material = srcEdge->material;
+            double dx = footPos.x - fixtureNode->position.x;
+            double dy = footPos.y - fixtureNode->position.y;
+            branchEdge.length_m = std::sqrt(dx*dx + dy*dy) / 1000.0;
+            if (branchEdge.length_m < 0.001) branchEdge.length_m = 0.001;
+            auto addBranch = std::make_unique<core::AddEdgeCommand>(network, branchEdge);
+            addBranch->Execute();
+            composite->AddCommand(std::move(addBranch));
+
+            m_document->TrackExecuted(std::move(composite));
+            m_document->SetModified(true);
+            m_connectFixtureNodeId = 0;
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("BAGLA: Dal boru eklendi (L=%1 m)")
+                .arg(branchEdge.length_m, 0, 'f', 2));
+            // Ardindan bir sonraki armaturu baglayabilmek icin mod devam eder
+        }
+        break;
+    }
     case ToolMode::Select:
     default: {
         const double NODE_SNAP = 10.0; // world unit
@@ -1760,11 +1908,22 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     if (c == "HELP") {
         if (m_logList) {
             m_logList->addItem("Komutlar: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
+            m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
             m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR/BOSALTMA");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
-            m_logList->addItem("Analiz  : HYDRAULICS  DRAINAGE  SCHEDULE  RISER");
+            m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI");
         }
+    } else if (c == "BAGLA" || c == "CONNECT") {
+        OnConnectFixture();
+    } else if (c == "HIDROFOR" || c == "PUMP-SIZE") {
+        OnHidrofor();
+    } else if (c == "NORM" || c == "NORM-SEC") {
+        OnNormSelection();
+    } else if (c == "YAGMUR" || c == "RAINWATER") {
+        OnYagmurSuyu();
+    } else if (c == "BOM" || c == "KESIF") {
+        OnBOM();
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
         m_measureHasFirstPt = false;
@@ -1984,9 +2143,267 @@ void MainWindow::OnCommandEscape() {
     m_measureMode      = false;
     m_measureHasFirstPt = false;
     m_currentPipeType  = mep::EdgeType::Supply; // pis su modunu sıfırla
+    m_connectFixtureNodeId = 0;
     if (m_commandBar) m_commandBar->SetPrompt("Komut");
     if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
     statusBar()->showMessage("İptal edildi — Seçim modu");
+}
+
+// ============================================================
+//  CIHAZLARI TESİSATA BAGLA (FineSANI BAGLA eşdeğeri)
+// ============================================================
+void MainWindow::OnConnectFixture() {
+    m_currentToolMode      = ToolMode::ConnectFixture;
+    m_drawState            = DrawState::WaitingFirstPoint;
+    m_connectFixtureNodeId = 0;
+    statusBar()->showMessage("BAGLA: Armaturu tiklayin (1/2)");
+    if (m_commandBar) m_commandBar->SetPrompt("Armatur sec");
+}
+
+// ============================================================
+//  HİDROFOR BOYUTLANDIRMA DİYALOGU
+// ============================================================
+void MainWindow::OnHidrofor() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Hidrofor Boyutlandirma",
+            "Once tesisat sebekesi cizin (boru + kaynak + armaturler).");
+        return;
+    }
+
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    auto result = solver.CalculateCriticalPath();
+
+    QString msg;
+    msg += QString("<h3>Hidrofor / Pompa Boyutlandirma</h3>");
+    msg += QString("<table border='0' cellspacing='4'>");
+    msg += QString("<tr><td><b>Kritik devre kaybi:</b></td><td><font color='red'><b>%1 mSS</b></font></td></tr>")
+               .arg(result.totalHeadLoss_m, 0, 'f', 2);
+    msg += QString("<tr><td><b>Gerekli pompa basma yuksekligi:</b></td><td><font color='red'><b>%1 mSS</b></font></td></tr>")
+               .arg(result.requiredPumpHead_m, 0, 'f', 2);
+    msg += QString("<tr><td><b>Gerekli debi:</b></td><td>%1 m³/h</td></tr>")
+               .arg(result.requiredFlow_m3h, 0, 'f', 2);
+    msg += QString("</table><hr>");
+    msg += QString("<b>Onerilen Ekipman:</b><br>");
+    msg += QString("Model: %1<br>").arg(QString::fromStdString(result.suggestedPumpModel));
+    msg += QString("Maks. basinc: %1 mSS<br>").arg(result.suggestedPumpHead_m, 0, 'f', 1);
+    msg += QString("Maks. debi: %1 m³/h<br>").arg(result.suggestedPumpFlow_m3h, 0, 'f', 1);
+    msg += QString("Guc: %1 kW").arg(result.suggestedPumpPower_kW, 0, 'f', 2);
+
+    QMessageBox dlg(this);
+    dlg.setWindowTitle("Hidrofor Boyutlandirma (TS EN 806-3)");
+    dlg.setTextFormat(Qt::RichText);
+    dlg.setText(msg);
+    dlg.setIcon(QMessageBox::Information);
+    dlg.exec();
+
+    if (m_logList) {
+        m_logList->addItem(QString("Hidrofor: %1 mSS / %2 m3/h → %3")
+            .arg(result.requiredPumpHead_m, 0, 'f', 2)
+            .arg(result.requiredFlow_m3h, 0, 'f', 2)
+            .arg(QString::fromStdString(result.suggestedPumpModel)));
+    }
+}
+
+// ============================================================
+//  HESAP NORMU SEÇİMİ (EN 806-3 / DIN 1988-300)
+// ============================================================
+void MainWindow::OnNormSelection() {
+    QStringList norms;
+    norms << "TS EN 806-3  (Avrupa / Turkiye standardi — varsayilan)"
+          << "DIN 1988-300  (Alman standardi — esszamanlilik katsayili)";
+
+    bool isEN = (mep::HydraulicSolver::GlobalNorm() == mep::HydroNorm::EN806_3);
+    int current = isEN ? 0 : 1;
+
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(this,
+        "Hesap Normu Secimi",
+        "Besleme debisi hesaplama standardi:",
+        norms, current, false, &ok);
+    if (!ok) return;
+
+    if (chosen.startsWith("DIN")) {
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
+        statusBar()->showMessage("Hesap normu: DIN 1988-300 (esszamanlilik katsayili)");
+        if (m_logList) m_logList->addItem("Norm degistirildi: DIN 1988-300");
+    } else {
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
+        statusBar()->showMessage("Hesap normu: TS EN 806-3");
+        if (m_logList) m_logList->addItem("Norm degistirildi: TS EN 806-3");
+    }
+    ScheduleAutoHydro(); // normu guncelledik → yeniden hesapla
+}
+
+// ============================================================
+//  YAGMUR SUYU MODULU (EN 12056-3)
+// ============================================================
+void MainWindow::OnYagmurSuyu() {
+    // Alan girisi
+    bool ok = false;
+    double area = QInputDialog::getDouble(this,
+        "Yagmur Suyu — Cati Alani",
+        "Tahliye edilecek cati/zemin alani (m²):",
+        100.0, 0.1, 100000.0, 1, &ok);
+    if (!ok) return;
+
+    QStringList surfaceTypes;
+    surfaceTypes << "Cati (C=1.0)"
+                 << "Beton/Asfalt (C=0.9)"
+                 << "Yeşil çati (C=0.5)"
+                 << "Çakilli zemin (C=0.6)";
+    QString surface = QInputDialog::getItem(this,
+        "Yuzey Tipi", "Yuzey/ drenaj tipi:", surfaceTypes, 0, false, &ok);
+    if (!ok) return;
+
+    double C = 1.0;
+    if (surface.contains("Beton")) C = 0.9;
+    else if (surface.contains("Yeşil") || surface.contains("yesil")) C = 0.5;
+    else if (surface.contains("akilli") || surface.contains("Çakil")) C = 0.6;
+
+    // EN 12056-3: tasarim yagmur yuku r_D = 0.03 l/(s*m²) — Turkiye 2-yillik
+    double rD = 0.03;
+    double Q_ls = C * area * rD; // l/s
+
+    // Standart drenaj DN secimi (Manning, %2 egim)
+    static const struct { double dn; double cap_ls; } kTable[] = {
+        {50, 1.2}, {75, 3.5}, {100, 8.0}, {125, 15.0},
+        {150, 25.0}, {200, 50.0}, {0, 0}
+    };
+    double selectedDN = 200.0;
+    for (int i = 0; kTable[i].dn > 0; ++i) {
+        if (kTable[i].cap_ls >= Q_ls) { selectedDN = kTable[i].dn; break; }
+    }
+
+    // Yagmurluk borusu sayisi (tek boru maks 50 l/s kabul)
+    int numPipes = (Q_ls > 50.0) ? (int)std::ceil(Q_ls / 50.0) : 1;
+    double qPerPipe = Q_ls / numPipes;
+    // Her boru icin DN yeniden sec
+    double dnPerPipe = 200.0;
+    for (int i = 0; kTable[i].dn > 0; ++i) {
+        if (kTable[i].cap_ls >= qPerPipe) { dnPerPipe = kTable[i].dn; break; }
+    }
+
+    QString msg;
+    msg += QString("<h3>Yagmur Suyu Tahliye Hesabi (EN 12056-3)</h3>");
+    msg += QString("<table border='0' cellspacing='4'>");
+    msg += QString("<tr><td>Alan:</td><td><b>%1 m²</b></td></tr>").arg(area, 0, 'f', 1);
+    msg += QString("<tr><td>Yuzey katsayisi (C):</td><td>%1</td></tr>").arg(C, 0, 'f', 2);
+    msg += QString("<tr><td>Tasarim yagmur yuku (r_D):</td><td>%1 l/(s·m²)</td></tr>").arg(rD, 0, 'f', 3);
+    msg += QString("<tr><td><b>Tasarim debisi (Q):</b></td><td><font color='red'><b>%1 l/s</b></font></td></tr>").arg(Q_ls, 0, 'f', 2);
+    msg += QString("<tr><td>Onerilen boru:</td><td><b>%1x DN%2</b></td></tr>").arg(numPipes).arg((int)dnPerPipe);
+    msg += QString("</table><hr>");
+    msg += QString("<small>r_D = 0.03 l/(s·m²) — Turkiye iklim bolgesi (2 yillik donus periyodu)<br>");
+    msg += QString("Egim: %%2 min — Manning n=0.012 (PVC)</small>");
+
+    QMessageBox dlg(this);
+    dlg.setWindowTitle("Yagmur Suyu Modulu (EN 12056-3)");
+    dlg.setTextFormat(Qt::RichText);
+    dlg.setText(msg);
+    dlg.setIcon(QMessageBox::Information);
+    dlg.exec();
+
+    if (m_logList) {
+        m_logList->addItem(QString("Yagmur Suyu: A=%1m2, Q=%2l/s → %3x DN%4")
+            .arg(area,0,'f',0).arg(Q_ls,0,'f',2).arg(numPipes).arg((int)dnPerPipe));
+    }
+}
+
+// ============================================================
+//  KEŞİF LİSTESİ / BOM (Bill of Materials)
+// ============================================================
+void MainWindow::OnBOM() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Kesif Listesi", "Oncelikle tesisat sebekesi cizin.");
+        return;
+    }
+
+    // Boru metrajlari — DN'e gore grupla
+    std::map<int, double> pipeLength_m; // DN → toplam uzunluk
+    std::map<int, int>    pipeCount;    // DN → adet
+    std::map<std::string, std::map<int, double>> byMaterial; // material → {DN → length}
+
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        int dn = static_cast<int>(std::round(edge.diameter_mm));
+        pipeLength_m[dn] += edge.length_m;
+        pipeCount[dn]++;
+        byMaterial[edge.material][dn] += edge.length_m;
+    }
+
+    // Baglanti elemanlari — node derecesinden tur tahmini
+    int nTee    = 0; // T-parcasi: degree == 3
+    int nElbow  = 0; // dirsek: degree == 2 (junction)
+    int nFixture = 0;
+    int nSource  = 0;
+    int nDrain   = 0;
+
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        auto edges = network.GetConnectedEdges(nid);
+        int deg = static_cast<int>(edges.size());
+        switch (node.type) {
+            case mep::NodeType::Fixture: ++nFixture; break;
+            case mep::NodeType::Source:  ++nSource;  break;
+            case mep::NodeType::Drain:   ++nDrain;   break;
+            case mep::NodeType::Junction:
+                if (deg >= 3) ++nTee;
+                else if (deg == 2) ++nElbow;
+                break;
+            default: break;
+        }
+    }
+
+    // Rapor olustur
+    QString msg;
+    msg += "<h3>Kesif Listesi / Malzeme Dokumu (BOM)</h3>";
+    msg += "<b>Boru Metrajlari:</b><br>";
+    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
+    msg += "<tr><th>DN (mm)</th><th>Toplam Boy (m)</th><th>Parca</th></tr>";
+
+    double totalLength = 0.0;
+    for (const auto& [dn, len] : pipeLength_m) {
+        msg += QString("<tr><td>DN%1</td><td>%2</td><td>%3</td></tr>")
+                   .arg(dn).arg(len, 0, 'f', 2).arg(pipeCount[dn]);
+        totalLength += len;
+    }
+    msg += QString("<tr><td><b>TOPLAM</b></td><td><b>%1 m</b></td><td><b>%2 adet</b></td></tr>")
+               .arg(totalLength, 0, 'f', 2).arg((int)network.GetEdgeCount());
+    msg += "</table><br>";
+
+    msg += "<b>Baglanti Elemanlari (tahmini):</b><br>";
+    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
+    msg += "<tr><th>Eleman</th><th>Adet</th></tr>";
+    msg += QString("<tr><td>T-parca</td><td>%1</td></tr>").arg(nTee);
+    msg += QString("<tr><td>Dirsek</td><td>%1</td></tr>").arg(nElbow);
+    msg += QString("<tr><td>Armatur baglantisi</td><td>%1</td></tr>").arg(nFixture);
+    msg += QString("<tr><td>Kaynak (giris)</td><td>%1</td></tr>").arg(nSource);
+    msg += QString("<tr><td>Tahliye noktasi</td><td>%1</td></tr>").arg(nDrain);
+    msg += "</table>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Kesif Listesi / BOM");
+    dlg.resize(500, 450);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* label = new QLabel(msg, &dlg);
+    label->setTextFormat(Qt::RichText);
+    label->setWordWrap(true);
+    layout->addWidget(label);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    layout->addWidget(btn);
+
+    // Log'a da yaz
+    if (m_logList) {
+        m_logList->addItem(QString("BOM: Toplam %1 m boru, %2 T, %3 dirsek")
+            .arg(totalLength, 0, 'f', 2).arg(nTee).arg(nElbow));
+        for (const auto& [dn, len] : pipeLength_m)
+            m_logList->addItem(QString("  DN%1: %2 m").arg(dn).arg(len, 0, 'f', 2));
+    }
+
+    dlg.exec();
 }
 
 void MainWindow::OnNodeUpdated(uint32_t nodeId) {

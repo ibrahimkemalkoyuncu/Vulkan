@@ -29,7 +29,7 @@ constexpr double GRAVITY = 9.81;         // m/s²
 constexpr double KINEMATIC_VISCOSITY = 1.004e-6; // m²/s (20°C su)
 
 HydraulicSolver::HydraulicSolver(NetworkGraph& network)
-    : m_network(network) {}
+    : m_network(network), m_norm(GlobalNorm()) {}
 
 void HydraulicSolver::SetBuildingType(BuildingType type) {
     m_buildingType = type;
@@ -393,27 +393,23 @@ CriticalPathResult HydraulicSolver::CalculateCriticalPath() {
 // ═══════════════════════════════════════════════════════════
 
 double HydraulicSolver::CalculateFlowFromLU(double loadUnit) const {
-    // TS EN 806-3 / DIN 1988-300 tasarım debi formülü:
-    //   Qd = 0.682 * LU^0.45  [L/s]
-    //
-    // Referans noktalar:
-    //   LU=1   → Q ≈ 0.68 L/s
-    //   LU=5   → Q ≈ 1.28 L/s
-    //   LU=10  → Q ≈ 1.92 L/s
-    //   LU=50  → Q ≈ 4.55 L/s
-    //   LU=100 → Q ≈ 6.82 L/s
-    //   LU=200 → Q ≈ 7.40 L/s
-    //   LU=500 → Q ≈ 11.6 L/s
-
     if (loadUnit <= 0.0) return 0.0;
 
     double Q_Ls;
-    if (loadUnit <= 500.0) {
-        Q_Ls = 0.682 * std::pow(loadUnit, 0.45);
+    if (m_norm == HydroNorm::DIN1988) {
+        // DIN 1988-300: eşzamanlılık faktörü φ = 1 / (1 + √LU/10)
+        // Q_D = φ * √(ΣLU) * q_s  (q_s = 0.5 l/s konut)
+        double phi = 1.0 / (1.0 + std::sqrt(loadUnit) / 10.0);
+        Q_Ls = phi * std::sqrt(loadUnit) * 0.5;
+        Q_Ls = std::max(Q_Ls, 0.05);
     } else {
-        // LU > 500 için lineer ekstrapolasyon (endüstriyel tesisler)
-        double Q_500 = 0.682 * std::pow(500.0, 0.45);
-        Q_Ls = Q_500 + 0.005 * (loadUnit - 500.0);
+        // TS EN 806-3: Qd = 0.682 * LU^0.45  [L/s]
+        if (loadUnit <= 500.0) {
+            Q_Ls = 0.682 * std::pow(loadUnit, 0.45);
+        } else {
+            double Q_500 = 0.682 * std::pow(500.0, 0.45);
+            Q_Ls = Q_500 + 0.005 * (loadUnit - 500.0);
+        }
     }
 
     // Minimum debi: EN 806-3 tablo değerleri >= 0.1 L/s

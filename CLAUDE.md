@@ -385,6 +385,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Pis su modülü UI** — `ToolMode::PlaceDrain` eklendi; `m_currentPipeType` (EdgeType::Supply/Drainage) ile boru tipi seçimi; `OnDrawDrainPipe()` → kahverengi boru; `OnPlaceYerSuzgeci()` + `OnPlaceRogar()` → Drain node yerleştirme; Çizim menüsüne "Pis Su Borusu / Yer Süzgeci / Rögar" eklendi; CommandBar: `PIS-SU`, `YER-SUZGECI`, `ROGAR`; ESC ile m_currentPipeType Supply'a sıfırlanır; 90/90 test geçiyor
 - **Tesisat Kopyalama (FloorCopy)** — `OnCopyFloor()`: QInputDialog ile kaynak+hedef kat seçimi; kaynak kattaki tüm node'lar (z ≈ srcZ, tolerans 0.1m) yeni z'ye kopyalanır; her iki ucu kaynak katta olan edge'ler (yatay borular) kopyalanır — kolonlar (uçları farklı z'de) otomatik hariç tutulur; `CompositeCommand` ile tam Undo/Redo; Çizim menüsü + `KOPYA-KAT` CommandBar komutu
 - **Kullanıcı_kitabı.md** — Kapsamlı kullanıcı kılavuzu oluşturuldu (14 bölüm): proje oluşturma, mimari altlık, ST cihazları, temiz su çizimi, pis su sistemi, tesisat kopyalama, hidrolik analiz, görsel doğrulama, snap/ölçüm, proje yönetimi, komut referansı, dosya formatları, hesap föyü, fosseptik standartları
+- **Cihazları Tesisata Bağla (BAGLA)** — `ToolMode::ConnectFixture`; 2-adım: (1) armatür node seç, (2) boru hattını tıkla → dik ayak noktasında Junction eklenir + dal boru armatür→junction; `CompositeCommand` ile undo/redo; Ctrl+B + `BAGLA`/`CONNECT` komut; FineSANI'nin en sık kullanılan özelliği artık VKT'de
+- **DIN 1988-300 norm seçimi** — `HydroNorm` enum (EN806_3/DIN1988); `HydraulicSolver::GlobalNorm()` static singleton; DIN modunda eşzamanlılık faktörü φ = 1/(1+√LU/10); Analiz → Hesap Normu + `NORM` komutu; seçim sonrası otomatik yeniden hesaplama
+- **Hidrofor Boyutlandırma** — `OnHidrofor()`: `CalculateCriticalPath()` sonuçlarını rich-text dialog ile gösterir; kritik basınç kaybı kırmızı, önerilen pompa modeli + güç; Analiz menüsü + `HIDROFOR` komutu
+- **Yağmur Suyu Modülü (EN 12056-3)** — `OnYagmurSuyu()`: alan + yüzey tipi (C katsayısı) + r_D=0.03 l/(s·m²) ile Q hesabı; DN seçim tablosu; kaç boru gerektiğini hesaplar; Analiz menüsü + `YAGMUR` komutu
+- **Keşif Listesi / BOM** — `OnBOM()`: NetworkGraph'tan DN'e göre boru metraj toplamı; T-parça + dirsek + armatür bağlantı sayımı; rich-text dialog + log kaydı; Ctrl+K + `BOM`/`KESIF` komutu
 
 ### Devam Eden
 

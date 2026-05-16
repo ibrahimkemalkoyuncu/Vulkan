@@ -48,6 +48,15 @@ enum class BuildingType {
     Industrial      ///< Endüstriyel / Laboratuvar (K=1.0)
 };
 
+/**
+ * @enum HydroNorm
+ * @brief Hesap normu — besleme debisi hesaplama yöntemi
+ */
+enum class HydroNorm {
+    EN806_3,    ///< TS EN 806-3: Q = 0.682 * LU^0.45  (l/s)  (default)
+    DIN1988     ///< DIN 1988-300: eşzamanlılık faktörü ile Q = φ * √(ΣLU) (l/s)
+};
+
 class HydraulicSolver {
 public:
     explicit HydraulicSolver(NetworkGraph& network);
@@ -55,6 +64,13 @@ public:
     /// Bina tipini ayarla (EN 12056-2 K faktörü için)
     void SetBuildingType(BuildingType type);
     BuildingType GetBuildingType() const { return m_buildingType; }
+
+    /// Hesap normunu ayarla (EN 806-3 veya DIN 1988-300)
+    void SetNorm(HydroNorm norm) { m_norm = norm; }
+    HydroNorm GetNorm() const { return m_norm; }
+
+    /// Global norm — tüm oturumda kullanılır (singleton gibi)
+    static HydroNorm& GlobalNorm() { static HydroNorm n = HydroNorm::EN806_3; return n; }
 
     /**
      * @brief Besleme şebekesi hesabı (TS EN 806-3)
@@ -117,6 +133,7 @@ private:
 
     NetworkGraph& m_network;
     BuildingType m_buildingType = BuildingType::Residential;
+    HydroNorm    m_norm         = HydroNorm::EN806_3;
 };
 
 } // namespace mep
