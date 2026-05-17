@@ -1489,7 +1489,14 @@ std::array<float, 3> VulkanRenderer::GetNodeColor(mep::NodeType type) {
     }
 }
 
-std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type) {
+std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type, bool isColumn) {
+    if (isColumn) {
+        switch (type) {
+            case mep::EdgeType::Supply:   return {0.0f, 0.85f, 1.0f};  // Cyan — kolon temiz su
+            case mep::EdgeType::Drainage: return {0.9f, 0.5f, 0.1f};   // Turuncu — kolon pis su
+            default:                      return {0.7f, 0.7f, 0.7f};
+        }
+    }
     switch (type) {
         case mep::EdgeType::Supply:   return {0.2f, 0.6f, 1.0f};  // Açık mavi
         case mep::EdgeType::Drainage: return {0.6f, 0.4f, 0.2f};  // Kahverengi
@@ -1505,21 +1512,25 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
     const auto& nodes = network.GetNodes();
     const auto& edges = network.GetEdges();
 
+    // Z ölçeği: Plan modunda Z yok, izometrik/perspektif modda Z metre → mm
+    const bool scaleZ = (m_viewMode != ViewMode::Plan);
+
     // Edge'ler: Çizgi olarak çiz
     for (const auto& edge : edges) {
         const mep::Node* nodeA = network.GetNode(edge.nodeA);
         const mep::Node* nodeB = network.GetNode(edge.nodeB);
         if (!nodeA || !nodeB) continue;
 
-        auto color = GetEdgeColor(edge.type);
+        const bool isCol = network.IsColumnEdge(edge.id);
+        auto color = GetEdgeColor(edge.type, isCol);
 
         geom::Vertex v1{}, v2{};
         v1.pos[0] = static_cast<float>(nodeA->position.x);
         v1.pos[1] = static_cast<float>(nodeA->position.y);
-        v1.pos[2] = static_cast<float>(nodeA->position.z);
+        v1.pos[2] = scaleZ ? static_cast<float>(nodeA->position.z) * 1000.0f : 0.0f;
         v2.pos[0] = static_cast<float>(nodeB->position.x);
         v2.pos[1] = static_cast<float>(nodeB->position.y);
-        v2.pos[2] = static_cast<float>(nodeB->position.z);
+        v2.pos[2] = scaleZ ? static_cast<float>(nodeB->position.z) * 1000.0f : 0.0f;
         std::copy(color.begin(), color.end(), v1.color);
         std::copy(color.begin(), color.end(), v2.color);
 
@@ -1533,7 +1544,7 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
         auto color = GetNodeColor(node.type);
         float x = static_cast<float>(node.position.x);
         float y = static_cast<float>(node.position.y);
-        float z = static_cast<float>(node.position.z);
+        float z = scaleZ ? static_cast<float>(node.position.z) * 1000.0f : 0.0f;
 
         // 8-segment çember yaklaşımı (triangle fan → triangle list)
         constexpr int segments = 8;

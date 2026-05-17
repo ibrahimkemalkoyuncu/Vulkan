@@ -186,6 +186,28 @@ std::vector<uint32_t> NetworkGraph::GetDownstreamNodes(uint32_t nodeId) const {
     return result;
 }
 
+bool NetworkGraph::IsColumnEdge(uint32_t edgeId) const {
+    const Edge* edge = GetEdge(edgeId);
+    if (!edge) return false;
+    const Node* nA = GetNode(edge->nodeA);
+    const Node* nB = GetNode(edge->nodeB);
+    if (!nA || !nB) return false;
+
+    // X,Y mm cinsinden; Z metre cinsinden
+    double dx = std::abs(nA->position.x - nB->position.x);
+    double dy = std::abs(nA->position.y - nB->position.y);
+    double dz = std::abs(nA->position.z - nB->position.z);
+    return (dx < 50.0 && dy < 50.0 && dz > 0.3);
+}
+
+std::vector<uint32_t> NetworkGraph::GetColumnEdges() const {
+    std::vector<uint32_t> result;
+    for (const auto& [id, edge] : m_edgeMap) {
+        if (IsColumnEdge(id)) result.push_back(id);
+    }
+    return result;
+}
+
 void NetworkGraph::Clear() {
     m_nodeMap.clear();
     m_edgeMap.clear();

@@ -463,7 +463,7 @@ private:
 
     // Node renkleri
     static std::array<float, 3> GetNodeColor(mep::NodeType type);
-    static std::array<float, 3> GetEdgeColor(mep::EdgeType type);
+    static std::array<float, 3> GetEdgeColor(mep::EdgeType type, bool isColumn = false);
     static std::array<float, 3> GetACIColor(int colorIndex);
 };
 

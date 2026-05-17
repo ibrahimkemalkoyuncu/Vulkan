@@ -132,6 +132,10 @@ public:
     std::vector<uint32_t> GetUpstreamNodes(uint32_t nodeId) const;
     std::vector<uint32_t> GetDownstreamNodes(uint32_t nodeId) const;
 
+    // Kolon tespiti: aynı XY (<50mm), farklı Z (>0.3m) → dikey boru
+    bool IsColumnEdge(uint32_t edgeId) const;
+    std::vector<uint32_t> GetColumnEdges() const;
+
     size_t GetNodeCount() const { return m_nodeMap.size(); }
     size_t GetEdgeCount() const { return m_edgeMap.size(); }
 

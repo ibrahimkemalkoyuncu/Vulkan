@@ -317,3 +317,79 @@ TEST_CASE("FloorManager - elevation out of range returns -999", "[floor]") {
     REQUIRE(fm.GetFloorIndexAtElevation(100.0) == -999);
     REQUIRE(fm.GetFloorIndexAtElevation(-5.0)  == -999);
 }
+
+// ──────────────────────────────────────────────────────────────
+//  IsColumnEdge / GetColumnEdges testleri
+// ──────────────────────────────────────────────────────────────
+
+TEST_CASE("IsColumnEdge - dikey boru (ayni XY, farkli Z) kolon olarak taninir", "[kolon][network]") {
+    NetworkGraph g;
+    Node n1; n1.type = NodeType::Junction; n1.position = {1000.0, 2000.0, 0.0};
+    Node n2; n2.type = NodeType::Junction; n2.position = {1005.0, 1998.0, 3.0}; // dx=5mm, dy=2mm, dz=3m
+    uint32_t id1 = g.AddNode(n1);
+    uint32_t id2 = g.AddNode(n2);
+
+    Edge e; e.nodeA = id1; e.nodeB = id2; e.type = EdgeType::Supply;
+    uint32_t eid = g.AddEdge(e);
+
+    REQUIRE(g.IsColumnEdge(eid) == true);
+}
+
+TEST_CASE("IsColumnEdge - yatay boru (farkli XY, ayni Z) kolon degil", "[kolon][network]") {
+    NetworkGraph g;
+    Node n1; n1.type = NodeType::Junction; n1.position = {0.0, 0.0, 0.0};
+    Node n2; n2.type = NodeType::Junction; n2.position = {5000.0, 0.0, 0.0}; // 5m yatay
+    uint32_t id1 = g.AddNode(n1);
+    uint32_t id2 = g.AddNode(n2);
+
+    Edge e; e.nodeA = id1; e.nodeB = id2; e.type = EdgeType::Supply;
+    uint32_t eid = g.AddEdge(e);
+
+    REQUIRE(g.IsColumnEdge(eid) == false);
+}
+
+TEST_CASE("IsColumnEdge - XY farki 50mm sinirinda: 49mm kolon, 51mm degil", "[kolon][network]") {
+    NetworkGraph g;
+    Node n1; n1.type = NodeType::Junction; n1.position = {0.0, 0.0, 0.0};
+    Node nClose; nClose.type = NodeType::Junction; nClose.position = {49.0, 0.0, 3.0};
+    Node nFar;   nFar.type   = NodeType::Junction; nFar.position   = {51.0, 0.0, 3.0};
+    uint32_t id1     = g.AddNode(n1);
+    uint32_t idClose = g.AddNode(nClose);
+    uint32_t idFar   = g.AddNode(nFar);
+
+    Edge eClose; eClose.nodeA = id1; eClose.nodeB = idClose; eClose.type = EdgeType::Supply;
+    Edge eFar;   eFar.nodeA   = id1; eFar.nodeB   = idFar;   eFar.type   = EdgeType::Supply;
+    uint32_t eidClose = g.AddEdge(eClose);
+    uint32_t eidFar   = g.AddEdge(eFar);
+
+    REQUIRE(g.IsColumnEdge(eidClose) == true);
+    REQUIRE(g.IsColumnEdge(eidFar)   == false);
+}
+
+TEST_CASE("GetColumnEdges - karisik agda sadece kolon kenarlari doner", "[kolon][network]") {
+    NetworkGraph g;
+    // Zemin kat node'lari
+    Node n1; n1.type = NodeType::Source;  n1.position = {0.0, 0.0, 0.0};
+    Node n2; n2.type = NodeType::Junction; n2.position = {3000.0, 0.0, 0.0};
+    // Ust kat node'u (kolon baglantisi)
+    Node n3; n3.type = NodeType::Junction; n3.position = {3000.0, 0.0, 3.0};
+    // Ust katta yatay boru
+    Node n4; n4.type = NodeType::Fixture;  n4.position = {6000.0, 0.0, 3.0};
+
+    uint32_t id1 = g.AddNode(n1);
+    uint32_t id2 = g.AddNode(n2);
+    uint32_t id3 = g.AddNode(n3);
+    uint32_t id4 = g.AddNode(n4);
+
+    Edge eH1; eH1.nodeA = id1; eH1.nodeB = id2; eH1.type = EdgeType::Supply; // yatay
+    Edge eV;  eV.nodeA  = id2; eV.nodeB  = id3; eV.type  = EdgeType::Supply; // kolon
+    Edge eH2; eH2.nodeA = id3; eH2.nodeB = id4; eH2.type = EdgeType::Supply; // yatay ust
+
+    g.AddEdge(eH1);
+    uint32_t eidCol = g.AddEdge(eV);
+    g.AddEdge(eH2);
+
+    auto cols = g.GetColumnEdges();
+    REQUIRE(cols.size() == 1);
+    REQUIRE(cols[0] == eidCol);
+}

@@ -2143,13 +2143,28 @@ void MainWindow::RefreshTextOverlay() {
         // Minimum zoom: çok küçük ölçekte gösterme
         if (vp.GetZoom() < 0.3) continue;
 
+        const bool isCol = network.IsColumnEdge(edge.id);
+        QColor edgeColor;
+        if (isCol) {
+            edgeColor = (edge.type == mep::EdgeType::Supply)
+                ? QColor(0, 220, 255)    // cyan — kolon temiz su
+                : QColor(255, 140, 30);  // turuncu — kolon pis su
+        } else {
+            edgeColor = (edge.type == mep::EdgeType::Supply)
+                ? QColor(100, 180, 255)  // mavi — yatay temiz su
+                : QColor(200, 140, 70);  // kahverengi — yatay pis su
+        }
+
+        QString labelText = QString::fromStdString(edge.label);
+        if (isCol) labelText = "[K] " + labelText;
+
         SnapOverlay::TextLabel lbl;
-        lbl.pos    = QPointF(sp.x + 4, sp.y - 4); // hafif offset, borudan kaçsın
-        lbl.text   = QString::fromStdString(edge.label);
+        lbl.pos    = QPointF(sp.x + 4, sp.y - 4);
+        lbl.text   = labelText;
         lbl.pixelH = 11;
-        lbl.color  = QColor(100, 220, 255); // açık mavi — boru rengiyle uyumlu
+        lbl.color  = edgeColor;
         lbl.rotDeg = 0.0;
-        lbl.hAlign = 0; // sol hizalı
+        lbl.hAlign = 0;
         lbl.vAlign = 0;
         labels.push_back(std::move(lbl));
     }
