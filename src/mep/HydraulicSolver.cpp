@@ -66,7 +66,7 @@ void HydraulicSolver::Solve() {
 
     // 4. Her boru için hidrolik hesap
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
-        if (edge.type != EdgeType::Supply) continue;
+        if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
 
         // Hız hesapla: v = Q / A
         double D_m = edge.diameter_mm / 1000.0;
@@ -113,7 +113,7 @@ void HydraulicSolver::DistributeSupplyFlows() {
 
     // outDegree = her node'un kaç downstream edge'i var
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
-        if (edge.type != EdgeType::Supply) continue;
+        if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
         outDegree[edge.nodeA]++;
     }
 
@@ -138,7 +138,7 @@ void HydraulicSolver::DistributeSupplyFlows() {
         auto edgeIds = m_network.GetConnectedEdges(nodeId);
         for (uint32_t eid : edgeIds) {
             auto* edge = m_network.GetEdge(eid);
-            if (!edge || edge->type != EdgeType::Supply) continue;
+            if (!edge || (edge->type != EdgeType::Supply && edge->type != EdgeType::HotWater)) continue;
 
             if (edge->nodeB == nodeId) {
                 // Bu edge nodeA → nodeB yönünde, nodeB'nin kümülatif debisini edge'e ata
@@ -177,7 +177,7 @@ void HydraulicSolver::AutoSizeSupplyPipes() {
     constexpr double V_MIN       = 0.5; // m/s
 
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
-        if (edge.type != EdgeType::Supply) continue;
+        if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
         if (edge.flowRate_m3s <= 0.0) continue;
 
         double autoD = SelectSupplyPipeDiameter(edge.flowRate_m3s, edge.material);
@@ -573,7 +573,7 @@ void HydraulicSolver::DFS(uint32_t nodeId, std::vector<uint32_t>& path,
 
     for (uint32_t edgeId : edges) {
         const auto* edge = m_network.GetEdge(edgeId);
-        if (!edge || edge->type != EdgeType::Supply) continue;
+        if (!edge || (edge->type != EdgeType::Supply && edge->type != EdgeType::HotWater)) continue;
 
         // Edge yönünde ilerle (nodeA → nodeB)
         uint32_t nextNode = 0;
@@ -702,7 +702,7 @@ void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
 
     // Sıfır debili Supply borularına başlangıç debisi ata (yakınsama için)
     for (auto& [eid, edge] : m_network.GetEdgeMap()) {
-        if (edge.type == EdgeType::Supply &&
+        if ((edge.type == EdgeType::Supply || edge.type == EdgeType::HotWater) &&
             std::abs(edge.flowRate_m3s) < 1e-10) {
             edge.flowRate_m3s = 1e-4; // 0.1 L/s başlangıç tahmini
         }
@@ -718,7 +718,7 @@ void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
 
             for (const auto& [eid, dir] : loop.edges) {
                 const Edge* e = m_network.GetEdge(eid);
-                if (!e || e->type != EdgeType::Supply) continue;
+                if (!e || (e->type != EdgeType::Supply && e->type != EdgeType::HotWater)) continue;
 
                 double Q = e->flowRate_m3s;
                 double r = ComputeResistance(*e);
@@ -735,7 +735,7 @@ void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
             // Tüm döngü borularına düzeltme uygula
             for (const auto& [eid, dir] : loop.edges) {
                 Edge* e = m_network.GetEdge(eid);
-                if (!e || e->type != EdgeType::Supply) continue;
+                if (!e || (e->type != EdgeType::Supply && e->type != EdgeType::HotWater)) continue;
                 e->flowRate_m3s += dir * dQ;
             }
         }
@@ -756,7 +756,7 @@ void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
 
     // Yakınsama sonrası hız ve kayıp değerlerini güncelle
     for (auto& [eid, edge] : m_network.GetEdgeMap()) {
-        if (edge.type != EdgeType::Supply) continue;
+        if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
         double D = edge.diameter_mm / 1000.0;
         double A = PI * D * D / 4.0;
         if (A > 0.0)

@@ -1479,26 +1479,29 @@ void VulkanRenderer::CreateGridVertexData() {
 
 std::array<float, 3> VulkanRenderer::GetNodeColor(mep::NodeType type) {
     switch (type) {
-        case mep::NodeType::Source:  return {0.2f, 0.5f, 1.0f};  // Mavi
-        case mep::NodeType::Fixture: return {0.2f, 0.9f, 0.3f};  // Yeşil
-        case mep::NodeType::Junction:return {0.7f, 0.7f, 0.7f};  // Gri
-        case mep::NodeType::Drain:   return {0.7f, 0.4f, 0.2f};  // Kahverengi
-        case mep::NodeType::Pump:    return {1.0f, 0.8f, 0.2f};  // Sarı
-        case mep::NodeType::Tank:    return {0.3f, 0.3f, 0.9f};  // Koyu mavi
-        default:                     return {0.5f, 0.5f, 0.5f};
+        case mep::NodeType::Source:    return {0.2f, 0.5f, 1.0f};  // Mavi — soğuk su
+        case mep::NodeType::HotSource: return {1.0f, 0.3f, 0.1f};  // Kırmızı — sıcak su
+        case mep::NodeType::Fixture:   return {0.2f, 0.9f, 0.3f};  // Yeşil
+        case mep::NodeType::Junction:  return {0.7f, 0.7f, 0.7f};  // Gri
+        case mep::NodeType::Drain:     return {0.7f, 0.4f, 0.2f};  // Kahverengi
+        case mep::NodeType::Pump:      return {1.0f, 0.8f, 0.2f};  // Sarı
+        case mep::NodeType::Tank:      return {0.3f, 0.3f, 0.9f};  // Koyu mavi
+        default:                       return {0.5f, 0.5f, 0.5f};
     }
 }
 
 std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type, bool isColumn) {
     if (isColumn) {
         switch (type) {
-            case mep::EdgeType::Supply:   return {0.0f, 0.85f, 1.0f};  // Cyan — kolon temiz su
+            case mep::EdgeType::Supply:   return {0.0f, 0.85f, 1.0f};  // Cyan — kolon soğuk su
+            case mep::EdgeType::HotWater: return {1.0f, 0.4f, 0.0f};   // Turuncu-kırmızı — kolon sıcak su
             case mep::EdgeType::Drainage: return {0.9f, 0.5f, 0.1f};   // Turuncu — kolon pis su
             default:                      return {0.7f, 0.7f, 0.7f};
         }
     }
     switch (type) {
-        case mep::EdgeType::Supply:   return {0.2f, 0.6f, 1.0f};  // Açık mavi
+        case mep::EdgeType::Supply:   return {0.2f, 0.6f, 1.0f};  // Açık mavi — soğuk su
+        case mep::EdgeType::HotWater: return {1.0f, 0.25f, 0.1f}; // Kırmızı — sıcak su
         case mep::EdgeType::Drainage: return {0.6f, 0.4f, 0.2f};  // Kahverengi
         case mep::EdgeType::Vent:     return {0.5f, 0.5f, 0.5f};  // Gri
         default:                      return {0.5f, 0.5f, 0.5f};

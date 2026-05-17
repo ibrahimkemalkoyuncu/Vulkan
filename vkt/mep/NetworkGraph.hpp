@@ -23,7 +23,8 @@ namespace mep {
 enum class NodeType {
     Junction,      ///< Bağlantı noktası
     Fixture,       ///< Armatür (Lavabo, WC, vs.)
-    Source,        ///< Su kaynağı / Şebeke giriş
+    Source,        ///< Soğuk su kaynağı / Şebeke giriş
+    HotSource,     ///< Sıcak su kaynağı (Şofben / Kazan)
     Tank,          ///< Depo
     Pump,          ///< Pompa
     Drain          ///< Atık su tahliye noktası
@@ -34,7 +35,8 @@ enum class NodeType {
  * @brief Kenar (boru) tipleri
  */
 enum class EdgeType {
-    Supply,        ///< Temiz su besleme
+    Supply,        ///< Soğuk su besleme
+    HotWater,      ///< Sıcak su besleme
     Drainage,      ///< Pis su / Atık su
     Vent           ///< Havalandırma
 };

@@ -130,6 +130,13 @@ private slots:
     void OnPlaceYerSuzgeci();
     void OnPlaceRogar();
 
+    // Sıcak su çizim komutları
+    void OnDrawHotWaterPipe();
+    void OnPlaceHotSource();
+
+    // Tesisatı Kabul Et — doğrulama + numaralandırma
+    void OnTesistatKabul();
+
     // Tesisat Kopyalama — seçili katı başka kata kopyala (kolonlar hariç)
     void OnCopyFloor();
 
@@ -241,9 +248,12 @@ private:
     QAction* m_actDrawPipe        = nullptr;
     QAction* m_actDrawFixture     = nullptr;
     QAction* m_actDrawJunction    = nullptr;
-    QAction* m_actDrawDrainPipe   = nullptr;
-    QAction* m_actPlaceYerSuzgeci = nullptr;
-    QAction* m_actPlaceRogar      = nullptr;
+    QAction* m_actDrawDrainPipe    = nullptr;
+    QAction* m_actPlaceYerSuzgeci  = nullptr;
+    QAction* m_actPlaceRogar       = nullptr;
+    QAction* m_actDrawHotWaterPipe = nullptr;
+    QAction* m_actPlaceHotSource   = nullptr;
+    QAction* m_actTesistatKabul    = nullptr;
     QAction* m_actCopyFloor        = nullptr;
     QAction* m_actConnectFixture   = nullptr;
     QAction* m_actDrawColumn       = nullptr;

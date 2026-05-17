@@ -211,6 +211,21 @@ void MainWindow::CreateActions() {
     m_actDrawColumn->setShortcut(QKeySequence("Ctrl+Shift+K"));
     connect(m_actDrawColumn, &QAction::triggered, this, &MainWindow::OnDrawColumn);
 
+    // Sıcak su araçları
+    m_actDrawHotWaterPipe = new QAction("Sicak Su Borusu", this);
+    m_actDrawHotWaterPipe->setToolTip("Sicak su borusu ciz (kirmizi) — sofben / kazan hattina bagli");
+    connect(m_actDrawHotWaterPipe, &QAction::triggered, this, &MainWindow::OnDrawHotWaterPipe);
+
+    m_actPlaceHotSource = new QAction("Sicak Su Kaynagi (Sofben/Kazan)", this);
+    m_actPlaceHotSource->setToolTip("Sofben veya kazan — sicak su baslangi noktasi (kirmizi dugum)");
+    connect(m_actPlaceHotSource, &QAction::triggered, this, &MainWindow::OnPlaceHotSource);
+
+    // Tesisatı Kabul Et
+    m_actTesistatKabul = new QAction("Tesisati Kabul Et", this);
+    m_actTesistatKabul->setToolTip("Tum tesisati dogrula, parcaları numaralandır ve hesap modülüne hazırla (Ctrl+Enter)");
+    m_actTesistatKabul->setShortcut(QKeySequence("Ctrl+Return"));
+    connect(m_actTesistatKabul, &QAction::triggered, this, &MainWindow::OnTesistatKabul);
+
     m_actPrintLayout = new QAction("Pafta Duzenle ve Yazdir...", this);
     m_actPrintLayout->setToolTip("A3/A4 pafta + ISO 7200 baslik bloku + PDF/SVG kaydet (Ctrl+P)");
     m_actPrintLayout->setShortcut(QKeySequence("Ctrl+P"));
@@ -328,6 +343,9 @@ void MainWindow::CreateMenus() {
     drawMenu->addAction(m_actConnectFixture);
     drawMenu->addAction(m_actDrawColumn);
     drawMenu->addSeparator();
+    drawMenu->addAction(m_actDrawHotWaterPipe);
+    drawMenu->addAction(m_actPlaceHotSource);
+    drawMenu->addSeparator();
     drawMenu->addAction(m_actDrawDrainPipe);
     drawMenu->addAction(m_actPlaceYerSuzgeci);
     drawMenu->addAction(m_actPlaceRogar);
@@ -343,6 +361,8 @@ void MainWindow::CreateMenus() {
 
     // Analiz
     auto* analyzeMenu = menuBar()->addMenu("&Analiz");
+    analyzeMenu->addAction(m_actTesistatKabul);
+    analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actRunHydraulics);
     analyzeMenu->addAction(m_actAutoSizeDN);
     analyzeMenu->addSeparator();
@@ -1035,7 +1055,7 @@ void MainWindow::RunAutoHydro() {
         // Source node'lardan başla; source yoksa tüm node'lardan başla
         bool hasSource = false;
         for (const auto& [nid, node] : network.GetNodeMap()) {
-            if (node.type == mep::NodeType::Source) {
+            if (node.type == mep::NodeType::Source || node.type == mep::NodeType::HotSource) {
                 if (!visited.count(nid)) dfs(nid, UINT32_MAX);
                 hasSource = true;
             }
@@ -1327,6 +1347,25 @@ void MainWindow::OnDrawDrainPipe() {
     if (m_commandBar) m_commandBar->SetPrompt("Pis su bas.");
 }
 
+void MainWindow::OnDrawHotWaterPipe() {
+    m_currentPipeType  = mep::EdgeType::HotWater;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Sicak su borusu: Baslangic noktasini tiklayin (sofbenden baslayin) (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Sicak su bas.");
+}
+
+void MainWindow::OnPlaceHotSource() {
+    if (!m_document) return;
+    m_currentToolMode = ToolMode::PlaceJunction; // Junction modunu ödünç al — click koordinatını yakalar
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Sofben / Kazan: Konumunu tiklayin (sicak su baslangic noktasi)");
+    if (m_commandBar) m_commandBar->SetPrompt("Sofben konumu");
+    // Özel flag: junction yerine HotSource node koysun
+    m_drainLabel = "__HOT_SOURCE__";
+}
+
 void MainWindow::OnPlaceYerSuzgeci() {
     m_drainLabel      = "Yer Suzgeci";
     m_currentToolMode = ToolMode::PlaceDrain;
@@ -1341,6 +1380,122 @@ void MainWindow::OnPlaceRogar() {
     m_drawState       = DrawState::WaitingFirstPoint;
     statusBar()->showMessage("Bosaltma noktasi (Rogar): Konumu tiklayin");
     if (m_commandBar) m_commandBar->SetPrompt("Rogar konumu");
+}
+
+void MainWindow::OnTesistatKabul() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+
+    // ── 1. Doğrulama ─────────────────────────────────────────
+    int errorCount   = 0;
+    int warningCount = 0;
+    QStringList errors, warnings;
+
+    // Kaynakları bul
+    std::vector<uint32_t> coldSources, hotSources;
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.type == mep::NodeType::Source)    coldSources.push_back(nid);
+        if (node.type == mep::NodeType::HotSource) hotSources.push_back(nid);
+    }
+
+    if (coldSources.empty())
+        errors << "Soguk su baslangic noktasi (Source) tanimlanmamis!";
+    if (coldSources.size() > 1)
+        warnings << QString("Birden fazla soguk su kaynagi var (%1 adet)").arg(coldSources.size());
+
+    // Açık uç kontrolü: sadece Supply/HotWater kenarlara bağlı Junction/Fixture
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.type == mep::NodeType::Source || node.type == mep::NodeType::HotSource
+            || node.type == mep::NodeType::Drain) continue;
+
+        auto edges = network.GetConnectedEdges(nid);
+        int supplyEdges = 0;
+        for (uint32_t eid : edges) {
+            const mep::Edge* e = network.GetEdge(eid);
+            if (e && (e->type == mep::EdgeType::Supply || e->type == mep::EdgeType::HotWater
+                      || e->type == mep::EdgeType::Drainage))
+                supplyEdges++;
+        }
+        if (supplyEdges == 0)
+            errors << QString("Baglantisiz dugum ID=%1 (%2)").arg(nid)
+                          .arg(QString::fromStdString(node.label));
+        else if (supplyEdges == 1 && node.type == mep::NodeType::Junction)
+            warnings << QString("Aci uc Junction ID=%1 — boru bagli degil").arg(nid);
+    }
+
+    errorCount   = errors.size();
+    warningCount = warnings.size();
+
+    // ── 2. Parça numaralandırma ───────────────────────────────
+    int pipeNum = 1, nodeNum = 1;
+    for (auto& [eid, edge] : network.GetEdgeMap()) {
+        // Mevcut DN etiketini koru, sadece numara ekle
+        std::string prefix = (edge.type == mep::EdgeType::HotWater) ? "SK-"
+                           : (edge.type == mep::EdgeType::Drainage)  ? "PS-"
+                                                                      : "P-";
+        // Etiket yoksa veya numara eki yoksa ata
+        if (edge.label.empty() || edge.label.find(prefix) == std::string::npos) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%s%03d", prefix.c_str(), pipeNum);
+            if (!edge.label.empty())
+                edge.label = std::string(buf) + " " + edge.label;
+            else
+                edge.label = buf;
+        }
+        pipeNum++;
+    }
+    for (auto& [nid, node] : network.GetNodeMap()) {
+        if (node.label == "J" || node.label.empty()) {
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "N-%03d", nodeNum);
+            node.label = buf;
+        }
+        nodeNum++;
+    }
+
+    // ── 3. Otomatik DN hesabı ─────────────────────────────────
+    RunAutoHydro();
+    RefreshTextOverlay();
+    m_document->SetModified(true);
+
+    // ── 4. Özet dialog ───────────────────────────────────────
+    QString summary;
+    summary += QString("<b>Tesisat Kabul Özeti</b><br><br>");
+    summary += QString("Boru sayısı : <b>%1</b><br>").arg(network.GetEdgeCount());
+    summary += QString("Düğüm sayısı: <b>%1</b><br>").arg(network.GetNodeCount());
+    summary += QString("Soğuk su kaynağı: <b>%1</b><br>").arg(coldSources.size());
+    summary += QString("Sıcak su kaynağı: <b>%1</b><br><br>").arg(hotSources.size());
+
+    if (errorCount == 0 && warningCount == 0) {
+        summary += "<font color='green'><b>✔ Tesisat hatasız kabul edildi.</b></font><br>";
+        summary += "<br>DN boyutlandırma tamamlandı. Hesap modülü hazır.";
+    } else {
+        if (errorCount > 0) {
+            summary += QString("<font color='red'><b>%1 HATA:</b></font><br>").arg(errorCount);
+            for (const auto& e : errors)
+                summary += "• " + e + "<br>";
+            summary += "<br>";
+        }
+        if (warningCount > 0) {
+            summary += QString("<font color='orange'><b>%1 Uyarı:</b></font><br>").arg(warningCount);
+            for (const auto& w : warnings)
+                summary += "• " + w + "<br>";
+        }
+        if (errorCount > 0)
+            summary += "<br><i>Hataları düzelttikten sonra tekrar 'Tesisatı Kabul Et' yapın.</i>";
+    }
+
+    QMessageBox dlg(this);
+    dlg.setWindowTitle("Tesisatı Kabul Et");
+    dlg.setTextFormat(Qt::RichText);
+    dlg.setText(summary);
+    dlg.setIcon(errorCount > 0 ? QMessageBox::Warning : QMessageBox::Information);
+    dlg.exec();
+
+    statusBar()->showMessage(errorCount == 0
+        ? QString("Tesisat kabul edildi: %1 boru, %2 dugum numaralandirildi")
+              .arg(network.GetEdgeCount()).arg(network.GetNodeCount())
+        : QString("Tesisat HATALI: %1 hata duzeltilmeli").arg(errorCount), 5000);
 }
 
 void MainWindow::OnCopyFloor() {
@@ -1675,15 +1830,28 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     }
     case ToolMode::PlaceJunction: {
         mep::Node node;
-        node.type = mep::NodeType::Junction;
         node.position = geom::Vec3(worldX, worldY, 0.0);
-        node.label = "J";
-        auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
-        m_document->ExecuteCommand(std::move(cmd));
-        m_document->SetModified(true);
-        UpdateUI();
-        statusBar()->showMessage(QString("Bağlantı noktası eklendi (x=%1, y=%2)")
-            .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        if (m_drainLabel == "__HOT_SOURCE__") {
+            node.type  = mep::NodeType::HotSource;
+            node.label = "Sofben";
+            m_drainLabel.clear();
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("Sicak su kaynagi (Sofben/Kazan) eklendi (x=%1, y=%2)")
+                .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        } else {
+            node.type  = mep::NodeType::Junction;
+            node.label = "J";
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            UpdateUI();
+            statusBar()->showMessage(QString("Bağlantı noktası eklendi (x=%1, y=%2)")
+                .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        }
         break;
     }
     case ToolMode::PlaceDrain: {
@@ -1991,9 +2159,11 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
 
     if (c == "HELP") {
         if (m_logList) {
-            m_logList->addItem("Komutlar: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
+            m_logList->addItem("Soguk Su: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
+            m_logList->addItem("Sicak Su: SICAK-SU  SOFBEN/KAZAN (sofben kaynagi)");
             m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
             m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR/BOSALTMA");
+            m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
@@ -2036,6 +2206,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     } else if (c == "JUNCTION") {
         OnDrawJunction();
         if (m_commandBar) m_commandBar->SetPrompt("Bağlantı noktası");
+    } else if (c == "SICAK-SU" || c == "HOT-WATER" || c == "HOT-PIPE") {
+        OnDrawHotWaterPipe();
+    } else if (c == "SOFBEN" || c == "KAZAN" || c == "HOT-SOURCE" || c == "SICAK-KAYNAK") {
+        OnPlaceHotSource();
+    } else if (c == "KABUL" || c == "ACCEPT" || c == "TESISAT-KABUL") {
+        OnTesistatKabul();
     } else if (c == "PIS-SU" || c == "DRAINAGE-PIPE" || c == "DRAIN-PIPE") {
         OnDrawDrainPipe();
     } else if (c == "YER-SUZGECI" || c == "FLOOR-DRAIN") {
@@ -2146,13 +2322,19 @@ void MainWindow::RefreshTextOverlay() {
         const bool isCol = network.IsColumnEdge(edge.id);
         QColor edgeColor;
         if (isCol) {
-            edgeColor = (edge.type == mep::EdgeType::Supply)
-                ? QColor(0, 220, 255)    // cyan — kolon temiz su
-                : QColor(255, 140, 30);  // turuncu — kolon pis su
+            switch (edge.type) {
+                case mep::EdgeType::Supply:   edgeColor = QColor(0, 220, 255);   break; // cyan
+                case mep::EdgeType::HotWater: edgeColor = QColor(255, 100, 60);  break; // turuncu-kırmızı
+                case mep::EdgeType::Drainage: edgeColor = QColor(255, 140, 30);  break; // turuncu
+                default:                      edgeColor = QColor(180, 180, 180); break;
+            }
         } else {
-            edgeColor = (edge.type == mep::EdgeType::Supply)
-                ? QColor(100, 180, 255)  // mavi — yatay temiz su
-                : QColor(200, 140, 70);  // kahverengi — yatay pis su
+            switch (edge.type) {
+                case mep::EdgeType::Supply:   edgeColor = QColor(100, 180, 255); break; // mavi
+                case mep::EdgeType::HotWater: edgeColor = QColor(255,  80,  60); break; // kırmızı
+                case mep::EdgeType::Drainage: edgeColor = QColor(200, 140,  70); break; // kahverengi
+                default:                      edgeColor = QColor(160, 160, 160); break;
+            }
         }
 
         QString labelText = QString::fromStdString(edge.label);
@@ -2434,7 +2616,7 @@ void MainWindow::OnPrintLayout() {
 
     // PrintLayout'u çizim verisiyle doldur
     PrintLayout layout;
-    layout.SetEntities(&m_document->GetEntities());
+    layout.SetEntities(&m_document->GetCADEntities());
     layout.SetNetwork(&m_document->GetNetwork());
     layout.SetAutoScale(true);
     layout.SetPaperSize(PaperSize::A3_Landscape);

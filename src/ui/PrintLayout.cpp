@@ -242,8 +242,9 @@ bool PrintLayout::ExportToPDF(const std::string& filePath) const {
             QColor qc;
             switch (edge.type) {
                 case mep::EdgeType::Supply:   qc = QColor(0,  80, 180); break;
-                case mep::EdgeType::Drainage: qc = QColor(140, 90, 25); break;
-                case mep::EdgeType::Vent:     qc = QColor(50, 160, 50); break;
+                case mep::EdgeType::HotWater: qc = QColor(200, 40,  20); break;
+                case mep::EdgeType::Drainage: qc = QColor(140, 90,  25); break;
+                case mep::EdgeType::Vent:     qc = QColor(50, 160,  50); break;
             }
             painter.setPen(QPen(qc, toPixels(0.4)));
             painter.drawLine(
@@ -413,6 +414,7 @@ void PrintLayout::WriteSVGNetwork(std::ostream& out,
         std::string col;
         switch (edge.type) {
             case mep::EdgeType::Supply:   col = "#0050b4"; break;
+            case mep::EdgeType::HotWater: col = "#c82814"; break;
             case mep::EdgeType::Drainage: col = "#8c5a19"; break;
             case mep::EdgeType::Vent:     col = "#329632"; break;
         }
