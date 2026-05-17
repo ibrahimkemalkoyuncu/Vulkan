@@ -270,4 +270,249 @@ Mevcut sürümde fosseptik hacim hesabı **Analiz → Hidrolik Analiz** raporu i
 
 ---
 
-*VKT v1.0 — © 2026 — TS EN 806-3 + EN 12056-2 uyumlu*
+## 12. Boru Malzeme Seçimi
+
+Özellikler panelinde (sağ taraf — **"Özellikler (Mühendislik Modu)"**) **Malzeme** açılır menüsü bulunur. Boru çizmeden önce bu alandan malzemeyi seçin — seçim, bundan sonra çizilecek tüm borulara uygulanır.
+
+| Malzeme | Pürüzlülük (mm) | Tipik Kullanım |
+|---------|----------------|----------------|
+| PVC | 0.0015 | Soğuk su, drenaj |
+| PP (Polipropilen) | 0.0015 | Sıcak/soğuk su (PPR borular) |
+| PE | 0.0015 | Toprak altı, bahçe |
+| Bakır | 0.0015 | Sıcak su, gömme tesisat |
+| Çelik | 0.045 | Endüstriyel, yangın |
+
+> **Not:** Seçilen malzemenin pürüzlülük değeri otomatik olarak Darcy-Weisbach hesabına girer; DN boyutlandırma sonuçlarını etkiler.
+
+---
+
+## 13. Pis Su Sistemi
+
+Pis su boruları, yer süzgeçleri ve rögarlar ayrı bir çizim moduyla eklenir.
+
+### Pis Su Borusu
+```
+Çizim → Pis Su Borusu (kahverengi boru)
+Komut: PIS-SU
+```
+Pis su modu aktifken çizilen borular `Drainage` tipi olarak kaydedilir ve kahverengi renkte görünür. ESC ile temiz su moduna geri dönülür.
+
+### Yer Süzgeci ve Rögar
+```
+Komut: YER-SUZGECI  → Drain node yerleştirir (yer süzgeci)
+Komut: ROGAR        → Drain node yerleştirir (rögar/bosaltma)
+```
+Her iki komut da tıklanan noktaya bir drenaj girişi ekler. AutoHydro sonrası Manning denklemiyle pik debi hesaplanır.
+
+### EN 12056-2 Discharge Unit (DU)
+| Cihaz | DU |
+|-------|----|
+| Lavabo | 0.5 |
+| Duş | 0.6 |
+| WC | 2.0 |
+| Banyo/Küvet | 1.5 |
+| Mutfak Evyesi | 0.8 |
+
+---
+
+## 14. Cihazları Tesisata Bağla (BAGLA)
+
+FineSANI'nin en sık kullanılan özelliği: armatür ile ana boru hattı arasına otomatik dal boru ekler.
+
+```
+Çizim → Cihazı Tesisata Bağla  (Ctrl+B)
+Komut: BAGLA  veya  CONNECT
+```
+
+**İş akışı:**
+1. `BAGLA` yazın veya Ctrl+B tuşuna basın.
+2. **Adım 1/2:** Armatür node'una tıklayın — seçildiğinde status bar'da `BAGLA: [Lavabo] seçildi` görünür.
+3. **Adım 2/2:** Bağlanacak ana boru hattına tıklayın.
+4. VKT dik ayak noktasını hesaplar → Junction oluşturur → dal boruyu ekler.
+5. Undo/Redo desteklidir.
+
+> **İpucu:** Ana hattın tam üstüne tıklamanız yeterli — VKT en yakın noktayı ve dik bağlantıyı otomatik bulur.
+
+---
+
+## 15. Tesisat Kopyalama — Çok Katlı Projeler
+
+Aynı plan tekrar eden katlarda tesisat bir kere çizilir, diğer katlara kopyalanır.
+
+```
+Çizim → Tesisat Kopyala...
+Komut: KOPYA-KAT
+```
+
+**Dikkat:** Kolonlar (dikey borular, farklı Z'ye uzanan) kopyalamaya **dahil edilmez** — bu kasıtlı bir davranıştır. Kolonları katlar arası bağlamak için **KOLON** komutunu kullanın (bkz. Bölüm 16).
+
+**İş akışı:**
+1. `KOPYA-KAT` yazın.
+2. Kaynak katı seçin (örn. Zemin Kat).
+3. Hedef katı seçin (örn. 1. Kat).
+4. VKT kaynak kattaki tüm yatay boru ve armatürleri hedef kata kopyalar.
+
+---
+
+## 16. Kolon Bağlantı Asistanı (KOLON)
+
+Farklı katlardaki tesisatı birbirine bağlayan dikey boruları (kolonlar) eklemek için:
+
+```
+Çizim → Kolon Boru Ciz  (Ctrl+Shift+K)
+Komut: KOLON  veya  COLUMN
+```
+
+**Ön koşul:** En az 2 kat tanımlı olmalı (bkz. Adım 4 — Mimari Belirle).
+
+**İş akışı:**
+1. `KOLON` yazın veya Ctrl+Shift+K tuşuna basın.
+2. **Kaynak Node:** Açılan listeden kolonun başladığı node'u seçin.
+3. **Hedef Kat:** Kolonun uzanacağı katı seçin.
+4. VKT aynı XY konumunda hedef katta node arar (±50mm/±0.15m tolerans). Yoksa otomatik oluşturur.
+5. Dikey boru eklenir; uzunluk Z farkından hesaplanır; AutoHydro çalışır.
+
+---
+
+## 17. Hesap Normu Seçimi (EN 806-3 / DIN 1988-300)
+
+```
+Analiz → Hesap Normu...
+Komut: NORM
+```
+
+| Norm | Açıklama | φ (eşzamanlılık) |
+|------|----------|-----------------|
+| **TS EN 806-3** (varsayılan) | Avrupa / Türkiye standardı | √(ΣLU) |
+| **DIN 1988-300** | Alman standardı | 1/(1+√LU/10) |
+
+Norm seçiminden sonra sistem **otomatik yeniden hesaplar** — DN etiketleri güncellenir.
+
+---
+
+## 18. Hidrofor Boyutlandırma
+
+```
+Analiz → Hidrofor Boyutlandırma...
+Komut: HIDROFOR
+```
+
+VKT kritik devreyi analiz eder ve:
+- Kritik basınç kaybı (mSS)
+- Gerekli pompa basma yüksekliği
+- Gerekli debi (m³/h)
+- Önerilen pompa modeli ve gücü (kW)
+
+bilgilerini gösterir.
+
+---
+
+## 19. Yağmur Suyu Modülü (EN 12056-3)
+
+```
+Analiz → Yağmur Suyu Modülü...
+Komut: YAGMUR
+```
+
+Gerekli girişler:
+- **Çatı alanı** (m²)
+- **Yüzey tipi** (C katsayısı: beton/kiremit/çakıl vb.)
+- Yağış yoğunluğu r_D = 0.03 l/(s·m²) (standart değer)
+
+Sonuç: `Q = C × A × r_D` formülüyle hesaplanan debi, DN tablosu, boru adedi.
+
+---
+
+## 20. Keşif Listesi (BOM)
+
+```
+Analiz → Keşif Listesi (BOM)...
+Komut: BOM  veya  KESIF  (Ctrl+K)
+```
+
+BOM raporu:
+- DN'e göre boru metrajları (m)
+- T-parça, dirsek, armatür bağlantı sayımı
+- Dialog'dan kopyalanabilir veya `rapor/` klasörüne kaydedilebilir
+
+---
+
+## 21. Kolon Şeması (Riser Diyagramı)
+
+```
+Analiz → Kolon Şeması (Riser)...
+Komut: RISER  (Ctrl+R)
+```
+
+VKT, mevcut NetworkGraph ve kat tanımlarından otomatik riser diyagramı üretir:
+- SVG önizleme — kat etiketleri, DN ve debi değerleri, lejant
+- **"SVG Olarak Kaydet"** → `rapor/` klasörüne
+- **"PDF Olarak Kaydet"** → A3 Landscape PDF çıktısı
+
+---
+
+## 22. DN Manuel Override — Hesap Föyü XLS
+
+```
+Komut: DN-OVERRIDE  veya  DN-DEGISTIR
+```
+
+Otomatik DN boyutlandırma sonuçlarını görmek ve gerekirse manuel değiştirmek için:
+1. Tüm borular tablo halinde listelenir.
+2. Her boru için QComboBox'tan DN seçilir (DN16 → DN200).
+3. **Tamam** → değişiklikler anında uygulanır, overlay güncellenir.
+4. **"XLS Olarak Kaydet"** → Özet + Boru Hesap Föyü + Armatür sekmeli .xls dosyası.
+
+---
+
+## 23. 3D Hizalama Kontrolü
+
+```
+Mimari → 3D Hizalama Kontrolü...  (Ctrl+Shift+H)
+Komut: HIZALAMA
+```
+
+Her kat için kontrol tablosu:
+| Sütun | Açıklama |
+|-------|----------|
+| Kat No | İndeks |
+| İsim | Kat adı |
+| Kot (m) | Döşeme kotu |
+| Kat Yük. (m) | Düzenlenebilir — çift tıkla |
+| Node Sayısı | Bu kattaki node adedi |
+| Durum | OK / Boş / HATA: Kot çakışıyor |
+
+- **Kırmızı satır** → iki kat aynı kota sahip (çakışma)
+- **Sarı satır** → katta hiç node yok
+- **Tamam** → değişiklikler FloorManager'a uygulanır
+
+---
+
+## 24. Tam Proje İş Akışı — Özet
+
+```
+1.  Yeni Proje...     (Ctrl+Shift+N) — ad, müşteri, norm seçimi
+2.  Mimari Belirle... (Ctrl+M)       — kat tanımla, DXF yükle, ref noktası
+3.  3D Hizalama Kontrolü (Ctrl+Shift+H) — kot doğrula
+4.  Malzeme seç       Özellik paneli → PVC/PPR/Bakır...
+5.  ST Cihazları      sağ panel → armatür yerleştir
+6.  PIPE              ana boru hatları
+7.  SOURCE            şebeke girişi
+8.  BAGLA (Ctrl+B)   armatürleri hatta bağla
+9.  HYDRAULICS        DN etiketleri görünür
+10. HIDROFOR          pompa boyutlandır
+11. NORM              gerekirse DIN 1988-300
+12. PIS-SU            pis su borular
+13. YER-SUZGECI/ROGAR drenaj bağlantısı
+14. KOPYA-KAT         tekrar eden katlar
+15. KOLON (Ctrl+Shift+K) dikey boru bağlantıları
+16. YAGMUR            yağmur suyu boyutlandırma
+17. RISER (Ctrl+R)    kolon şeması → PDF/SVG
+18. DN-OVERRIDE       manuel düzeltme + XLS
+19. BOM (Ctrl+K)      keşif listesi
+20. Rapor Dışa Aktar  rapor/ klasörüne
+```
+
+---
+
+*VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

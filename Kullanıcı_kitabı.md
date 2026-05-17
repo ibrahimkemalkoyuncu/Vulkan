@@ -173,12 +173,27 @@ FIXTURE   → diyalogdan armatür tipi seçilerek yerleştirme
 | Kaynak (şebeke girişi) | — | `SOURCE` |
 | Seçim modu | Çizim → Seç | `ESC` |
 
+### Boru Malzeme Seçimi
+
+Çizmeden önce sağ paneldeki **"Özellikler (Mühendislik Modu)"** sekmesinde **Malzeme** açılır menüsünden seçim yapın:
+
+| Malzeme | Tipik Kullanım |
+|---------|---------------|
+| PVC (varsayılan) | Soğuk su, drenaj |
+| PP | Sıcak/soğuk su (PPR boru) |
+| PE | Toprak altı |
+| Bakır | Sıcak su, gömme tesisat |
+| Çelik | Endüstriyel, yangın |
+
+Seçilen malzemenin pürüzlülüğü Darcy-Weisbach hesabına otomatik girer.
+
 ### Çizim İş Akışı
 
-1. `PIPE` komutu veya toolbar butonu
-2. **1. nokta** tıkla → boru başlangıcı
-3. **2. nokta** tıkla → boru eklenir, zincirleme devam eder
-4. `ESC` ile çizimi bitirin
+1. Özellik panelinden malzeme seçin
+2. `PIPE` komutu veya toolbar butonu
+3. **1. nokta** tıkla → boru başlangıcı
+4. **2. nokta** tıkla → boru eklenir, zincirleme devam eder
+5. `ESC` ile çizimi bitirin
 
 > Snap sistemi **Endpoint > Center > Intersection > Midpoint > Perpendicular > Nearest > Grid** öncelik sırasıyla çalışır. Kolondan yatay hat alırken **Perpendicular snap** otomatik önerilir.
 

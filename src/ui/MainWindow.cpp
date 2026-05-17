@@ -1579,9 +1579,9 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             m_firstClickScreen = QPoint(static_cast<int>(sp.x), static_cast<int>(sp.y));
             statusBar()->showMessage(QString("Boru: İkinci noktayı tıklayın (ESC = iptal)"));
         } else if (m_drawState == DrawState::WaitingSecondPoint) {
-            // Mevcut boru malzeme ayarları
-            const std::string material = "PVC";
-            const double roughness = 0.0015;
+            // Boru malzeme ayarları — özellik panelinden al
+            const std::string material = m_propMaterial ? m_propMaterial->currentText().toStdString() : "PVC";
+            const double roughness = mep::Database::Instance().GetPipe(material).roughness_mm;
             const double diameter  = 20.0;
 
             geom::Vec3 secondPos(worldX, worldY, 0.0);
@@ -2375,12 +2375,13 @@ void MainWindow::OnDrawColumn() {
     if (dz_m < 0.01) dz_m = 3.0;
 
     mep::Edge edge;
+    const std::string colMaterial = m_propMaterial ? m_propMaterial->currentText().toStdString() : "PVC";
     edge.nodeA       = srcNodeId;
     edge.nodeB       = dstNodeId;
     edge.type        = m_currentPipeType;
     edge.diameter_mm = 25.0;
-    edge.roughness_mm = 0.0015;
-    edge.material    = "PVC";
+    edge.roughness_mm = mep::Database::Instance().GetPipe(colMaterial).roughness_mm;
+    edge.material    = colMaterial;
     edge.length_m    = dz_m;
     auto addEdge = std::make_unique<core::AddEdgeCommand>(network, edge);
     addEdge->Execute();
