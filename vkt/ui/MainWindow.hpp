@@ -139,6 +139,9 @@ private slots:
     // Kolon Bağlantı Asistanı — dikey boru (Z ekseni)
     void OnDrawColumn();
 
+    // PDF Pafta (Sayfa) Düzeni
+    void OnPrintLayout();
+
     // Hidrofor / Ekipman Boyutlandırma
     void OnHidrofor();
 
@@ -244,6 +247,7 @@ private:
     QAction* m_actCopyFloor        = nullptr;
     QAction* m_actConnectFixture   = nullptr;
     QAction* m_actDrawColumn       = nullptr;
+    QAction* m_actPrintLayout      = nullptr;
     QAction* m_actHidrofor         = nullptr;
     QAction* m_actNormSelection    = nullptr;
     QAction* m_actYagmurSuyu       = nullptr;

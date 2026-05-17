@@ -8,6 +8,7 @@
 #include "ui/MimariBelirleDialog.hpp"
 #include "ui/NewProjectDialog.hpp"
 #include "ui/FloorAlignmentDialog.hpp"
+#include "ui/PrintLayoutDialog.hpp"
 #include "core/ProjectManager.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
@@ -210,6 +211,11 @@ void MainWindow::CreateActions() {
     m_actDrawColumn->setShortcut(QKeySequence("Ctrl+Shift+K"));
     connect(m_actDrawColumn, &QAction::triggered, this, &MainWindow::OnDrawColumn);
 
+    m_actPrintLayout = new QAction("Pafta Duzenle ve Yazdir...", this);
+    m_actPrintLayout->setToolTip("A3/A4 pafta + ISO 7200 baslik bloku + PDF/SVG kaydet (Ctrl+P)");
+    m_actPrintLayout->setShortcut(QKeySequence("Ctrl+P"));
+    connect(m_actPrintLayout, &QAction::triggered, this, &MainWindow::OnPrintLayout);
+
     m_actHidrofor = new QAction("Hidrofor Boyutlandirma...", this);
     m_actHidrofor->setToolTip("Kritik devre analizi sonucuna gore hidrofor/pompa secimi");
     connect(m_actHidrofor, &QAction::triggered, this, &MainWindow::OnHidrofor);
@@ -352,6 +358,8 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actPrintLayout);
 
     // Mimari
     auto* mimariMenu = menuBar()->addMenu("&Mimari");
@@ -1989,7 +1997,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
-            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON");
+            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -2009,6 +2017,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnFloorAlignment();
     } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
         OnDrawColumn();
+    } else if (c == "PAFTA" || c == "PRINT" || c == "YAZDIR") {
+        OnPrintLayout();
     } else if (c == "UZAKLIK" || c == "DISTANCE" || c == "DIST") {
         m_measureMode = true;
         m_measureHasFirstPt = false;
@@ -2396,6 +2406,48 @@ void MainWindow::OnDrawColumn() {
         .arg(srcFloor).arg(actualFloorIdx).arg(dz_m, 0, 'f', 2);
     statusBar()->showMessage(msg);
     if (m_logList) m_logList->addItem(msg);
+}
+
+// ============================================================
+//  PDF PAFTA DÜZENİ
+// ============================================================
+void MainWindow::OnPrintLayout() {
+    if (!m_document) {
+        QMessageBox::warning(this, "Pafta", "Aktif belge yok.");
+        return;
+    }
+
+    // PrintLayout'u çizim verisiyle doldur
+    PrintLayout layout;
+    layout.SetEntities(&m_document->GetEntities());
+    layout.SetNetwork(&m_document->GetNetwork());
+    layout.SetAutoScale(true);
+    layout.SetPaperSize(PaperSize::A3_Landscape);
+
+    // Proje kök klasörü ve adı
+    auto& pm = core::ProjectManager::Instance();
+    std::string projectsRoot = pm.GetProjectFolder().empty()
+        ? pm.GetProjectsRoot()
+        : pm.GetProjectFolder();
+
+    // Başlık bloğunu proje bilgileriyle önceden doldur
+    TitleBlock tb;
+    tb.projectName  = pm.GetProjectName();
+    tb.drawingTitle = "Tesisat Paftasi";
+    tb.drawingNumber = "P-001";
+    tb.revision      = "A";
+    tb.date          = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
+    tb.standard      = "TS EN 806-3 / EN 12056-2";
+    layout.SetTitleBlock(tb);
+
+    PrintLayoutDialog dlg(layout, projectsRoot, this);
+    dlg.SetInitialTitleBlock(tb);
+    dlg.exec();
+
+    if (!dlg.LastSavedPath().isEmpty()) {
+        LogCAD("Pafta kaydedildi: " + dlg.LastSavedPath().toStdString());
+        statusBar()->showMessage("Pafta kaydedildi: " + dlg.LastSavedPath());
+    }
 }
 
 // ============================================================

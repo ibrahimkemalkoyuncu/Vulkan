@@ -105,6 +105,7 @@ set(SOURCES
     src/ui/STFixturePanel.cpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
+    src/ui/PrintLayoutDialog.cpp
     src/ui/FixturePropertiesPanel.cpp
     src/ui/CommandBar.cpp
     src/ui/SnapOverlay.cpp
@@ -168,6 +169,7 @@ set(HEADERS
     vkt/ui/STFixturePanel.hpp
     vkt/ui/SpacePanel.hpp
     vkt/ui/PrintLayout.hpp
+    vkt/ui/PrintLayoutDialog.hpp
     vkt/ui/FixturePropertiesPanel.hpp
     vkt/ui/CommandBar.hpp
     vkt/ui/SnapOverlay.hpp

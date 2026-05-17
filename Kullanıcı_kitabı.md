@@ -31,6 +31,7 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 21. [Kolon Şeması (Riser Diyagramı)](#riser)
 22. [DN Manuel Override — Hesap Föyü XLS](#dn-override)
 23. [Kolon Bağlantı Asistanı (KOLON)](#kolon-asistan)
+24. [PDF Pafta Düzeni (PAFTA)](#pafta)
 
 ---
 
@@ -759,6 +760,54 @@ Yöntem 2: Komut satırına KOLON yazın
 - **Mevcut node tespiti:** Hedef katta aynı XY konumunda ±50mm/±0.15m tolerans içinde node varsa yeni node oluşturulmaz, var olan kullanılır
 
 > **İpucu:** Temiz su kolonlarından önce her katın yatay borularını çizin, sonra KOPYA-KAT ile diğer katlara kopyalayın, ardından KOLON ile katları bağlayın. Bu sıralama en az hata riski taşır.
+
+---
+
+## Bölüm 24 — PDF Pafta Düzeni (PAFTA) {#pafta}
+
+**VKT**, tesisat çizimini A3/A4 boyutlu bir sayfa düzenine (pafta) yerleştirip ISO 7200 başlık bloğuyla birlikte **PDF** veya **SVG** olarak dışa aktarır.
+
+```
+Analiz → Pafta Duzenle ve Yazdir...  (Ctrl+P)
+Komut: PAFTA  veya  PRINT
+```
+
+### Pafta Düzeni Penceresi
+
+**Sayfa Ayarları:**
+
+| Alan | Seçenekler |
+|------|-----------|
+| Kağıt Boyutu | A3 Yatay (420×297 mm), A3 Dikey, A4 Yatay, A4 Dikey |
+| Ölçek | Otomatik (sığdır) · 1:20 · 1:50 · 1:100 · 1:200 · 1:500 |
+
+**ISO 7200 Başlık Bloğu:**
+
+| Alan | Açıklama |
+|------|----------|
+| Proje Adı * | Zorunlu — ProjectManager'dan otomatik doldurulur |
+| Pafta Adı | ör. "Zemin Kat Temiz Su Tesisatı" |
+| Pafta No | ör. P-001 |
+| Revizyon | A, B, C... |
+| Firma | Mühendislik bürosu adı |
+| Çizen | Baş harfler |
+| Tarih | Otomatik — bugünün tarihi |
+
+**Çıktı:**
+- **PDF Kaydet** → standart A3/A4 PDF; `rapor/` klasörüne önerilen yol
+- **SVG Kaydet** → vektörel SVG; web/sunum için
+
+### Pafta İçeriği
+
+Pafta üç katmandan oluşur:
+1. **Çerçeve** — sayfa kenar çizgisi (0.5mm)
+2. **Viewport** — tesisat çizimi (entity'ler + MEP ağı, ölçeklenmiş)
+   - Temiz su borular: **mavi** (0.4mm)
+   - Pis su borular: **kahverengi** (0.4mm)
+   - CAD entity'leri (DXF/DWG): katman rengi
+3. **Başlık Bloğu** — sayfanın alt kısmında, ISO 7200 formatında
+
+> **Not:** Pafta çizimi, anlık çizim durumunu yansıtır. DN etiketleri ve riser diyagramı ayrı dosyalarda saklanır — bunları paftaya dahil etmek için `RISER` + `PDF Kaydet` kullanın.
 
 ---
 

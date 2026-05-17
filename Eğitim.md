@@ -488,6 +488,22 @@ Her kat için kontrol tablosu:
 
 ---
 
+## 23. PDF Pafta Düzeni
+
+Çizimi A3/A4 kağıt düzeninde, başlık bloğuyla birlikte PDF veya SVG olarak kaydedin:
+
+```
+Analiz → Pafta Duzenle ve Yazdir... (Ctrl+P)
+Komut: PAFTA
+```
+
+1. **Kağıt Boyutu** seçin — A3 Yatay önerilir.
+2. **Ölçek**: "Otomatik" bırakırsanız VKT tüm çizimi sayfaya sığdırır.
+3. **Başlık Bloğu** alanlarını doldurun (Proje Adı otomatik gelir).
+4. **PDF Kaydet** veya **SVG Kaydet** → `rapor/` klasörüne.
+
+---
+
 ## 24. Tam Proje İş Akışı — Özet
 
 ```

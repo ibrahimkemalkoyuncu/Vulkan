@@ -400,6 +400,8 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **RiserDiagram SVG iyileştirmesi** — `ToSVG()` yeniden yazıldı: viewBox, beyaz arka plan border, başlık/alt çizgi, çift sıra mavi alternating (#f5f8ff), stroke-linecap=round, kat etiketleri koyu/bold, DN etiketleri mavi (#2255aa), kolon başlıkları siyah/bold, sağ alt lejant kutusu (Temiz Su + Pis Su)
 - **Kolon Bağlantı Asistanı** — `OnDrawColumn()`: 2-adım dialog (kaynak node listesi → hedef kat seçimi); aynı XY'de hedef katta node bulma (50mm/0.15m tolerans); yoksa Junction oluştur; dikey boru uzunluğu Z farkından; CompositeCommand ile undo/redo; Ctrl+Shift+K + `KOLON`/`COLUMN`/`DIKEY-BORU` komutu
 - **Test kapsamı genişletme** — `test_riser.cpp`'ye 8 yeni test: SVG viewBox/legend/alternating/linecap, kolon dz hesabı, node-at-elevation arama algoritması, FloorManager null dönüşü, elevation aralik disi
+- **Boru malzeme seçici düzeltmesi** — DrawPipe + OnDrawColumn: sabit "PVC" → `m_propMaterial->currentText()` + `Database::GetPipe().roughness_mm`; özellik paneli artık gerçekten etkili
+- **PrintLayoutDialog** — `vkt/ui/PrintLayoutDialog.hpp` + `src/ui/PrintLayoutDialog.cpp`; A3/A4/Yatay/Dikey sayfa seçimi; otomatik/manuel ölçek; ISO 7200 başlık bloğu (proje adı/pafta/firma/çizen/tarih); ProjectManager'dan otomatik doldurma; PDF + SVG çıktı; Ctrl+P + `PAFTA`/`PRINT` komutu
 
 ### Devam Eden
 
