@@ -93,6 +93,8 @@ MainWindow::MainWindow(QWidget* parent)
         [this](double wx, double wy, Qt::MouseButton btn) { HandleMousePress(wx, wy, btn); });
     m_vulkanWindow->SetMouseMoveCallback(
         [this](double wx, double wy) { HandleMouseMove(wx, wy); });
+    m_vulkanWindow->SetMouseReleaseCallback(
+        [this](double wx, double wy, Qt::MouseButton btn) { HandleMouseRelease(wx, wy, btn); });
     m_vulkanWindow->SetViewportChangeCallback(
         [this]() { RefreshTextOverlay(); });
 
@@ -416,6 +418,17 @@ void MainWindow::CreateToolbars() {
     m_analysisToolbar->addAction(m_actAutoSizeDN);
     m_analysisToolbar->addSeparator();
     m_analysisToolbar->addAction(m_actGenerateSchedule);
+
+    // Aktif kat seçici toolbar
+    auto* floorToolbar = addToolBar("Aktif Kat");
+    floorToolbar->addWidget(new QLabel("  Kat: "));
+    m_floorSelector = new QComboBox();
+    m_floorSelector->setMinimumWidth(160);
+    m_floorSelector->setToolTip("Aktif kat — yeni cihaz ve borular bu katın yüksekliğinde (Z) yerleşir");
+    m_floorSelector->addItem("Zemin Kat (z=0.00 m)");
+    connect(m_floorSelector, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::OnActiveFloorChanged);
+    floorToolbar->addWidget(m_floorSelector);
 }
 
 void MainWindow::CreateDockPanels() {
@@ -1286,6 +1299,7 @@ void MainWindow::OnMimariBelirle() {
     if (dlg.exec() == QDialog::Accepted) {
         dlg.ApplyToFloorManager(m_floorManager);
         const auto& floors = m_floorManager.GetFloors();
+        RefreshFloorSelector();   // Kat seçici toolbar güncelle
         statusBar()->showMessage(
             QString("%1 kat tanımlandı.").arg((int)floors.size()));
         LogCAD("Mimari Belirle: " + std::to_string(floors.size()) + " kat");
@@ -1380,6 +1394,46 @@ void MainWindow::OnPlaceRogar() {
     m_drawState       = DrawState::WaitingFirstPoint;
     statusBar()->showMessage("Bosaltma noktasi (Rogar): Konumu tiklayin");
     if (m_commandBar) m_commandBar->SetPrompt("Rogar konumu");
+}
+
+void MainWindow::OnActiveFloorChanged(int index) {
+    m_activeFloorIndex = index;
+    const core::Floor* f = m_floorManager.GetFloor(index);
+    if (f) {
+        statusBar()->showMessage(
+            QString("Aktif kat: %1 (z = %2 m)")
+                .arg(QString::fromStdString(f->name))
+                .arg(f->elevation_m, 0, 'f', 2), 2000);
+    }
+}
+
+void MainWindow::RefreshFloorSelector() {
+    if (!m_floorSelector) return;
+    m_floorSelector->blockSignals(true);
+    m_floorSelector->clear();
+    const auto& floors = m_floorManager.GetFloors();
+    if (floors.empty()) {
+        m_floorSelector->addItem("Zemin Kat (z=0.00 m)");
+    } else {
+        for (int i = 0; i < static_cast<int>(floors.size()); ++i) {
+            const auto& f = floors[i];
+            m_floorSelector->addItem(
+                QString("%1 — %2 (%3 m)")
+                    .arg(i)
+                    .arg(QString::fromStdString(f.name))
+                    .arg(f.elevation_m, 0, 'f', 2));
+        }
+    }
+    // Aktif index'i sınırla
+    m_activeFloorIndex = std::min(m_activeFloorIndex,
+                                  m_floorSelector->count() - 1);
+    m_floorSelector->setCurrentIndex(m_activeFloorIndex);
+    m_floorSelector->blockSignals(false);
+}
+
+double MainWindow::GetActiveFloorZ() const {
+    const core::Floor* f = m_floorManager.GetFloor(m_activeFloorIndex);
+    return f ? f->elevation_m : 0.0;
 }
 
 void MainWindow::OnTesistatKabul() {
@@ -1733,7 +1787,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     case ToolMode::DrawPipe: {
         if (m_drawState == DrawState::WaitingFirstPoint || m_drawState == DrawState::Idle) {
             // İlk nokta: sadece konumu kaydet, henüz graph'a ekleme
-            m_firstClickPos = geom::Vec3(worldX, worldY, 0.0);
+            m_firstClickPos = geom::Vec3(worldX, worldY, GetActiveFloorZ());
             m_firstNodeInGraph = false;
             m_drawState = DrawState::WaitingSecondPoint;
             // Rubber-band başlangıcı için ekran koordinatı
@@ -1747,7 +1801,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             const double roughness = mep::Database::Instance().GetPipe(material).roughness_mm;
             const double diameter  = 20.0;
 
-            geom::Vec3 secondPos(worldX, worldY, 0.0);
+            geom::Vec3 secondPos(worldX, worldY, GetActiveFloorZ());
             double length_m = m_firstClickPos.DistanceTo(secondPos) / 1000.0; // mm → m
             if (length_m < 1e-6) length_m = 0.001;
 
@@ -1812,7 +1866,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     case ToolMode::PlaceFixture: {
         mep::Node node;
         node.type = mep::NodeType::Fixture;
-        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
         std::string typeName = m_selectedFixtureType.toStdString();
         node.fixtureType = typeName;
         node.label = typeName;
@@ -1830,7 +1884,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     }
     case ToolMode::PlaceJunction: {
         mep::Node node;
-        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
         if (m_drainLabel == "__HOT_SOURCE__") {
             node.type  = mep::NodeType::HotSource;
             node.label = "Sofben";
@@ -1857,7 +1911,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     case ToolMode::PlaceDrain: {
         mep::Node node;
         node.type     = mep::NodeType::Drain;
-        node.position = geom::Vec3(worldX, worldY, 0.0);
+        node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
         node.label    = m_drainLabel.toStdString();
         auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
         m_document->ExecuteCommand(std::move(cmd));
@@ -1869,84 +1923,96 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         break;
     }
     case ToolMode::ConnectFixture: {
-        if (m_connectFixtureNodeId == 0) {
-            // 1. Adim: en yakin Fixture node'u sec
-            constexpr double SNAP = 50.0;
-            uint32_t bestId = 0;
-            double bestD2 = SNAP * SNAP;
-            for (const auto& [nid, node] : network.GetNodeMap()) {
-                if (node.type != mep::NodeType::Fixture) continue;
-                double dx = node.position.x - worldX;
-                double dy = node.position.y - worldY;
-                double d2 = dx*dx + dy*dy;
-                if (d2 < bestD2) { bestD2 = d2; bestId = nid; }
+        // Once armatur secip secmedigimizi kontrol et (SNAP=50mm)
+        constexpr double SNAP_FIX = 50.0;
+        uint32_t bestFixId = 0;
+        double bestFixD2 = SNAP_FIX * SNAP_FIX;
+        for (const auto& [nid, node] : network.GetNodeMap()) {
+            if (node.type != mep::NodeType::Fixture) continue;
+            double dx = node.position.x - worldX;
+            double dy = node.position.y - worldY;
+            double d2 = dx*dx + dy*dy;
+            if (d2 < bestFixD2) { bestFixD2 = d2; bestFixId = nid; }
+        }
+
+        if (bestFixId != 0) {
+            // Armatur tiklandi — zaten secili degilse listeye ekle
+            auto it = std::find(m_batchFixtureIds.begin(), m_batchFixtureIds.end(), bestFixId);
+            if (it == m_batchFixtureIds.end()) {
+                m_batchFixtureIds.push_back(bestFixId);
             }
-            if (bestId == 0) {
-                statusBar()->showMessage("BAGLA: Armatur bulunamadi — armatur konumuna daha yakin tiklayin");
-                break;
-            }
-            m_connectFixtureNodeId = bestId;
-            const mep::Node* fn = network.GetNode(bestId);
-            statusBar()->showMessage(QString("BAGLA: [%1] secildi — boru hattini tiklayin (2/2)")
+            const mep::Node* fn = network.GetNode(bestFixId);
+            statusBar()->showMessage(QString("BAGLA: %1 armatur secildi (%2 dahil) — boru hattini tiklayin veya daha fazla armatur secin")
+                .arg(m_batchFixtureIds.size())
                 .arg(fn ? QString::fromStdString(fn->fixtureType) : "?"));
-            if (m_commandBar) m_commandBar->SetPrompt("Boru hatti");
-        } else {
-            // 2. Adim: en yakin edge'i bul, dis noktadan dik ayak cikar, dal boru ekle
-            constexpr double SNAP_EDGE = 100.0;
-            uint32_t bestEdgeId = 0;
-            double bestDist = SNAP_EDGE;
+            if (m_commandBar) m_commandBar->SetPrompt(QString("Boru hatti (%1 armatur)").arg(m_batchFixtureIds.size()));
+            break;
+        }
 
-            for (const auto& [eid, edge] : network.GetEdgeMap()) {
-                const mep::Node* nA = network.GetNode(edge.nodeA);
-                const mep::Node* nB = network.GetNode(edge.nodeB);
-                if (!nA || !nB) continue;
-                double ex = nB->position.x - nA->position.x;
-                double ey = nB->position.y - nA->position.y;
-                double len2 = ex*ex + ey*ey;
-                double dist;
-                if (len2 < 1e-9) {
-                    double dx = nA->position.x - worldX, dy = nA->position.y - worldY;
-                    dist = std::sqrt(dx*dx + dy*dy);
-                } else {
-                    double t = ((worldX - nA->position.x)*ex + (worldY - nA->position.y)*ey) / len2;
-                    t = std::max(0.0, std::min(1.0, t));
-                    double px = nA->position.x + t*ex, py = nA->position.y + t*ey;
-                    double dx = px - worldX, dy = py - worldY;
-                    dist = std::sqrt(dx*dx + dy*dy);
-                }
-                if (dist < bestDist) { bestDist = dist; bestEdgeId = eid; }
-            }
+        // Armatur yok — boru hatti tiklamasi olmali; secili armatur varsa bagla
+        if (m_batchFixtureIds.empty()) {
+            statusBar()->showMessage("BAGLA: Once armatur(ler)i tiklayin, sonra boru hattini tiklayin");
+            break;
+        }
 
-            if (bestEdgeId == 0) {
-                statusBar()->showMessage("BAGLA: Boru bulunamadi — boru hattina daha yakin tiklayin");
-                break;
-            }
+        constexpr double SNAP_EDGE = 100.0;
+        uint32_t bestEdgeId = 0;
+        double bestDist = SNAP_EDGE;
 
-            const mep::Edge* srcEdge = network.GetEdge(bestEdgeId);
-            const mep::Node* nA = network.GetNode(srcEdge->nodeA);
-            const mep::Node* nB = network.GetNode(srcEdge->nodeB);
-            const mep::Node* fixtureNode = network.GetNode(m_connectFixtureNodeId);
-            if (!nA || !nB || !fixtureNode) { m_connectFixtureNodeId = 0; break; }
-
-            // Dik ayak noktasi hesapla (en yakin nokta boru uzerinde)
+        for (const auto& [eid, edge] : network.GetEdgeMap()) {
+            const mep::Node* nA = network.GetNode(edge.nodeA);
+            const mep::Node* nB = network.GetNode(edge.nodeB);
+            if (!nA || !nB) continue;
             double ex = nB->position.x - nA->position.x;
             double ey = nB->position.y - nA->position.y;
             double len2 = ex*ex + ey*ey;
+            double dist;
+            if (len2 < 1e-9) {
+                double dx = nA->position.x - worldX, dy = nA->position.y - worldY;
+                dist = std::sqrt(dx*dx + dy*dy);
+            } else {
+                double t = ((worldX - nA->position.x)*ex + (worldY - nA->position.y)*ey) / len2;
+                t = std::max(0.0, std::min(1.0, t));
+                double px = nA->position.x + t*ex, py = nA->position.y + t*ey;
+                double dx = px - worldX, dy = py - worldY;
+                dist = std::sqrt(dx*dx + dy*dy);
+            }
+            if (dist < bestDist) { bestDist = dist; bestEdgeId = eid; }
+        }
+
+        if (bestEdgeId == 0) {
+            statusBar()->showMessage("BAGLA: Boru bulunamadi — boru hattina daha yakin tiklayin");
+            break;
+        }
+
+        const mep::Edge* srcEdge = network.GetEdge(bestEdgeId);
+        const mep::Node* nA_src  = network.GetNode(srcEdge->nodeA);
+        const mep::Node* nB_src  = network.GetNode(srcEdge->nodeB);
+        if (!nA_src || !nB_src) { m_batchFixtureIds.clear(); break; }
+
+        auto composite = std::make_unique<core::CompositeCommand>();
+        int connectedCount = 0;
+
+        for (uint32_t fixId : m_batchFixtureIds) {
+            const mep::Node* fixtureNode = network.GetNode(fixId);
+            if (!fixtureNode) continue;
+
+            // Dik ayak noktasi boru uzerinde (fixtureNode'dan)
+            double ex = nB_src->position.x - nA_src->position.x;
+            double ey = nB_src->position.y - nA_src->position.y;
+            double len2 = ex*ex + ey*ey;
             double t = 0.5;
             if (len2 > 1e-9) {
-                t = ((fixtureNode->position.x - nA->position.x)*ex
-                   + (fixtureNode->position.y - nA->position.y)*ey) / len2;
-                t = std::max(0.05, std::min(0.95, t)); // uca cok yakin olmasin
+                t = ((fixtureNode->position.x - nA_src->position.x)*ex
+                   + (fixtureNode->position.y - nA_src->position.y)*ey) / len2;
+                t = std::max(0.05, std::min(0.95, t));
             }
             geom::Vec3 footPos{
-                nA->position.x + t * ex,
-                nA->position.y + t * ey,
+                nA_src->position.x + t * ex,
+                nA_src->position.y + t * ey,
                 fixtureNode->position.z
             };
 
-            auto composite = std::make_unique<core::CompositeCommand>();
-
-            // Junction boru uzerinde
             mep::Node jNode;
             jNode.type     = mep::NodeType::Junction;
             jNode.position = footPos;
@@ -1956,14 +2022,13 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             uint32_t jId = addJ->GetNodeId();
             composite->AddCommand(std::move(addJ));
 
-            // Dal boru: fixture → junction
             mep::Edge branchEdge;
-            branchEdge.nodeA = m_connectFixtureNodeId;
-            branchEdge.nodeB = jId;
-            branchEdge.type  = srcEdge->type;
-            branchEdge.diameter_mm = srcEdge->diameter_mm;
+            branchEdge.nodeA        = fixId;
+            branchEdge.nodeB        = jId;
+            branchEdge.type         = srcEdge->type;
+            branchEdge.diameter_mm  = srcEdge->diameter_mm;
             branchEdge.roughness_mm = srcEdge->roughness_mm;
-            branchEdge.material = srcEdge->material;
+            branchEdge.material     = srcEdge->material;
             double dx = footPos.x - fixtureNode->position.x;
             double dy = footPos.y - fixtureNode->position.y;
             branchEdge.length_m = std::sqrt(dx*dx + dy*dy) / 1000.0;
@@ -1971,16 +2036,17 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             auto addBranch = std::make_unique<core::AddEdgeCommand>(network, branchEdge);
             addBranch->Execute();
             composite->AddCommand(std::move(addBranch));
-
-            m_document->TrackExecuted(std::move(composite));
-            m_document->SetModified(true);
-            m_connectFixtureNodeId = 0;
-            UpdateUI();
-            ScheduleAutoHydro();
-            statusBar()->showMessage(QString("BAGLA: Dal boru eklendi (L=%1 m)")
-                .arg(branchEdge.length_m, 0, 'f', 2));
-            // Ardindan bir sonraki armaturu baglayabilmek icin mod devam eder
+            ++connectedCount;
         }
+
+        m_document->TrackExecuted(std::move(composite));
+        m_document->SetModified(true);
+        m_batchFixtureIds.clear();
+        m_connectFixtureNodeId = 0;
+        UpdateUI();
+        ScheduleAutoHydro();
+        statusBar()->showMessage(QString("BAGLA: %1 armatur baglandi").arg(connectedCount));
+        if (m_commandBar) m_commandBar->SetPrompt("Armatur sec");
         break;
     }
     case ToolMode::Select:
@@ -2004,6 +2070,13 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
 
         if (closestNodeId != 0) {
             OnNodeSelected(closestNodeId);
+            // Drag taşıma başlat
+            const mep::Node* n = network.GetNode(closestNodeId);
+            if (n) {
+                m_draggingNode = true;
+                m_dragNodeId   = closestNodeId;
+                m_dragStartPos = n->position;
+            }
             break;
         }
 
@@ -2060,7 +2133,48 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     } // switch
 } // HandleMousePress
 
+void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButton btn) {
+    if (btn != Qt::LeftButton || !m_draggingNode || !m_document) return;
+    m_draggingNode = false;
+
+    auto& network = m_document->GetNetwork();
+    mep::Node* node = network.GetNode(m_dragNodeId);
+    if (!node) return;
+
+    geom::Vec3 finalPos = node->position;
+    // Anlamlı hareket yoksa (< 1mm) geri al
+    double dx = finalPos.x - m_dragStartPos.x;
+    double dy = finalPos.y - m_dragStartPos.y;
+    if (dx*dx + dy*dy < 1.0) {
+        node->position = m_dragStartPos;
+        return;
+    }
+
+    // Taşımayı undo stack'e kaydet: önce pozisyonu geri al, sonra command ile uygula
+    node->position = m_dragStartPos;
+    auto cmd = std::make_unique<core::MoveNodeCommand>(network, m_dragNodeId, finalPos);
+    m_document->ExecuteCommand(std::move(cmd));
+    m_document->SetModified(true);
+    UpdateUI();
+    ScheduleAutoHydro();
+    statusBar()->showMessage(QString("Node #%1 tasindi").arg(m_dragNodeId), 2000);
+}
+
 void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    // MEP node drag
+    if (m_draggingNode && m_document && m_currentToolMode == ToolMode::Select) {
+        auto& network = m_document->GetNetwork();
+        mep::Node* node = network.GetNode(m_dragNodeId);
+        if (node) {
+            node->position.x = worldX;
+            node->position.y = worldY;
+            // Z değişmez (kat sabit)
+            UpdateUI();
+            RefreshTextOverlay();
+        }
+        return;
+    }
+
     statusBar()->showMessage(QString("x=%1  y=%2")
         .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
 
@@ -2436,6 +2550,7 @@ void MainWindow::OnCommandEscape() {
     m_measureHasFirstPt = false;
     m_currentPipeType  = mep::EdgeType::Supply; // pis su modunu sıfırla
     m_connectFixtureNodeId = 0;
+    m_batchFixtureIds.clear();
     if (m_commandBar) m_commandBar->SetPrompt("Komut");
     if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
     statusBar()->showMessage("İptal edildi — Seçim modu");
@@ -2448,7 +2563,8 @@ void MainWindow::OnConnectFixture() {
     m_currentToolMode      = ToolMode::ConnectFixture;
     m_drawState            = DrawState::WaitingFirstPoint;
     m_connectFixtureNodeId = 0;
-    statusBar()->showMessage("BAGLA: Armaturu tiklayin (1/2)");
+    m_batchFixtureIds.clear();
+    statusBar()->showMessage("BAGLA: Armaturleri tiklayin (birden fazla secebilirsiniz), sonra boru hattini tiklayin");
     if (m_commandBar) m_commandBar->SetPrompt("Armatur sec");
 }
 

@@ -213,8 +213,8 @@ TEST_CASE("RiserDiagram - SVG contains legend elements", "[riser][svg]") {
     auto data = rd.Generate();
     std::string svg = rd.ToSVG(data);
 
-    // Temiz Su ve Pis Su lejant etiketleri
-    REQUIRE(svg.find("Temiz Su") != std::string::npos);
+    // Lejant etiketleri (Soguk Su + Sicak Su + Pis Su)
+    REQUIRE((svg.find("Soguk Su") != std::string::npos || svg.find("Temiz Su") != std::string::npos));
     REQUIRE(svg.find("Pis Su")   != std::string::npos);
 }
 

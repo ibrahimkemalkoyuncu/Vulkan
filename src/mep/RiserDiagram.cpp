@@ -17,6 +17,7 @@ namespace mep {
 static void PipeColor(EdgeType type, float& r, float& g, float& b) {
     switch (type) {
         case EdgeType::Supply:   r=0.10f; g=0.47f; b=0.71f; break; // mavi
+        case EdgeType::HotWater: r=0.80f; g=0.15f; b=0.10f; break; // kırmızı
         case EdgeType::Drainage: r=0.55f; g=0.35f; b=0.10f; break; // kahverengi
         case EdgeType::Vent:     r=0.30f; g=0.70f; b=0.30f; break; // yeşil
         default:                 r=0.50f; g=0.50f; b=0.50f; break;
@@ -346,19 +347,24 @@ std::string RiserDiagram::ToSVG(const RiserDiagramData& data) const {
     }
 
     // Lejant (sağ alt)
-    float lx = W - 130.0f, ly = H - 45.0f;
+    float lx = W - 130.0f, ly = H - 60.0f;
     ss << "<rect x=\"" << lx - 5 << "\" y=\"" << ly - 12
-       << "\" width=\"125\" height=\"50\" rx=\"4\""
+       << "\" width=\"125\" height=\"68\" rx=\"4\""
        << " fill=\"#f9f9f9\" stroke=\"#ccc\" stroke-width=\"1\"/>\n";
     ss << "<line x1=\"" << lx << "\" y1=\"" << ly + 5 << "\""
        << " x2=\"" << lx + 30 << "\" y2=\"" << ly + 5 << "\""
        << " stroke=\"rgb(26,120,181)\" stroke-width=\"3\"/>\n";
     ss << "<text x=\"" << lx + 35 << "\" y=\"" << ly + 9
-       << "\" font-size=\"8\" fill=\"#333\">Temiz Su</text>\n";
+       << "\" font-size=\"8\" fill=\"#333\">Soguk Su</text>\n";
     ss << "<line x1=\"" << lx << "\" y1=\"" << ly + 22 << "\""
        << " x2=\"" << lx + 30 << "\" y2=\"" << ly + 22 << "\""
-       << " stroke=\"rgb(140,89,26)\" stroke-width=\"3\"/>\n";
+       << " stroke=\"rgb(204,38,26)\" stroke-width=\"3\"/>\n";
     ss << "<text x=\"" << lx + 35 << "\" y=\"" << ly + 26
+       << "\" font-size=\"8\" fill=\"#333\">Sicak Su</text>\n";
+    ss << "<line x1=\"" << lx << "\" y1=\"" << ly + 39 << "\""
+       << " x2=\"" << lx + 30 << "\" y2=\"" << ly + 39 << "\""
+       << " stroke=\"rgb(140,89,26)\" stroke-width=\"3\"/>\n";
+    ss << "<text x=\"" << lx + 35 << "\" y=\"" << ly + 43
        << "\" font-size=\"8\" fill=\"#333\">Pis Su</text>\n";
 
     ss << "</svg>\n";
@@ -377,7 +383,12 @@ std::string RiserDiagram::ToText(const RiserDiagramData& data) const {
 
     for (const auto& col : data.columns) {
         ss << "▌ " << col.label
-           << " [" << (col.pipeType == EdgeType::Supply ? "Temiz Su" : "Drenaj") << "]\n";
+           << " ["
+           << (col.pipeType == EdgeType::Supply   ? "Soguk Su"
+             : col.pipeType == EdgeType::HotWater ? "Sicak Su"
+             : col.pipeType == EdgeType::Drainage ? "Pis Su"
+                                                  : "Diger")
+           << "]\n";
 
         for (auto it = col.segments.rbegin(); it != col.segments.rend(); ++it) {
             const auto& seg = *it;

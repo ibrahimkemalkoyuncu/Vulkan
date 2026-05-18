@@ -811,31 +811,108 @@ Pafta üç katmandan oluşur:
 
 ---
 
+## Bölüm 25 — Sıcak Su Modülü {#hotwater}
+
+VKT, soğuk su şebekesiyle paralel, renk kodlu ayrı bir sıcak su ağı çizmeyi destekler.
+
+### Sıcak Su Kaynağı Yerleştirme
+
+```
+Çizim → Sıcak Su Kaynağı Yerleştir
+Komut: SOFBEN  veya  KAZAN
+```
+
+Şofben veya kazan konumuna tıklayın → kırmızı `HotSource` node eklenir.
+
+### Sıcak Su Borusu Çizme
+
+```
+Çizim → Sıcak Su Borusu
+Komut: SICAK-SU
+```
+
+Boru modu kırmızıya döner. İki nokta tıklama — soğuk su ile aynı çizim iş akışı. ESC ile çıkılır.
+
+### Renk Kodlaması
+
+| Boru Tipi | Renk |
+|-----------|------|
+| Soğuk su yatay | Açık mavi |
+| Soğuk su kolon | Camgöbeği (cyan) |
+| **Sıcak su yatay** | **Kırmızı** |
+| **Sıcak su kolon** | **Turuncu** |
+| Pis su | Kahverengi |
+
+### Hidrolik Hesap
+
+Sıcak su boruları TS EN 806-3 ile hesaplanır (soğuk suyla aynı motor). DN etiketleri overlay'de kırmızı ile gösterilir. **Tesisatı Kabul Et** adımında `SK-001`, `SK-002`... numaralandırması uygulanır.
+
+---
+
+## Bölüm 26 — Tesisatı Kabul Et {#accept}
+
+Proje çizimi tamamlandığında doğrulama ve numaralandırma:
+
+```
+Analiz → Tesisatı Kabul Et
+Kısayol: Ctrl+Enter
+Komut: KABUL  veya  ACCEPT
+```
+
+### Kontrol Listesi
+
+| Kontrol | Beklenen Durum |
+|---------|---------------|
+| Kaynak varlığı | En az 1 `Source` veya `HotSource` |
+| Açık uçlar | Tümü bağlı olmalı (kırmızı halkalar kaybolmalı) |
+| Boru sayısı | En az 1 boru |
+
+Hatalar varsa, iletişim kutusunda listelenir — düzeltin ve tekrar `KABUL`.
+
+### Otomatik Numaralandırma
+
+| Prefix | Boru Tipi |
+|--------|----------|
+| `P-001`... | Soğuk su (temiz su) |
+| `SK-001`... | Sıcak su |
+| `PS-001`... | Pis su / drenaj |
+
+### Kabul Sonrası İş Akışı
+
+1. `KABUL` → hata listesi yoksa numaralandırma uygulanır.
+2. `AutoHydro` otomatik tetiklenir — DN etiketleri güncellenir.
+3. `RISER` → kolon şemasında `P-/SK-/PS-` prefix'li borular.
+4. `BOM` → keşif listesinde numaralı metrajlar.
+5. `DN-OVERRIDE` → Hesap Föyü XLS'de numaralı satırlar.
+
+---
+
 ## Hızlı Başlangıç — Tam İş Akışı
 
 ```
-1.  Dosya → Yeni Proje...     → ad, müşteri, norm seçimi, Tamam
-2.  Mimari → Mimari Belirle... → kat tanımla + global ref X/Y + DXF dosyaları
-3.  Mimari → 3D Hizalama Kontrolü... → kot/yükseklik doğrula, sarı/kırmızı satır yok mu?
+1.  Dosya → Yeni Proje...       → ad, müşteri, norm seçimi, Tamam
+2.  Mimari → Mimari Belirle...  → kat tanımla + global ref X/Y + DXF dosyaları
+3.  Mimari → 3D Hizalama Kontrolü... → kot/yükseklik doğrula
 4.  ST Cihazları panelinden Lavabo, WC, Duş yerleştir
-5.  PIPE → ana boru hatları (snap aktif)
-6.  SOURCE → şebeke giriş noktası
-7.  BAGLA → armatürleri boru hattına bağla
-8.  HYDRAULICS → DN etiketleri görünür
-9.  HIDROFOR → pompa boyutlandırma
-10. NORM → gerekirse DIN 1988-300'e geç, otomatik yeniden hesaplar
-11. PIS-SU → pis su borularını çiz
-12. YER-SUZGECI + ROGAR → drenaj bağlantısı
-13. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
-13b. KOLON → katlar arası dikey boru bağlantısı (aynı XY, farklı Z)
-14. YAGMUR → yağmur suyu boyutlandırması
-15. RISER → kolon şeması önizle, PDF/SVG kaydet
-16. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü al
-17. BOM → keşif listesi (metraj + bağlantı)
-18. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
+5.  PIPE     → soğuk su ana boru hatları (snap aktif)
+6.  SOURCE   → şebeke giriş noktası
+7.  SICAK-SU → sıcak su boru hatları (kırmızı)
+8.  SOFBEN   → şofben / kazan konumu
+9.  BAGLA    → armatürleri boru hattına bağla (toplu seçim destekli)
+10. HYDRAULICS → DN etiketleri görünür
+11. HIDROFOR → pompa boyutlandırma
+12. NORM     → gerekirse DIN 1988-300'e geç
+13. PIS-SU   → pis su borularını çiz
+14. YER-SUZGECI + ROGAR → drenaj bağlantısı
+15. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
+15b. KOLON   → katlar arası dikey boru bağlantısı
+16. YAGMUR   → yağmur suyu boyutlandırması
+17. KABUL    → doğrulama + numaralandırma (P-/SK-/PS-)
+18. RISER    → kolon şeması önizle, PDF/SVG kaydet
+19. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
+20. BOM      → keşif listesi (metraj + bağlantı)
+21. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
 ```
-
----
 
 ---
 

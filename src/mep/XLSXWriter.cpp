@@ -107,8 +107,9 @@ static void WritePipeQuantitySheet(std::ostream& f, const NetworkGraph& network)
         totals[{e.material, e.diameter_mm, e.type}] += e.length_m;
 
     for (const auto& [k, len] : totals) {
-        std::string typeStr = (k.type == EdgeType::Drainage) ? "Atık Su" :
-                              (k.type == EdgeType::Vent)     ? "Havalandırma" : "Temiz Su";
+        std::string typeStr = (k.type == EdgeType::Drainage) ? "Atik Su" :
+                              (k.type == EdgeType::HotWater) ? "Sicak Su" :
+                              (k.type == EdgeType::Vent)     ? "Havalandirma" : "Soguk Su";
         DataRow(f, {k.mat, std::to_string((int)k.diam) + " mm", "", typeStr},
                    {0.0, 0.0, len, 0.0});
         // Overwrite the numeric cells properly
@@ -260,10 +261,11 @@ bool XLSXWriter::ExportProjectReport(const std::string& path,
     BeginSheet(f, "Boru Metrajı");
     f << "   <Column ss:Width=\"100\"/><Column ss:Width=\"70\"/>"
          "<Column ss:Width=\"90\"/><Column ss:Width=\"100\"/>\n";
-    HeaderRow(f, {"Malzeme", "Çap (mm)", "Uzunluk (m)", "Tip"});
+    HeaderRow(f, {"Malzeme", "Cap (mm)", "Uzunluk (m)", "Tip"});
     for (const auto& [k, len] : totals) {
-        std::string typeStr = (k.type == EdgeType::Drainage) ? "Atık Su" :
-                              (k.type == EdgeType::Vent)     ? "Havalandırma" : "Temiz Su";
+        std::string typeStr = (k.type == EdgeType::Drainage) ? "Atik Su" :
+                              (k.type == EdgeType::HotWater) ? "Sicak Su" :
+                              (k.type == EdgeType::Vent)     ? "Havalandirma" : "Soguk Su";
         f << "   <Row>\n"
              "    <Cell><Data ss:Type=\"String\">" << XmlEscape(k.mat) << "</Data></Cell>\n"
              "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">" << k.diam << "</Data></Cell>\n"
@@ -332,7 +334,8 @@ bool XLSXWriter::ExportCalculationSheet(const std::string& path,
 
     for (const auto& [eid, edge] : edges) {
         std::string tipStr = (edge->type == EdgeType::Drainage) ? "Pis Su" :
-                             (edge->type == EdgeType::Vent)     ? "Hava"   : "Temiz Su";
+                             (edge->type == EdgeType::HotWater) ? "Sicak Su" :
+                             (edge->type == EdgeType::Vent)     ? "Hava"   : "Soguk Su";
         double qLs  = edge->flowRate_m3s * 1000.0;
         f << "   <Row>\n"
              "    <Cell ss:StyleID=\"N\"><Data ss:Type=\"Number\">" << eid << "</Data></Cell>\n"

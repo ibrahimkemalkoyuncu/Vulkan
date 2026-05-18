@@ -137,6 +137,11 @@ private slots:
     // Tesisatı Kabul Et — doğrulama + numaralandırma
     void OnTesistatKabul();
 
+    // Aktif kat değişimi
+    void OnActiveFloorChanged(int index);
+    void RefreshFloorSelector();     ///< MimariBelirle sonrası listeyi güncelle
+    double GetActiveFloorZ() const;  ///< Aktif katın elevation_m (node z'si)
+
     // Tesisat Kopyalama — seçili katı başka kata kopyala (kolonlar hariç)
     void OnCopyFloor();
 
@@ -295,16 +300,24 @@ private:
 
     // ConnectFixture durumu
     uint32_t m_connectFixtureNodeId = 0; ///< Seçili armatür node ID (0 = henüz seçilmedi)
+    std::vector<uint32_t> m_batchFixtureIds; ///< Batch BAGLA: birden fazla armatür listesi
 
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok
     uint32_t m_selectedEdgeId = 0;    // 0 = seçim yok
+
+    // MEP node drag taşıma
+    bool     m_draggingNode   = false;
+    uint32_t m_dragNodeId     = 0;
+    geom::Vec3 m_dragStartPos;        // Drag öncesi node pozisyonu (undo için)
 
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;
 
     // Mimari kat yönetimi
     core::FloorManager m_floorManager;
+    int      m_activeFloorIndex = 0;   ///< Aktif kat (çizim z'si = floor.elevation_m)
+    QComboBox* m_floorSelector  = nullptr; ///< Toolbar'daki kat seçici
 
     // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
     bool       m_measureMode       = false;
@@ -314,6 +327,7 @@ private:
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
     void HandleMouseMove(double worldX, double worldY);
+    void HandleMouseRelease(double worldX, double worldY, Qt::MouseButton button);
 
     // CAD text entity'lerini SnapOverlay'e aktar
     void RefreshTextOverlay();

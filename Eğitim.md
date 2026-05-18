@@ -512,22 +512,112 @@ Komut: PAFTA
 3.  3D Hizalama Kontrolü (Ctrl+Shift+H) — kot doğrula
 4.  Malzeme seç       Özellik paneli → PVC/PPR/Bakır...
 5.  ST Cihazları      sağ panel → armatür yerleştir
-6.  PIPE              ana boru hatları
+6.  PIPE              soğuk su ana boru hatları
 7.  SOURCE            şebeke girişi
-8.  BAGLA (Ctrl+B)   armatürleri hatta bağla
-9.  HYDRAULICS        DN etiketleri görünür
-10. HIDROFOR          pompa boyutlandır
-11. NORM              gerekirse DIN 1988-300
-12. PIS-SU            pis su borular
-13. YER-SUZGECI/ROGAR drenaj bağlantısı
-14. KOPYA-KAT         tekrar eden katlar
-15. KOLON (Ctrl+Shift+K) dikey boru bağlantıları
-16. YAGMUR            yağmur suyu boyutlandırma
-17. RISER (Ctrl+R)    kolon şeması → PDF/SVG
-18. DN-OVERRIDE       manuel düzeltme + XLS
-19. BOM (Ctrl+K)      keşif listesi
-20. Rapor Dışa Aktar  rapor/ klasörüne
+8.  SICAK-SU          sıcak su boruları (kırmızı)
+9.  SOFBEN/KAZAN      sıcak su kaynağı
+10. BAGLA (Ctrl+B)   armatürleri hatta bağla (toplu seçim destekli)
+11. HYDRAULICS        DN etiketleri görünür
+12. HIDROFOR          pompa boyutlandır
+13. NORM              gerekirse DIN 1988-300
+14. PIS-SU            pis su borular
+15. YER-SUZGECI/ROGAR drenaj bağlantısı
+16. KOPYA-KAT         tekrar eden katlar
+17. KOLON (Ctrl+Shift+K) dikey boru bağlantıları
+18. YAGMUR            yağmur suyu boyutlandırma
+19. KABUL (Ctrl+Enter) tesisatı kabul et — doğrulama + numaralandırma
+20. RISER (Ctrl+R)    kolon şeması → PDF/SVG
+21. DN-OVERRIDE       manuel düzeltme + XLS
+22. BOM (Ctrl+K)      keşif listesi
+23. Rapor Dışa Aktar  rapor/ klasörüne
 ```
+
+---
+
+## 25. Sıcak Su Modülü (SICAK-SU / SOFBEN / KAZAN)
+
+VKT, soğuk su şebekesiyle paralel olarak ayrı sıcak su ağı çizmeyi destekler. Sıcak su boruları **kırmızı** renkte render edilir ve kolon şemasına `SK-` prefix ile dahil edilir.
+
+### Sıcak Su Kaynağı Yerleştirme
+
+```
+Çizim → Sıcak Su Kaynağı Yerleştir
+Komut: SOFBEN  veya  KAZAN
+```
+
+- Şofben veya kazan konumuna tıklayın.
+- VKT kırmızı bir `HotSource` node ekler.
+- Bir projede birden fazla sıcak su kaynağı olabilir (ör. daire başına şofben).
+
+### Sıcak Su Borusu Çizme
+
+```
+Çizim → Sıcak Su Borusu
+Komut: SICAK-SU
+```
+
+- `SICAK-SU` yazın → imleç kırmızı boru moduna geçer.
+- İlk nokta: kaynak veya dağıtım borusu başlangıcı.
+- İkinci nokta (ve devamı): sıcak su boru hattı zinciri.
+- ESC ile soğuk su moduna geri dönülür.
+
+### Renk Kodlaması
+
+| Boru Tipi | Renk | Kolon Etiketi |
+|-----------|------|--------------|
+| Soğuk su yatay | Açık mavi | — |
+| Soğuk su kolon | Camgöbeği (cyan) | `[K]` prefix |
+| Sıcak su yatay | Kırmızı | — |
+| Sıcak su kolon | Turuncu | `[K]` prefix |
+| Pis su | Kahverengi | — |
+
+### Hidrolik Hesap
+
+- Sıcak su boruları TS EN 806-3 **aynı formülle** hesaplanır (LU tabanlı debi, Darcy-Weisbach).
+- DN etiketleri soğuk suyla aynı şekilde overlay'de gösterilir.
+- `SK-001`, `SK-002` ... numaralandırması **Tesisatı Kabul Et** adımında yapılır.
+
+---
+
+## 26. Tesisatı Kabul Et (KABUL)
+
+Proje tamamlandığında boru sistemi bir doğrulama ve numaralandırma adımından geçirilir.
+
+```
+Analiz → Tesisatı Kabul Et
+Kısayol: Ctrl+Enter
+Komut: KABUL  veya  ACCEPT
+```
+
+### Yapılan Kontroller
+
+| Kontrol | Açıklama |
+|---------|----------|
+| Kaynak varlığı | En az bir `Source` veya `HotSource` node olmalı |
+| Açık uç | Bağlantısı olmayan node'lar tespit edilir (kırmızı halka overlay'de zaten gösterilir) |
+| Hata / Uyarı | Hatalar varsa düzeltme önerileriyle listelenir |
+
+### Numaralandırma
+
+Doğrulama geçilirse tüm borular otomatik numaralandırılır:
+
+| Prefix | Boru Tipi |
+|--------|-----------|
+| `P-001`, `P-002`... | Soğuk su temiz su boruları |
+| `SK-001`, `SK-002`... | Sıcak su boruları |
+| `PS-001`, `PS-002`... | Pis su (drenaj) boruları |
+
+### Kabul Sonrası
+
+- `RunAutoHydro` tetiklenir — tüm DN boyutları güncellenir.
+- Özet iletişim kutusu: kaç boru kabul edildi, kaç uyarı var.
+- Raporlar bu numaralandırmayı kullanır (Hesap Föyü, BOM, Riser).
+
+**İş akışı:**
+1. Tüm borular çizildikten ve BAGLA tamamlandıktan sonra `KABUL` çalıştırın.
+2. Hata listesini inceleyin; eksik bağlantıları tamamlayın.
+3. Tekrar `KABUL` — sorun kalmadığında numaralandırma uygulanır.
+4. Ardından `RISER`, `BOM` ve `DN-OVERRIDE` yapın.
 
 ---
 

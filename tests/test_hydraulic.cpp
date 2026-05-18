@@ -304,3 +304,150 @@ TEST_CASE("HydraulicSolver - Critical Path with visited set", "[hydraulic]") {
     REQUIRE_THAT(result.totalHeadLoss_m, Catch::Matchers::WithinAbs(5.0, 0.01));
     REQUIRE_THAT(result.requiredPumpHead_m, Catch::Matchers::WithinAbs(20.0, 0.01));
 }
+
+// ============================================================
+// Sicak Su (HotWater / HotSource) testleri
+// ============================================================
+
+TEST_CASE("NetworkGraph - HotSource node type roundtrip", "[hotwater]") {
+    NetworkGraph graph;
+
+    Node src;
+    src.type     = NodeType::HotSource;
+    src.position = {0, 0, 1.0};
+    src.label    = "Sofben";
+    uint32_t sid = graph.AddNode(src);
+
+    REQUIRE(graph.GetNode(sid) != nullptr);
+    REQUIRE(graph.GetNode(sid)->type == NodeType::HotSource);
+    REQUIRE(graph.GetNode(sid)->label == "Sofben");
+}
+
+TEST_CASE("NetworkGraph - HotWater edge type roundtrip", "[hotwater]") {
+    NetworkGraph graph;
+
+    Node src;  src.type = NodeType::HotSource;
+    Node fix;  fix.type = NodeType::Fixture; fix.loadUnit = 2.0;
+    uint32_t sid = graph.AddNode(src);
+    uint32_t fid = graph.AddNode(fix);
+
+    Edge e;
+    e.nodeA        = sid;
+    e.nodeB        = fid;
+    e.type         = EdgeType::HotWater;
+    e.diameter_mm  = 20.0;
+    e.length_m     = 3.0;
+    e.roughness_mm = 0.0015;
+    uint32_t eid = graph.AddEdge(e);
+
+    REQUIRE(graph.GetEdge(eid) != nullptr);
+    REQUIRE(graph.GetEdge(eid)->type == EdgeType::HotWater);
+}
+
+TEST_CASE("HydraulicSolver - HotWater pipe gets non-zero flow", "[hotwater]") {
+    NetworkGraph graph;
+
+    Node src;  src.type = NodeType::HotSource;
+    uint32_t sid = graph.AddNode(src);
+
+    Node fix;  fix.type = NodeType::Fixture; fix.loadUnit = 5.0;
+    uint32_t fid = graph.AddNode(fix);
+
+    Edge e;
+    e.nodeA = sid; e.nodeB = fid;
+    e.type = EdgeType::HotWater;
+    e.diameter_mm = 20.0; e.length_m = 4.0; e.roughness_mm = 0.0015;
+    uint32_t eid = graph.AddEdge(e);
+
+    HydraulicSolver solver(graph);
+    solver.Solve();
+
+    auto* edge = graph.GetEdge(eid);
+    REQUIRE(edge != nullptr);
+    REQUIRE(edge->flowRate_m3s > 0.0);
+}
+
+TEST_CASE("HydraulicSolver - HotWater head loss is positive", "[hotwater]") {
+    NetworkGraph graph;
+
+    Node src;  src.type = NodeType::HotSource;
+    graph.AddNode(src);
+    Node fix;  fix.type = NodeType::Fixture; fix.loadUnit = 10.0;
+    graph.AddNode(fix);
+    Edge e; e.nodeA = 1; e.nodeB = 2;
+    e.type = EdgeType::HotWater;
+    e.diameter_mm = 20.0; e.length_m = 5.0; e.roughness_mm = 0.0015;
+    graph.AddEdge(e);
+
+    HydraulicSolver solver(graph);
+    solver.Solve();
+
+    auto* edge = graph.GetEdge(1);
+    REQUIRE(edge != nullptr);
+    REQUIRE(edge->headLoss_m > 0.0);
+    REQUIRE(edge->velocity_ms > 0.0);
+}
+
+TEST_CASE("HydraulicSolver - HotWater AutoSize selects DN from standard series", "[hotwater]") {
+    NetworkGraph graph;
+
+    Node src;  src.type = NodeType::HotSource;
+    graph.AddNode(src);
+    Node fix;  fix.type = NodeType::Fixture; fix.loadUnit = 100.0;
+    graph.AddNode(fix);
+    Edge e; e.nodeA = 1; e.nodeB = 2;
+    e.type = EdgeType::HotWater;
+    e.diameter_mm = 16.0; // kucuk — buyutulmeli
+    e.length_m = 8.0; e.roughness_mm = 0.0015; e.material = "PVC";
+    graph.AddEdge(e);
+
+    HydraulicSolver solver(graph);
+    solver.Solve();
+
+    auto* edge = graph.GetEdge(1);
+    REQUIRE(edge != nullptr);
+    REQUIRE(edge->diameter_mm >= 16.0);
+    std::vector<double> stdDiams = {16, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150};
+    bool isStd = std::find(stdDiams.begin(), stdDiams.end(), edge->diameter_mm) != stdDiams.end();
+    REQUIRE(isStd);
+}
+
+TEST_CASE("HydraulicSolver - Mixed Supply + HotWater network", "[hotwater]") {
+    // Source  --> cold pipe --> Fixture1 (LU=3)
+    // HotSource --> hot pipe --> Fixture2 (LU=3)
+    // Her iki kol bagimsiz cozulmeli, her biri pozitif debi almali
+    NetworkGraph graph;
+
+    Node cold;  cold.type = NodeType::Source;
+    uint32_t cid = graph.AddNode(cold);
+
+    Node hot;   hot.type = NodeType::HotSource;
+    uint32_t hid = graph.AddNode(hot);
+
+    Node fix1;  fix1.type = NodeType::Fixture; fix1.loadUnit = 3.0;
+    uint32_t f1 = graph.AddNode(fix1);
+
+    Node fix2;  fix2.type = NodeType::Fixture; fix2.loadUnit = 3.0;
+    uint32_t f2 = graph.AddNode(fix2);
+
+    Edge ec; ec.nodeA = cid; ec.nodeB = f1;
+    ec.type = EdgeType::Supply; ec.diameter_mm = 20.0; ec.length_m = 3.0;
+    uint32_t eid_cold = graph.AddEdge(ec);
+
+    Edge eh; eh.nodeA = hid; eh.nodeB = f2;
+    eh.type = EdgeType::HotWater; eh.diameter_mm = 20.0; eh.length_m = 3.0;
+    uint32_t eid_hot  = graph.AddEdge(eh);
+
+    HydraulicSolver solver(graph);
+    solver.Solve();
+
+    auto* ecold = graph.GetEdge(eid_cold);
+    auto* ehot  = graph.GetEdge(eid_hot);
+    REQUIRE(ecold != nullptr);
+    REQUIRE(ehot  != nullptr);
+    REQUIRE(ecold->flowRate_m3s > 0.0);
+    REQUIRE(ehot->flowRate_m3s  > 0.0);
+    // Ayni LU → ayni debi
+    REQUIRE_THAT(ecold->flowRate_m3s,
+                 Catch::Matchers::WithinAbs(ehot->flowRate_m3s, 1e-9));
+}
