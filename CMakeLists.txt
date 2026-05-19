@@ -103,6 +103,8 @@ set(SOURCES
     src/ui/NewProjectDialog.cpp
     src/ui/FloorAlignmentDialog.cpp
     src/ui/STFixturePanel.cpp
+    src/ui/DevreSecenekleriDialog.cpp
+    vkt/ui/DevreSecenekleriDialog.hpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
     src/ui/PrintLayoutDialog.cpp

@@ -29,6 +29,7 @@
 #include "ui/SnapOverlay.hpp"
 #include "ui/PBRMaterialEditor.hpp"
 #include "ui/STFixturePanel.hpp"
+#include "ui/DevreSecenekleriDialog.hpp"
 #include "cad/SnapManager.hpp"
 
 namespace vkt {
@@ -160,6 +161,18 @@ private slots:
     // Hesap Normu Seçimi (EN 806-3 / DIN 1988)
     void OnNormSelection();
 
+    // Devre Seçenekleri (bina tipi, boru cinsi, pürüzlülük, max hız)
+    void OnDevreSecenekleri();
+
+    // Baskı İçeriği — çizimde hangi etiketler görünsün
+    void OnBaskiIcerigi();
+
+    // Parçaların Basınç Kaybı — tüm devreler ayrıntılı tablo
+    void OnBaskiKaybi();
+
+    // Word/HTML rapor export
+    void OnWordRapor();
+
     // Yağmur Suyu Modülü (EN 12056-3)
     void OnYagmurSuyu();
 
@@ -264,11 +277,15 @@ private:
     QAction* m_actDrawColumn       = nullptr;
     QAction* m_actPrintLayout      = nullptr;
     QAction* m_actHidrofor         = nullptr;
-    QAction* m_actNormSelection    = nullptr;
-    QAction* m_actYagmurSuyu       = nullptr;
-    QAction* m_actBOM              = nullptr;
-    QAction* m_actRiserDiagram     = nullptr;
-    QAction* m_actDNOverride       = nullptr;
+    QAction* m_actNormSelection      = nullptr;
+    QAction* m_actDevreSecenekleri   = nullptr;
+    QAction* m_actBaskiIcerigi       = nullptr;
+    QAction* m_actBaskiKaybi         = nullptr;
+    QAction* m_actWordRapor          = nullptr;
+    QAction* m_actYagmurSuyu         = nullptr;
+    QAction* m_actBOM                = nullptr;
+    QAction* m_actRiserDiagram       = nullptr;
+    QAction* m_actDNOverride         = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -305,6 +322,16 @@ private:
     // Selection state (Select modunda aktif seçim)
     uint32_t m_selectedNodeId = 0;    // 0 = seçim yok
     uint32_t m_selectedEdgeId = 0;    // 0 = seçim yok
+
+    // Devre parametreleri (Devre Seçenekleri dialog'dan)
+    DevreParams m_devreParams;
+
+    // Baskı İçeriği — çizimde hangi etiketler görünsün
+    bool m_labelShowDN       = true;
+    bool m_labelShowFlow     = false;
+    bool m_labelShowLength   = false;
+    bool m_labelShowVelocity = false;
+    bool m_labelShowHeadLoss = false;
 
     // MEP node drag taşıma
     bool     m_draggingNode   = false;

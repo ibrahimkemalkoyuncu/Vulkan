@@ -763,6 +763,87 @@ Yöntem 2: Komut satırına KOLON yazın
 
 ---
 
+## Bölüm 22b — Devre Seçenekleri {#devre-sec}
+
+FineSANI'nin "Devre Seçenekleri" penceresine karşılık gelir — bina tipi, boru cinsi, pürüzlülük ve maksimum hız tek yerden ayarlanır.
+
+```
+Analiz → Devre Secenekleri...
+Kısayol: Ctrl+Shift+D
+Komut: DEVRE  veya  DEVRE-SEC
+```
+
+| Parametre | Açıklama | Varsayılan |
+|-----------|---------|-----------|
+| **Bina Tipi** | Konut / Otel / Endüstri | Konut |
+| **Ana Boru Cinsi** | PPR / PVC / Bakır / Galvaniz / PE | PPR |
+| **İkincil Boru Cinsi** | Dallar için boru malzemesi | PPR |
+| **Boru Pürüzlülüğü** | Darcy-Weisbach için `ε` (mm) | 0.007 mm (PPR) |
+| **Maks. Su Hızı** | Bu değeri aşan çaplar otomatik büyütülür | 2.0 m/s |
+| **Hesap Normu** | TS EN 806-3 veya DIN 1988-300 | TS EN 806-3 |
+
+**Not:** Ana boru cinsi değiştiğinde pürüzlülük otomatik güncellenir. Tamam'a basıldığında mevcut tüm borulara yeni malzeme/pürüzlülük uygulanır ve sistem yeniden hesaplar.
+
+---
+
+## Bölüm 22c — Baskı İçeriği (Çizim Etiket Seçici) {#baski-icerigi}
+
+Çizim üzerindeki MEP etiketlerinde hangi değerlerin görüneceğini seçin.
+
+```
+Analiz → Baski Icerigi...
+Komut: BASKI  veya  BASKI-ICERIGI
+```
+
+Checkbox'larla seçilebilen bileşenler:
+
+| Seçenek | Örnek görünüm |
+|---------|--------------|
+| ☑ DN (çap) | `DN32` |
+| ☐ Debi Q | `Q=1.40L/s` |
+| ☐ Uzunluk L | `L=4.5m` |
+| ☐ Hız v | `v=1.75` |
+| ☐ Basınç kaybı ΔH | `dH=0.3966` |
+
+Birden fazla seçilirse etiketler birleştirilir: `DN32 Q=1.40L/s L=4.5m`
+
+---
+
+## Bölüm 22d — Parçaların Basınç Kaybı {#basinc-kaybi}
+
+Tüm boru devrelerinin basınç kaybı ayrıntılı tablo olarak gösterilir. Kritik devre sarı ile vurgulanır.
+
+```
+Analiz → Parcalarin Basinc Kaybi...
+Komut: BASINC  veya  PARCALAR
+```
+
+Tablo sütunları: **Devre No / Tip / Malzeme / DN / L (m) / Q (L/s) / v (m/s) / ΔH (m) / Durum**
+
+- Sarı satırlar = kritik devre (en yüksek toplam kayıp)
+- "**PDF Kaydet**" butonu ile A4 Yatay PDF olarak çıktı alınabilir
+
+---
+
+## Bölüm 22e — Word/HTML Rapor {#word-rapor}
+
+FineSANI'nin "Word Dosyası Oluştur" özelliğine karşılık gelir.
+
+```
+Analiz → Word/HTML Rapor Olustur...
+Komut: WORD  veya  HTML-RAPOR
+```
+
+Oluşturulan rapor içeriği:
+1. **Devre Parametreleri** — bina tipi, malzeme, norm, hız limiti
+2. **Boru Hesap Föyü** — tüm devreler (DN / L / Q / v / ΔH), kritik devre vurgulu
+3. **Kritik Devre ve Hidrofor** — toplam kayıp + gerekli pompa yüksekliği
+4. **Armatür Listesi** — tip, LU, debi
+
+Dosya `.htm` formatında kaydedilir — **Microsoft Word** ve tüm tarayıcılar açar. `rapor/` klasörüne otomatik yol önerisi gelir.
+
+---
+
 ## Bölüm 24 — PDF Pafta Düzeni (PAFTA) {#pafta}
 
 **VKT**, tesisat çizimini A3/A4 boyutlu bir sayfa düzenine (pafta) yerleştirip ISO 7200 başlık bloğuyla birlikte **PDF** veya **SVG** olarak dışa aktarır.
@@ -890,28 +971,31 @@ Hatalar varsa, iletişim kutusunda listelenir — düzeltin ve tekrar `KABUL`.
 ## Hızlı Başlangıç — Tam İş Akışı
 
 ```
-1.  Dosya → Yeni Proje...       → ad, müşteri, norm seçimi, Tamam
-2.  Mimari → Mimari Belirle...  → kat tanımla + global ref X/Y + DXF dosyaları
-3.  Mimari → 3D Hizalama Kontrolü... → kot/yükseklik doğrula
-4.  ST Cihazları panelinden Lavabo, WC, Duş yerleştir
-5.  PIPE     → soğuk su ana boru hatları (snap aktif)
-6.  SOURCE   → şebeke giriş noktası
-7.  SICAK-SU → sıcak su boru hatları (kırmızı)
-8.  SOFBEN   → şofben / kazan konumu
-9.  BAGLA    → armatürleri boru hattına bağla (toplu seçim destekli)
-10. HYDRAULICS → DN etiketleri görünür
-11. HIDROFOR → pompa boyutlandırma
-12. NORM     → gerekirse DIN 1988-300'e geç
-13. PIS-SU   → pis su borularını çiz
-14. YER-SUZGECI + ROGAR → drenaj bağlantısı
-15. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
-15b. KOLON   → katlar arası dikey boru bağlantısı
-16. YAGMUR   → yağmur suyu boyutlandırması
-17. KABUL    → doğrulama + numaralandırma (P-/SK-/PS-)
-18. RISER    → kolon şeması önizle, PDF/SVG kaydet
-19. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
-20. BOM      → keşif listesi (metraj + bağlantı)
-21. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
+1.  Dosya → Yeni Proje...          → ad, müşteri, norm seçimi, Tamam
+2.  DEVRE (Ctrl+Shift+D)           → boru cinsi, pürüzlülük, max hız, norm ayarla
+3.  Mimari → Mimari Belirle...     → kat tanımla + global ref X/Y + DXF dosyaları
+4.  Mimari → 3D Hizalama Kontrolü... → kot/yükseklik doğrula
+5.  ST Cihazları panelinden Lavabo, WC, Duş yerleştir
+6.  PIPE     → soğuk su ana boru hatları (snap aktif)
+7.  SOURCE   → şebeke giriş noktası
+8.  SICAK-SU → sıcak su boru hatları (kırmızı)
+9.  SOFBEN   → şofben / kazan konumu
+10. BAGLA    → armatürleri boru hattına bağla (toplu seçim destekli)
+11. HYDRAULICS → DN etiketleri görünür
+12. BASKI    → hangi değerlerin görüneceğini seç (DN/debi/uzunluk...)
+13. HIDROFOR → pompa boyutlandırma
+14. BASINC   → parçaların basınç kaybı tablosu — kritik devre kontrolü
+15. PIS-SU   → pis su borularını çiz
+16. YER-SUZGECI + ROGAR → drenaj bağlantısı
+17. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
+17b. KOLON   → katlar arası dikey boru bağlantısı
+18. YAGMUR   → yağmur suyu boyutlandırması
+19. KABUL    → doğrulama + numaralandırma (P-/SK-/PS-)
+20. RISER    → kolon şeması önizle, PDF/SVG kaydet
+21. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
+22. BOM      → keşif listesi (metraj + bağlantı)
+23. WORD     → Word/HTML rapor oluştur (tarayıcı veya Word ile açılır)
+24. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
 ```
 
 ---

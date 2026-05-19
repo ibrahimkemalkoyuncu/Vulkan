@@ -241,6 +241,23 @@ void MainWindow::CreateActions() {
     m_actNormSelection->setToolTip("Besleme debisi hesaplama normunu sec: EN 806-3 veya DIN 1988-300");
     connect(m_actNormSelection, &QAction::triggered, this, &MainWindow::OnNormSelection);
 
+    m_actDevreSecenekleri = new QAction("Devre Secenekleri...", this);
+    m_actDevreSecenekleri->setToolTip("Bina tipi, boru cinsi, puruzluluk, max hiz — tek yerden ayar (FineSANI Devre Secenekleri)");
+    m_actDevreSecenekleri->setShortcut(QKeySequence("Ctrl+Shift+D"));
+    connect(m_actDevreSecenekleri, &QAction::triggered, this, &MainWindow::OnDevreSecenekleri);
+
+    m_actBaskiIcerigi = new QAction("Baski Icerigi...", this);
+    m_actBaskiIcerigi->setToolTip("Cizimde hangi etiketler gorunsun: DN, debi, uzunluk, hiz, basinc kaybi");
+    connect(m_actBaskiIcerigi, &QAction::triggered, this, &MainWindow::OnBaskiIcerigi);
+
+    m_actBaskiKaybi = new QAction("Parcalarin Basinc Kaybi...", this);
+    m_actBaskiKaybi->setToolTip("Tum devrelerin basinc kaybi tablosu — kritik devre vurgulu");
+    connect(m_actBaskiKaybi, &QAction::triggered, this, &MainWindow::OnBaskiKaybi);
+
+    m_actWordRapor = new QAction("Word/HTML Rapor Olustur...", this);
+    m_actWordRapor->setToolTip("Hesap foyu + kritik devre + armatur listesi HTML raporunu kaydet (Word acar)");
+    connect(m_actWordRapor, &QAction::triggered, this, &MainWindow::OnWordRapor);
+
     m_actYagmurSuyu = new QAction("Yagmur Suyu Modulu...", this);
     m_actYagmurSuyu->setToolTip("EN 12056-3: Yagmur suyu tahliye boru boyutlandirmasi");
     connect(m_actYagmurSuyu, &QAction::triggered, this, &MainWindow::OnYagmurSuyu);
@@ -370,6 +387,11 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actHidrofor);
     analyzeMenu->addAction(m_actNormSelection);
+    analyzeMenu->addAction(m_actDevreSecenekleri);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actBaskiKaybi);
+    analyzeMenu->addAction(m_actBaskiIcerigi);
+    analyzeMenu->addAction(m_actWordRapor);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actYagmurSuyu);
     analyzeMenu->addSeparator();
@@ -1402,7 +1424,7 @@ void MainWindow::OnActiveFloorChanged(int index) {
     if (f) {
         statusBar()->showMessage(
             QString("Aktif kat: %1 (z = %2 m)")
-                .arg(QString::fromStdString(f->name))
+                .arg(QString::fromStdString(f->label))
                 .arg(f->elevation_m, 0, 'f', 2), 2000);
     }
 }
@@ -1420,7 +1442,7 @@ void MainWindow::RefreshFloorSelector() {
             m_floorSelector->addItem(
                 QString("%1 — %2 (%3 m)")
                     .arg(i)
-                    .arg(QString::fromStdString(f.name))
+                    .arg(QString::fromStdString(f.label))
                     .arg(f.elevation_m, 0, 'f', 2));
         }
     }
@@ -1945,7 +1967,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             statusBar()->showMessage(QString("BAGLA: %1 armatur secildi (%2 dahil) — boru hattini tiklayin veya daha fazla armatur secin")
                 .arg(m_batchFixtureIds.size())
                 .arg(fn ? QString::fromStdString(fn->fixtureType) : "?"));
-            if (m_commandBar) m_commandBar->SetPrompt(QString("Boru hatti (%1 armatur)").arg(m_batchFixtureIds.size()));
+            if (m_commandBar) m_commandBar->SetPrompt(QString("Boru hatti (%1 armatur)").arg(m_batchFixtureIds.size()).toStdString());
             break;
         }
 
@@ -2289,6 +2311,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnHidrofor();
     } else if (c == "NORM" || c == "NORM-SEC") {
         OnNormSelection();
+    } else if (c == "DEVRE" || c == "DEVRE-SEC") {
+        OnDevreSecenekleri();
+    } else if (c == "BASKI" || c == "BASKI-ICERIGI") {
+        OnBaskiIcerigi();
+    } else if (c == "BASINC" || c == "PARCALAR" || c == "BASINC-KAYBI") {
+        OnBaskiKaybi();
+    } else if (c == "WORD" || c == "HTML-RAPOR" || c == "RAPOR-WORD") {
+        OnWordRapor();
     } else if (c == "YAGMUR" || c == "RAINWATER") {
         OnYagmurSuyu();
     } else if (c == "BOM" || c == "KESIF") {
@@ -2451,7 +2481,22 @@ void MainWindow::RefreshTextOverlay() {
             }
         }
 
-        QString labelText = QString::fromStdString(edge.label);
+        // Baskı İçeriği filtresi — kullanıcı hangi bileşenleri seçtiyse göster
+        QStringList parts;
+        if (m_labelShowDN && !edge.label.empty())
+            parts << QString::fromStdString(edge.label);
+        if (m_labelShowFlow && edge.flowRate_m3s > 0.0)
+            parts << QString("Q=%1L/s").arg(edge.flowRate_m3s * 1000.0, 0, 'f', 2);
+        if (m_labelShowLength && edge.length_m > 0.0)
+            parts << QString("L=%1m").arg(edge.length_m, 0, 'f', 1);
+        if (m_labelShowVelocity && edge.velocity_ms > 0.0)
+            parts << QString("v=%1").arg(edge.velocity_ms, 0, 'f', 2);
+        if (m_labelShowHeadLoss && edge.headLoss_m > 0.0)
+            parts << QString("dH=%1").arg(edge.headLoss_m, 0, 'f', 3);
+
+        if (parts.isEmpty()) continue;
+
+        QString labelText = parts.join(" ");
         if (isCol) labelText = "[K] " + labelText;
 
         SnapOverlay::TextLabel lbl;
@@ -2838,6 +2883,308 @@ void MainWindow::OnNormSelection() {
         if (m_logList) m_logList->addItem("Norm degistirildi: TS EN 806-3");
     }
     ScheduleAutoHydro(); // normu guncelledik → yeniden hesapla
+}
+
+// ============================================================
+//  DEVRE SEÇENEKLERİ (FineSANI eşdeğeri)
+// ============================================================
+void MainWindow::OnDevreSecenekleri() {
+    DevreSecenekleriDialog dlg(m_devreParams, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+    m_devreParams = dlg.GetParams();
+
+    // Norm senkronizasyonu
+    if (m_devreParams.norm == "DIN 1988-300")
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
+    else
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
+
+    // Pürüzlülüğü tüm Supply/HotWater edgelere uygula (mevcut ağa)
+    if (m_document) {
+        auto& network = m_document->GetNetwork();
+        for (auto& [eid, edge] : network.GetEdgeMap()) {
+            if (edge.type == mep::EdgeType::Supply || edge.type == mep::EdgeType::HotWater) {
+                edge.roughness_mm = m_devreParams.roughness_mm;
+                edge.material     = m_devreParams.mainPipeMat.toStdString();
+            }
+        }
+        m_document->SetModified(true);
+        ScheduleAutoHydro();
+    }
+
+    QString msg = QString("Devre Seçenekleri uygulandı — %1, %2, pürüzlülük=%3 mm, max hız=%4 m/s")
+        .arg(m_devreParams.norm)
+        .arg(m_devreParams.mainPipeMat)
+        .arg(m_devreParams.roughness_mm, 0, 'f', 4)
+        .arg(m_devreParams.maxVelocity_ms, 0, 'f', 1);
+    statusBar()->showMessage(msg, 3000);
+    if (m_logList) m_logList->addItem(msg);
+}
+
+// ============================================================
+//  BASKI İÇERİĞİ — çizimde hangi etiketler görünsün
+// ============================================================
+void MainWindow::OnBaskiIcerigi() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Baskı İçeriği — Çizimde Görünecek Değerler");
+    dlg.setMinimumWidth(320);
+
+    auto* layout = new QVBoxLayout(&dlg);
+    layout->addWidget(new QLabel("<b>Boru etiketi bileşenleri:</b>"));
+
+    auto* cbDN   = new QCheckBox("DN (çap, örn: DN32)");        cbDN->setChecked(m_labelShowDN);
+    auto* cbFlow = new QCheckBox("Debi Q (L/s)");               cbFlow->setChecked(m_labelShowFlow);
+    auto* cbLen  = new QCheckBox("Uzunluk L (m)");              cbLen->setChecked(m_labelShowLength);
+    auto* cbVel  = new QCheckBox("Hız v (m/s)");                cbVel->setChecked(m_labelShowVelocity);
+    auto* cbHL   = new QCheckBox("Basınç kaybı ΔH (m)");        cbHL->setChecked(m_labelShowHeadLoss);
+
+    layout->addWidget(cbDN);
+    layout->addWidget(cbFlow);
+    layout->addWidget(cbLen);
+    layout->addWidget(cbVel);
+    layout->addWidget(cbHL);
+
+    auto* note = new QLabel("<small><i>Seçimler anlık etiket overlay'ini etkiler.</i></small>");
+    layout->addWidget(note);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    m_labelShowDN       = cbDN->isChecked();
+    m_labelShowFlow     = cbFlow->isChecked();
+    m_labelShowLength   = cbLen->isChecked();
+    m_labelShowVelocity = cbVel->isChecked();
+    m_labelShowHeadLoss = cbHL->isChecked();
+
+    RefreshTextOverlay();
+    statusBar()->showMessage("Baskı İçeriği güncellendi — etiketler yenilendi", 2000);
+}
+
+// ============================================================
+//  PARÇALARIN BASINÇ KAYBI — tüm devreler detay tablosu
+// ============================================================
+void MainWindow::OnBaskiKaybi() {
+    if (!m_document) return;
+
+    // Önce hesapla
+    auto& network = m_document->GetNetwork();
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+
+    QString html;
+    html += "<html><body style='font-family:Arial;font-size:11px'>";
+    html += "<h3>Parçaların Basınç Kaybı Tablosu</h3>";
+    html += "<table border='1' cellpadding='4' cellspacing='0' width='100%'>";
+    html += "<tr style='background:#2255aa;color:white'>"
+            "<th>Devre No</th><th>Tip</th><th>Malzeme</th>"
+            "<th>DN (mm)</th><th>L (m)</th><th>Q (L/s)</th>"
+            "<th>v (m/s)</th><th>ΔH (m)</th><th>Durum</th></tr>";
+
+    // Kritik devreyi bul
+    mep::HydraulicSolver critSolver(network);
+    auto critResult = critSolver.CalculateCriticalPath();
+    std::set<uint32_t> critSet(critResult.criticalPath.begin(), critResult.criticalPath.end());
+
+    int row = 0;
+    double totalHL = 0.0;
+    uint32_t criticalEdgeId = 0;
+    double   maxHL = 0.0;
+
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type == mep::EdgeType::Drainage || edge.type == mep::EdgeType::Vent) continue;
+
+        bool isCrit = (critSet.count(eid) > 0);
+        QString bg  = isCrit ? "#fff3cd" : (row % 2 == 0 ? "#f5f8ff" : "white");
+
+        QString typeStr;
+        switch (edge.type) {
+            case mep::EdgeType::Supply:   typeStr = "Soğuk Su"; break;
+            case mep::EdgeType::HotWater: typeStr = "Sıcak Su"; break;
+            default:                       typeStr = "Diğer";    break;
+        }
+
+        html += QString("<tr style='background:%1'>"
+                        "<td>%2</td><td>%3</td><td>%4</td>"
+                        "<td>%5</td><td>%6</td><td>%7</td>"
+                        "<td>%8</td><td>%9</td><td>%10</td></tr>")
+            .arg(bg)
+            .arg(edge.label.empty() ? QString("E%1").arg(eid) : QString::fromStdString(edge.label))
+            .arg(typeStr)
+            .arg(QString::fromStdString(edge.material))
+            .arg(edge.diameter_mm, 0, 'f', 0)
+            .arg(edge.length_m, 0, 'f', 2)
+            .arg(edge.flowRate_m3s * 1000.0, 0, 'f', 3)
+            .arg(edge.velocity_ms, 0, 'f', 2)
+            .arg(edge.headLoss_m, 0, 'f', 4)
+            .arg(isCrit ? "<b style='color:#c00'>KRİTİK</b>" : "OK");
+
+        totalHL += edge.headLoss_m;
+        if (edge.headLoss_m > maxHL) { maxHL = edge.headLoss_m; criticalEdgeId = eid; }
+        ++row;
+    }
+
+    html += "</table>";
+    html += QString("<p><b>Toplam kayıp (supply ağı):</b> %1 m &nbsp;&nbsp;"
+                    "<b>Kritik devre toplam:</b> <span style='color:#c00'>%2 m</span></p>")
+        .arg(totalHL, 0, 'f', 3)
+        .arg(critResult.totalHeadLoss_m, 0, 'f', 3);
+    html += "</body></html>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Parçaların Basınç Kaybı");
+    dlg.resize(860, 520);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(html);
+    auto* savBtn = new QPushButton("PDF Kaydet", &dlg);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+    buttons->addButton(savBtn, QDialogButtonBox::ActionRole);
+    auto* vl = new QVBoxLayout(&dlg);
+    vl->addWidget(browser);
+    vl->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::accept);
+    connect(savBtn, &QPushButton::clicked, [&](){
+        QString path = QFileDialog::getSaveFileName(&dlg, "PDF Kaydet", "", "PDF (*.pdf)");
+        if (path.isEmpty()) return;
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName(path);
+        printer.setPageLayout(QPageLayout(QPageSize(QPageSize::A4),
+                              QPageLayout::Landscape, QMarginsF(15,10,15,10)));
+        browser->print(&printer);
+    });
+    dlg.exec();
+}
+
+// ============================================================
+//  WORD / HTML RAPOR EXPORT (FineSANI Word dosyası eşdeğeri)
+// ============================================================
+void MainWindow::OnWordRapor() {
+    if (!m_document) return;
+
+    auto& network = m_document->GetNetwork();
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    auto critResult = solver.CalculateCriticalPath();
+
+    // Proje bilgileri
+    QString projName = QString::fromStdString(core::ProjectManager::Instance().GetProjectName());
+    QString today    = QDate::currentDate().toString("dd.MM.yyyy");
+
+    QString html;
+    html += "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
+    html += "<style>body{font-family:Arial,sans-serif;font-size:11pt;margin:2cm}"
+            "h1{color:#2255aa}h2{color:#2255aa;border-bottom:1px solid #2255aa}"
+            "table{border-collapse:collapse;width:100%}"
+            "th{background:#2255aa;color:white;padding:4px;font-size:10pt}"
+            "td{border:1px solid #ccc;padding:3px;font-size:10pt}"
+            "tr:nth-child(even){background:#f5f8ff}"
+            ".crit{background:#fff3cd!important;font-weight:bold}"
+            ".ok{color:green}.warn{color:orange}.err{color:red}</style></head><body>";
+
+    // Başlık
+    html += QString("<h1>%1</h1>").arg(projName.isEmpty() ? "VKT Tesisat Projesi" : projName);
+    html += QString("<p><b>Tarih:</b> %1 &nbsp;&nbsp; <b>Norm:</b> %2 &nbsp;&nbsp; "
+                    "<b>Malzeme:</b> %3</p>")
+        .arg(today)
+        .arg(m_devreParams.norm)
+        .arg(m_devreParams.mainPipeMat);
+    html += "<hr>";
+
+    // 1. Devre Seçenekleri Özeti
+    html += "<h2>1. Devre Parametreleri</h2><table>";
+    html += QString("<tr><th>Parametre</th><th>Değer</th></tr>"
+                    "<tr><td>Bina Tipi</td><td>%1</td></tr>"
+                    "<tr><td>Ana Boru Cinsi</td><td>%2</td></tr>"
+                    "<tr><td>İkincil Boru Cinsi</td><td>%3</td></tr>"
+                    "<tr><td>Boru Pürüzlülüğü</td><td>%4 mm</td></tr>"
+                    "<tr><td>Maks. Su Hızı</td><td>%5 m/s</td></tr>"
+                    "<tr><td>Hesap Normu</td><td>%6</td></tr>")
+        .arg(m_devreParams.buildingType)
+        .arg(m_devreParams.mainPipeMat)
+        .arg(m_devreParams.branchPipeMat)
+        .arg(m_devreParams.roughness_mm, 0, 'f', 4)
+        .arg(m_devreParams.maxVelocity_ms, 0, 'f', 1)
+        .arg(m_devreParams.norm);
+    html += "</table>";
+
+    // 2. Boru Hesap Föyü
+    html += "<h2>2. Boru Hesap Föyü</h2>";
+    html += "<table><tr><th>Devre No</th><th>Tip</th><th>DN (mm)</th>"
+            "<th>L (m)</th><th>Q (L/s)</th><th>v (m/s)</th><th>ΔH (m)</th><th>Durum</th></tr>";
+
+    std::set<uint32_t> critSet(critResult.criticalPath.begin(), critResult.criticalPath.end());
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type == mep::EdgeType::Drainage || edge.type == mep::EdgeType::Vent) continue;
+        bool isCrit = critSet.count(eid) > 0;
+        QString cls = isCrit ? " class='crit'" : "";
+        QString typeStr = (edge.type == mep::EdgeType::HotWater) ? "Sıcak Su" : "Soğuk Su";
+        QString lbl = edge.label.empty() ? QString("E%1").arg(eid) : QString::fromStdString(edge.label);
+        html += QString("<tr%1><td>%2</td><td>%3</td><td>%4</td>"
+                        "<td>%5</td><td>%6</td><td>%7</td><td>%8</td><td>%9</td></tr>")
+            .arg(cls).arg(lbl).arg(typeStr)
+            .arg(edge.diameter_mm, 0, 'f', 0)
+            .arg(edge.length_m, 0, 'f', 2)
+            .arg(edge.flowRate_m3s * 1000.0, 0, 'f', 3)
+            .arg(edge.velocity_ms, 0, 'f', 2)
+            .arg(edge.headLoss_m, 0, 'f', 4)
+            .arg(isCrit ? "KRİTİK DEVRE" : "—");
+    }
+    html += "</table>";
+
+    // 3. Kritik Devre Özeti
+    html += "<h2>3. Kritik Devre ve Hidrofor</h2><table>";
+    html += QString("<tr><th>Parametre</th><th>Değer</th></tr>"
+                    "<tr><td>Kritik Hat Toplam Kayıp</td><td><b>%1 m</b></td></tr>"
+                    "<tr><td>Gerekli Pompa Basma Yüksekliği</td><td><b style='color:#c00'>%2 m</b></td></tr>")
+        .arg(critResult.totalHeadLoss_m, 0, 'f', 2)
+        .arg(critResult.requiredPumpHead_m, 0, 'f', 2);
+    html += "</table>";
+
+    // 4. Armatür Listesi
+    html += "<h2>4. Armatür Listesi</h2>";
+    html += "<table><tr><th>ID</th><th>Tip</th><th>LU</th><th>Debi (L/s)</th></tr>";
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.type != mep::NodeType::Fixture) continue;
+        html += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td></tr>")
+            .arg(nid)
+            .arg(QString::fromStdString(node.fixtureType))
+            .arg(node.loadUnit, 0, 'f', 1)
+            .arg(node.flowRate_m3s * 1000.0, 0, 'f', 3);
+    }
+    html += "</table>";
+
+    html += QString("<p style='color:gray;font-size:9pt'>"
+                    "VKT v1.0 — %1 — %2 uyumlu</p>").arg(today).arg(m_devreParams.norm);
+    html += "</body></html>";
+
+    // Dosyaya yaz (.htm — Word ve tarayıcı açar)
+    QString defaultPath;
+    auto& pm = core::ProjectManager::Instance();
+    if (!pm.GetProjectFolder().empty())
+        defaultPath = QString::fromStdString(pm.GetProjectFolder()) + "/rapor/";
+    defaultPath += (projName.isEmpty() ? "rapor" : projName) + "_hesap_foyu.htm";
+
+    QString path = QFileDialog::getSaveFileName(this, "Word/HTML Rapor Kaydet",
+                                                defaultPath,
+                                                "HTML Rapor (*.htm *.html);;Tüm Dosyalar (*)");
+    if (path.isEmpty()) return;
+
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&f);
+        out.setEncoding(QStringConverter::Utf8);
+        out << html;
+        f.close();
+        if (m_logList) m_logList->addItem("Word/HTML rapor kaydedildi: " + path);
+        QMessageBox::information(this, "Rapor Kaydedildi",
+            QString("Rapor kaydedildi:\n%1\n\nWord veya tarayıcıyla açabilirsiniz.").arg(path));
+    } else {
+        QMessageBox::warning(this, "Hata", "Dosya yazılamadı: " + path);
+    }
 }
 
 // ============================================================

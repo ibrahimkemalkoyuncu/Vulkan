@@ -407,6 +407,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **HotWater/HotSource unit testleri** — `test_hydraulic.cpp`'ye 6 test eklendi (18 assertion): NodeType::HotSource roundtrip, EdgeType::HotWater roundtrip, pozitif debi, pozitif head loss, AutoSize standart DN, karışık ağ; 108/108 test geçiyor; test_riser.cpp legend etiketi "Soguk Su" uyumlu hale getirildi
 - **Eğitim.md Bölüm 25-26** — Sıcak Su Modülü + Tesisatı Kabul Et; tam iş akışı özeti SICAK-SU/SOFBEN/KABUL adımları dahil güncellendi
 - **Kullanıcı_kitabı.md Bölüm 25-26** — Bölüm 25 Sıcak Su + Bölüm 26 Tesisatı Kabul Et; hızlı başlangıç iş akışı 21 adıma güncellendi
+- **Devre Seçenekleri dialog** — `vkt/ui/DevreSecenekleriDialog.hpp` + `src/ui/DevreSecenekleriDialog.cpp`; bina tipi/boru cinsi/pürüzlülük/max hız/norm tek dialog; değişince tüm borulara uygulanır + AutoHydro tetiklenir; Ctrl+Shift+D + `DEVRE` komutu
+- **Baskı İçeriği** — `OnBaskiIcerigi()`: çizimde hangi etiketler görünsün checkbox seçici (DN/debi/uzunluk/hız/basınç kaybı); `m_labelShow*` bool flag'leri; `RefreshTextOverlay()` güncellendi — etiket bileşenleri birleştirilir; `BASKI` komutu
+- **Parçaların Basınç Kaybı** — `OnBaskiKaybi()`: tüm Supply/HotWater edgelerin HTML tablosu; kritik devre sarı vurgulu; toplam + kritik kayıp özeti; PDF kaydet; `BASINC`/`PARCALAR` komutu
+- **Word/HTML Rapor Export** — `OnWordRapor()`: devre parametreleri + boru hesap föyü + kritik devre + armatür listesi; `.htm` dosya (Word + tarayıcı açar); `rapor/` klasörüne otomatik yol; `WORD`/`HTML-RAPOR` komutu
+- **MinGW Ninja build fix** — `catch_discover_tests DISCOVERY_MODE PRE_TEST` + `vcpkg bin PATH`; 0xc0000135 DLL hatası giderildi
 - **Otomatik kolon tespiti** — `NetworkGraph::IsColumnEdge(edgeId)`: dx<50mm, dy<50mm, dz>0.3m → dikey boru; `GetColumnEdges()`: tüm kolon edge ID'lerini döndürür; 4 birim testi eklendi
 - **Çok katlı izometrik önizleme** — `VulkanRenderer::UpdateNetworkVertexData()`: `m_viewMode != Plan` iken Z metre → mm dönüşümü (`×1000`); hem edge vertex'leri hem node vertex'leri Z-skalı; izometrik görünümde bağlantılar gerçek 3D yüksekliklerinde render edilir
 - **Boru malzeme seçici düzeltmesi** — DrawPipe + OnDrawColumn: sabit "PVC" → `m_propMaterial->currentText()` + `Database::GetPipe().roughness_mm`; özellik paneli artık gerçekten etkili
