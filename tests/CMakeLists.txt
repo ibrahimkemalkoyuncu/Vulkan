@@ -79,4 +79,7 @@ target_sources(vkt_tests PRIVATE
 # CTest entegrasyonu
 include(CTest)
 include(Catch)
-catch_discover_tests(vkt_tests)
+catch_discover_tests(vkt_tests
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES ENVIRONMENT "PATH=C:/vcpkg/installed/x64-windows/bin;$ENV{PATH}"
+)
