@@ -4,6 +4,7 @@
 #include <QLabel>
 #include <QListWidgetItem>
 #include <QFont>
+#include <QCheckBox>
 
 namespace vkt {
 namespace ui {
@@ -66,20 +67,39 @@ void STFixturePanel::BuildUI()
 
     lay->addWidget(m_list, 1);
 
+    // Akıllı Bağlantı Noktaları — FineSANI "akıllı bağlantı noktaları" eşdeğeri
+    m_cbSmartPoint = new QCheckBox("Akilli Baglanti Noktasi");
+    m_cbSmartPoint->setToolTip(
+        "İşaretlenince cihaz tam simgesi yerine sadece pis su bağlantı sembolü (yıldız) yerleştirilir.\n"
+        "Mimari planda cihaz zaten çiziliyse bu seçeneği kullanın — görüntü kirliliği olmaz.");
+    m_cbSmartPoint->setStyleSheet("QCheckBox { color: #c060cc; font-weight: bold; }");
+    lay->addWidget(m_cbSmartPoint);
+
     auto* hint = new QLabel(
-        "<small><i>Çift tıkla → yerleştirme modunu etkinleştir</i></small>");
+        "<small><i>Cift tikla → yerlestirme modunu etkinlestir</i></small>");
     hint->setAlignment(Qt::AlignCenter);
     hint->setStyleSheet("QLabel { color: #888; }");
     lay->addWidget(hint);
 
     connect(m_list, &QListWidget::itemDoubleClicked,
             this,   &STFixturePanel::OnItemActivated);
+    connect(m_cbSmartPoint, &QCheckBox::toggled,
+            this,            &STFixturePanel::SmartPointModeChanged);
+}
+
+bool STFixturePanel::IsSmartPointMode() const
+{
+    return m_cbSmartPoint && m_cbSmartPoint->isChecked();
 }
 
 void STFixturePanel::OnItemActivated(QListWidgetItem* item)
 {
-    if (item)
-        emit FixtureSelected(item->data(Qt::UserRole).toString());
+    if (!item) return;
+    // Akıllı Bağlantı Noktası aktifse "SmartPoint" fixture tipini gönder
+    QString name = IsSmartPointMode()
+        ? QStringLiteral("SmartPoint")
+        : item->data(Qt::UserRole).toString();
+    emit FixtureSelected(name);
 }
 
 } // namespace ui

@@ -81,5 +81,5 @@ include(CTest)
 include(Catch)
 catch_discover_tests(vkt_tests
     DISCOVERY_MODE PRE_TEST
-    PROPERTIES ENVIRONMENT "PATH=C:/vcpkg/installed/x64-windows/bin;$ENV{PATH}"
+    PROPERTIES ENVIRONMENT "PATH=C:/vcpkg/installed/x64-windows/bin;C:/Qt/Tools/mingw1310_64/bin;$ENV{PATH}"
 )

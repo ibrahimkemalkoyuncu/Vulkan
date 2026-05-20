@@ -50,6 +50,7 @@
 #include <fstream>
 #include <string>
 #include <cmath>
+#include <limits>
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -198,6 +199,19 @@ void MainWindow::CreateActions() {
     m_actPlaceRogar = new QAction("Rögar (Boşaltma)", this);
     m_actPlaceRogar->setToolTip("Pis su boşaltma noktası (rögar) yerleştir");
     connect(m_actPlaceRogar, &QAction::triggered, this, &MainWindow::OnPlaceRogar);
+
+    m_actPlaceSmartPoint = new QAction("Akilli Baglanti Noktasi", this);
+    m_actPlaceSmartPoint->setToolTip("Mimari planda cihaz zaten varsa sadece baglanti sembolü (yildiz) yerlestir — görsel kirlilik olmaz");
+    connect(m_actPlaceSmartPoint, &QAction::triggered, this, &MainWindow::OnPlaceSmartPoint);
+
+    m_actBosaltmaNoktasi = new QAction("Ana Tahliye Noktasini Isaretle", this);
+    m_actBosaltmaNoktasi->setToolTip("En alttaki Drain node'unu bina ana kanalizasyon baglantisi olarak isaretle");
+    connect(m_actBosaltmaNoktasi, &QAction::triggered, this, &MainWindow::OnBosaltmaNoktasi);
+
+    m_actLayerVisibility = new QAction("Katman Gorunurlugu...", this);
+    m_actLayerVisibility->setToolTip("Temiz Su / Sicak Su / Pis Su katmanlarini bagimsiz goster veya gizle");
+    m_actLayerVisibility->setShortcut(QKeySequence("Ctrl+Shift+L"));
+    connect(m_actLayerVisibility, &QAction::triggered, this, &MainWindow::OnLayerVisibility);
 
     m_actCopyFloor = new QAction("Tesisat Kopyala...", this);
     m_actCopyFloor->setToolTip("Seçilen katın yatay borularını ve armatürlerini başka kata kopyala (kolonlar hariç)");
@@ -368,6 +382,8 @@ void MainWindow::CreateMenus() {
     drawMenu->addAction(m_actDrawDrainPipe);
     drawMenu->addAction(m_actPlaceYerSuzgeci);
     drawMenu->addAction(m_actPlaceRogar);
+    drawMenu->addAction(m_actPlaceSmartPoint);
+    drawMenu->addAction(m_actBosaltmaNoktasi);
     drawMenu->addSeparator();
     drawMenu->addAction(m_actCopyFloor);
 
@@ -377,6 +393,8 @@ void MainWindow::CreateMenus() {
     viewMenu->addAction(m_actIsometricView);
     viewMenu->addSeparator();
     viewMenu->addAction(m_actZoomExtents);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_actLayerVisibility);
 
     // Analiz
     auto* analyzeMenu = menuBar()->addMenu("&Analiz");
@@ -529,6 +547,12 @@ void MainWindow::CreateDockPanels() {
 
     connect(m_stPanel, &STFixturePanel::FixtureSelected,
             this,      &MainWindow::OnSTFixtureSelected);
+    connect(m_stPanel, &STFixturePanel::SmartPointModeChanged,
+            this, [this](bool on) {
+                statusBar()->showMessage(
+                    on ? "Akilli Baglanti Noktasi: AKTIF — cihazlar yildiz sembolu olarak yerlestirilecek"
+                       : "Akilli Baglanti Noktasi: KAPALI — tam cihaz simgesi yerlestirilecek", 3000);
+            });
 
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
@@ -1418,6 +1442,86 @@ void MainWindow::OnPlaceRogar() {
     if (m_commandBar) m_commandBar->SetPrompt("Rogar konumu");
 }
 
+//  AKILLİ BAĞLANTI NOKTASI — cihaz sembolü yerine sadece artı/yıldız işareti
+void MainWindow::OnPlaceSmartPoint() {
+    if (!m_document) return;
+    m_selectedFixtureType = "SmartPoint";
+    m_currentToolMode = ToolMode::PlaceFixture;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Akilli Baglanti Noktasi: Cihazin pis su cikis noktasini tiklayin (magenta yildiz)");
+    if (m_commandBar) m_commandBar->SetPrompt("Akilli baglanti");
+}
+
+//  BOŞALTMA NOKTASI — en alttaki Drain'i ana tahliye olarak işaretle
+void MainWindow::OnBosaltmaNoktasi() {
+    if (!m_document) return;
+    const auto& network = m_document->GetNetwork();
+    uint32_t lowestId = 0;
+    double   lowestZ  = std::numeric_limits<double>::max();
+    for (const auto& [nid, node] : network.GetNodeMap()) {
+        if (node.type != mep::NodeType::Drain) continue;
+        if (node.position.z < lowestZ) {
+            lowestZ  = node.position.z;
+            lowestId = nid;
+        }
+    }
+    if (lowestId == 0) {
+        QMessageBox::information(this, "Bosaltma Noktasi",
+            "Hic Drain node bulunamadi. Once Rogar veya Yer Suzgeci ekleyin.");
+        return;
+    }
+    m_mainDrainNodeId = lowestId;
+    const auto* n = network.GetNode(lowestId);
+    RefreshTextOverlay();
+    statusBar()->showMessage(
+        QString("Ana Tahliye Noktasi isaretlendi: node #%1 (z=%2m)")
+        .arg(lowestId)
+        .arg(n ? n->position.z : lowestZ, 0, 'f', 2));
+    m_document->SetModified(true);
+}
+
+//  UYGULAMA KATMAN GÖRÜNÜRLÜĞܠ— Supply/HotWater/Drainage katmanlarını bağımsız göster/gizle
+void MainWindow::OnLayerVisibility() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Katman Gorunurlugu");
+    dlg.setMinimumWidth(280);
+
+    auto* cb1 = new QCheckBox("Temiz Su (Supply) — mavi boru");
+    auto* cb2 = new QCheckBox("Sicak Su (HotWater) — kirmizi boru");
+    auto* cb3 = new QCheckBox("Pis Su (Drainage) — kahverengi boru");
+    cb1->setChecked(m_showTemizSu);
+    cb2->setChecked(m_showSicakSu);
+    cb3->setChecked(m_showPisSu);
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel("<b>Hangi katmanlar gorunsun?</b>"));
+    lay->addWidget(cb1);
+    lay->addWidget(cb2);
+    lay->addWidget(cb3);
+    lay->addWidget(btns);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    m_showTemizSu = cb1->isChecked();
+    m_showSicakSu = cb2->isChecked();
+    m_showPisSu   = cb3->isChecked();
+
+    // Renderer'a bildir — GPU vertex buffer yeniden oluşturulacak
+    if (m_vulkanWindow)
+        m_vulkanWindow->SetLayerVisibility(m_showTemizSu, m_showSicakSu, m_showPisSu);
+
+    RefreshTextOverlay();
+    statusBar()->showMessage(
+        QString("Katman gorunurlugu: TemizSu=%1 SicakSu=%2 PisSu=%3")
+        .arg(m_showTemizSu ? "ACIK" : "KAPALI")
+        .arg(m_showSicakSu ? "ACIK" : "KAPALI")
+        .arg(m_showPisSu   ? "ACIK" : "KAPALI"), 3000);
+}
+
 void MainWindow::OnActiveFloorChanged(int index) {
     m_activeFloorIndex = index;
     const core::Floor* f = m_floorManager.GetFloor(index);
@@ -2298,9 +2402,9 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Soguk Su: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
             m_logList->addItem("Sicak Su: SICAK-SU  SOFBEN/KAZAN (sofben kaynagi)");
             m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
-            m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR/BOSALTMA");
+            m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR  AKILLI(-BAGLANTI)  BOSALTMA");
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
-            m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO");
+            m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
@@ -2360,8 +2464,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnDrawDrainPipe();
     } else if (c == "YER-SUZGECI" || c == "FLOOR-DRAIN") {
         OnPlaceYerSuzgeci();
-    } else if (c == "ROGAR" || c == "BOSALTMA") {
+    } else if (c == "ROGAR") {
         OnPlaceRogar();
+    } else if (c == "AKILLI-BAGLANTI" || c == "SMART-POINT" || c == "AKILLI") {
+        OnPlaceSmartPoint();
+    } else if (c == "BOSALTMA" || c == "ANA-TAHLIYE") {
+        OnBosaltmaNoktasi();
+    } else if (c == "KATMAN" || c == "LAYER-VIS" || c == "KATMAN-VIS") {
+        OnLayerVisibility();
     } else if (c == "KOPYA-KAT" || c == "FLOOR-COPY") {
         OnCopyFloor();
     } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
@@ -2444,6 +2554,11 @@ void MainWindow::RefreshTextOverlay() {
     // ── MEP Edge label'ları (DN boyutu, boru etiketi) ─────────
     const auto& network = m_document->GetNetwork();
     for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        // Katman görünürlük filtresi (overlay labels)
+        if (edge.type == mep::EdgeType::Supply   && !m_showTemizSu) continue;
+        if (edge.type == mep::EdgeType::HotWater && !m_showSicakSu) continue;
+        if (edge.type == mep::EdgeType::Drainage && !m_showPisSu)   continue;
+
         if (edge.label.empty()) continue;
 
         const mep::Node* nA = network.GetNode(edge.nodeA);
@@ -2523,17 +2638,28 @@ void MainWindow::RefreshTextOverlay() {
                 sp.y < -40 || sp.y > vp.GetHeight() + 40) continue;
             if (vp.GetZoom() < 0.3) continue;
 
+            // SmartPoint: magenta label "⊕ Baglanti"
+            const bool isSmartPoint = (node.type == mep::NodeType::Fixture &&
+                                       node.fixtureType == "SmartPoint");
+            // Ana Tahliye işareti
+            const bool isMainDrain = (nid == m_mainDrainNodeId && m_mainDrainNodeId != 0);
+
             QColor qcol;
-            switch (node.type) {
-                case mep::NodeType::Fixture: qcol = QColor(100, 255, 120); break;
-                case mep::NodeType::Source:  qcol = QColor(100, 160, 255); break;
-                case mep::NodeType::Drain:   qcol = QColor(210, 140,  80); break;
-                case mep::NodeType::Pump:    qcol = QColor(255, 220,  50); break;
-                default:                     qcol = Qt::white;              break;
+            if (isSmartPoint) {
+                qcol = QColor(230, 80, 220);   // magenta
+            } else {
+                switch (node.type) {
+                    case mep::NodeType::Fixture:   qcol = QColor(100, 255, 120); break;
+                    case mep::NodeType::Source:    qcol = QColor(100, 160, 255); break;
+                    case mep::NodeType::HotSource: qcol = QColor(255, 100,  60); break;
+                    case mep::NodeType::Drain:     qcol = QColor(210, 140,  80); break;
+                    case mep::NodeType::Pump:      qcol = QColor(255, 220,  50); break;
+                    default:                       qcol = Qt::white;              break;
+                }
             }
 
             constexpr int kLblH = 10;
-            constexpr int kLblW = 50; // yaklaşık genişlik tahmini
+            constexpr int kLblW = 60;
             QPointF base(sp.x + 6, sp.y - 6);
 
             // Greedy placement: en fazla 4 kez yukarı kaydır
@@ -2547,11 +2673,19 @@ void MainWindow::RefreshTextOverlay() {
             }
             placedRects.push_back(r);
 
+            QString labelText;
+            if (isSmartPoint)
+                labelText = "+ Baglanti";
+            else if (isMainDrain)
+                labelText = "[ANA TAHLIYE] " + QString::fromStdString(node.label);
+            else
+                labelText = QString::fromStdString(node.label);
+
             SnapOverlay::TextLabel lbl;
             lbl.pos    = QPointF(r.left(), r.bottom() - 2);
-            lbl.text   = QString::fromStdString(node.label);
-            lbl.pixelH = kLblH;
-            lbl.color  = qcol;
+            lbl.text   = labelText;
+            lbl.pixelH = isMainDrain ? 12 : kLblH;
+            lbl.color  = isMainDrain ? QColor(255, 120, 0) : qcol;
             lbl.rotDeg = 0.0;
             lbl.hAlign = 0;
             lbl.vAlign = 0;

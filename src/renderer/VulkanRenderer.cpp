@@ -1520,6 +1520,11 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
 
     // Edge'ler: Çizgi olarak çiz
     for (const auto& edge : edges) {
+        // Katman görünürlük filtresi
+        if (edge.type == mep::EdgeType::Supply   && !m_showTemizSu) continue;
+        if (edge.type == mep::EdgeType::HotWater && !m_showSicakSu) continue;
+        if (edge.type == mep::EdgeType::Drainage && !m_showPisSu)   continue;
+
         const mep::Node* nodeA = network.GetNode(edge.nodeA);
         const mep::Node* nodeB = network.GetNode(edge.nodeB);
         if (!nodeA || !nodeB) continue;
@@ -1542,12 +1547,46 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
     }
 
     // Node'lar: Küçük kare (2 triangle = 6 vertex) olarak çiz
+    // SmartPoint (akıllı bağlantı) ise artı/çarpı sembolü (lines) olarak çiz
     const float nodeSize = 0.15f; // 15cm çap
     for (const auto& node : nodes) {
-        auto color = GetNodeColor(node.type);
         float x = static_cast<float>(node.position.x);
         float y = static_cast<float>(node.position.y);
         float z = scaleZ ? static_cast<float>(node.position.z) * 1000.0f : 0.0f;
+
+        if (node.type == mep::NodeType::Fixture && node.fixtureType == "SmartPoint") {
+            // Akıllı Bağlantı Noktası — magenta artı (+) sembolü (4 çizgi = 8 vertex)
+            const std::array<float, 3> col = {0.9f, 0.2f, 0.85f};
+            const float arm = nodeSize * 1.2f;
+            // Yatay çizgi
+            geom::Vertex hL{}, hR{}, vB{}, vT{};
+            hL.pos[0] = x - arm; hL.pos[1] = y; hL.pos[2] = z;
+            hR.pos[0] = x + arm; hR.pos[1] = y; hR.pos[2] = z;
+            vB.pos[0] = x; vB.pos[1] = y - arm; vB.pos[2] = z;
+            vT.pos[0] = x; vT.pos[1] = y + arm; vT.pos[2] = z;
+            std::copy(col.begin(), col.end(), hL.color);
+            std::copy(col.begin(), col.end(), hR.color);
+            std::copy(col.begin(), col.end(), vB.color);
+            std::copy(col.begin(), col.end(), vT.color);
+            lineVertices.push_back(hL); lineVertices.push_back(hR);
+            lineVertices.push_back(vB); lineVertices.push_back(vT);
+            // 45° çizgiler (× kolu)
+            const float d = arm * 0.65f;
+            geom::Vertex dTL{}, dBR{}, dTR{}, dBL{};
+            dTL.pos[0] = x - d; dTL.pos[1] = y + d; dTL.pos[2] = z;
+            dBR.pos[0] = x + d; dBR.pos[1] = y - d; dBR.pos[2] = z;
+            dTR.pos[0] = x + d; dTR.pos[1] = y + d; dTR.pos[2] = z;
+            dBL.pos[0] = x - d; dBL.pos[1] = y - d; dBL.pos[2] = z;
+            std::copy(col.begin(), col.end(), dTL.color);
+            std::copy(col.begin(), col.end(), dBR.color);
+            std::copy(col.begin(), col.end(), dTR.color);
+            std::copy(col.begin(), col.end(), dBL.color);
+            lineVertices.push_back(dTL); lineVertices.push_back(dBR);
+            lineVertices.push_back(dTR); lineVertices.push_back(dBL);
+            continue; // çember çizme
+        }
+
+        auto color = GetNodeColor(node.type);
 
         // 8-segment çember yaklaşımı (triangle fan → triangle list)
         constexpr int segments = 8;

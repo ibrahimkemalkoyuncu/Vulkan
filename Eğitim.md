@@ -621,4 +621,122 @@ Doğrulama geçilirse tüm borular otomatik numaralandırılır:
 
 ---
 
+## Bölüm 27 — Pis Su Tesisat Tasarımı: Modül ve Katman Yönetimi
+
+### Pis Su Modülüne Geçiş ve Katman Kontrolü
+
+VKT'de birden fazla sistem katmanı (Temiz Su / Sıcak Su / Pis Su) aynı projede bulunur.
+Çizimi sadeleştirmek için **Görünüm → Katman Görünürlüğü** (Ctrl+Shift+L) kullanın:
+
+| Eylem | Sonuç |
+|-------|-------|
+| Sadece Pis Su açık | Ekranda yalnızca kahverengi drenaj boruları ve Drain node'ları görünür |
+| Temiz Su + Pis Su açık | Tüm sistemi birlikte görerek tesisat bağlantılarını doğrulayabilirsiniz |
+| Sadece Temiz Su açık | Sıcak + soğuk su hatları, Fixture ve Source node'ları |
+
+**Komut:** `KATMAN` veya `KATMAN-VIS`
+
+### İş Akışı
+
+1. `Görünüm → Katman Görünürlüğü` açın.
+2. İncelemek istediğiniz sistemi seçin (veya hepsini açık bırakın).
+3. Çizim sırasında diğer katmanları geçici kapatarak çalışın.
+4. Pafta almadan önce tüm katmanları açık bırakın.
+
+---
+
+## Bölüm 28 — Pis Su Tesisat Tasarımı: Cihaz Yerleştirme ve Akıllı Bağlantı Noktaları
+
+### FineSANI'deki "Akıllı Bağlantı Noktaları" Eşdeğeri
+
+Mimari planda banyo/mutfak cihazları (WC, lavabo, küvet) zaten çizilmişse, bu cihazları tekrar
+sembol olarak eklemek görsel kargaşa yaratır. FineSANI'nin "akıllı bağlantı noktaları" özelliği
+bu sorunu çözer — VKT'de iki yöntemle erişilir:
+
+#### Yöntem 1: ST Cihazları Paneli (Önerilen)
+
+1. Sağ panelde **ST Cihazları** sekmesini açın.
+2. Alt kısımdaki **"Akıllı Bağlantı Noktası"** checkbox'ını işaretleyin (mor renk).
+3. Listeden cihaz tipini seçin (WC, Lavabo, Duş vb.).
+4. Cihazı çift tıklayın → yerleştirme moduna girin.
+5. Cihazın pis su bağlantı çıkışına tıklayın → ekrana yalnızca **magenta artı/yıldız sembolü** gelir.
+
+#### Yöntem 2: Menü veya Komut
+
+- `Çizim → Akıllı Bağlantı Noktası` menü komutu
+- CommandBar: `AKILLI` veya `AKILLI-BAGLANTI` veya `SMART-POINT`
+
+#### Ne Zaman Hangisi?
+
+| Durum | Tercih |
+|-------|--------|
+| Mimari planda cihaz zaten çizili | **Akıllı Bağlantı Noktası** — sadece sembol |
+| Yer süzgeci / mimaride çizimi olmayan eleman | **Normal Fixture / Yer Süzgeci** — tam sembol |
+| Rögar, boşaltma çukuru | `ROGAR` komutu — Drain node yerleştirir |
+
+#### Overlay Gösterimi
+
+Akıllı Bağlantı Noktası (SmartPoint) node'ları:
+- GPU renderda: magenta renkli **× (çarpı + artı)** sembolü
+- Overlay label: `+ Baglanti` (mor renk)
+- LU değeri: 0 (hesaba dahil edilmez — sadece bağlantı geometrisi)
+
+---
+
+## Bölüm 29 — Pis Su Tesisat Tasarımı: Boşaltma Noktası ve Kolon Bağlantıları
+
+### Ana Tahliye Noktasını İşaretleme
+
+Zemin katta tüm kolon boruları tek bir noktada birleştirilerek kanalizasyona bağlanır.
+Bu noktayı sisteme tanıtmak için:
+
+1. Rögar veya yer süzgeci node'u zaten eklenmiş olmalı (`ROGAR` komutu).
+2. `Çizim → Ana Tahliye Noktasını İşaretle` veya `BOSALTMA` komutunu çalıştırın.
+3. VKT, tüm Drain node'ları arasında **en düşük Z'ye** (zemin kotuna) sahip olanı otomatik seçer ve **"ANA TAHLİYE"** etiketi ile turuncu renkte vurgular.
+
+**Komut:** `BOSALTMA` veya `ANA-TAHLIYE`
+
+### Pis Su Kolon Boruları
+
+Katlar arası pis su kolonları için aynı yöntemi kullanın:
+
+1. `KOLON` komutunu çalıştırın.
+2. Alt kattaki pis su node'unu seçin.
+3. Hedef katı seçin → dikey boru otomatik oluşturulur.
+4. Snap olarak **Perpendicular** (dik nokta) kullanın — kolon yatay boruya dik birleşir.
+
+**Not:** Kolon tespit algoritması (`IsColumnEdge`): aynı XY (<50mm), Z farkı >0.3m olan borular
+otomatik kolon olarak tanınır ve izometrik görünümde cyan/turuncu renk ile ayrıştırılır.
+
+### Kademeli Kolon Durumu
+
+Alt ve üst katlarda kolon farklı XY'de ise (örn. dış cephe + iç duvar):
+
+1. **Alt kolon:** 0–3m → `KOLON` ile çizin.
+2. **Üst kolon:** 3–6m → `KOLON` ile ayrı çizin.
+3. İki kolonu `BORU` (normal boru komutu) + Perpendicular snap ile yatayda birleştirin.
+4. İzometrik görünümde (`VIEW-ISO`) 3D bağlantıyı doğrulayın.
+
+### Tesisat Kopyalama — Kolonları Dışarıda Bırakma
+
+`Çizim → Tesisat Kopyala` (`KOPYA-KAT`) ile kat kopyalanırken kolonlar **otomatik hariç tutulur**.
+Bu kural hem temiz su hem pis su sistemi için geçerlidir — yeniden bağlamak gerekmez.
+
+### Komut Özeti — Pis Su İş Akışı
+
+| Adım | Komut / Menü | Açıklama |
+|------|-------------|----------|
+| 1 | `KATMAN` | Pis Su katmanını görünür yap |
+| 2 | `PIS-SU` | Drenaj borusu çiz modu |
+| 3 | `AKILLI` veya ST panel checkbox | SmartPoint bağlantı noktası yerleştir |
+| 4 | `YER-SUZGECI` | Yer süzgeci (Drain node) |
+| 5 | `ROGAR` | Rögar / boşaltma noktası (Drain node) |
+| 6 | `KOLON` | Dikey pis su kolon borusu |
+| 7 | `KOPYA-KAT` | Aynı plan katı kopyala (kolonlar hariç) |
+| 8 | `BOSALTMA` | Ana tahliye noktasını işaretle |
+| 9 | `YAGMUR` | Yağmur suyu boyutlandırma (EN 12056-3) |
+| 10 | `KABUL` | Tesisatı doğrula + numaralandır |
+
+---
+
 *VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

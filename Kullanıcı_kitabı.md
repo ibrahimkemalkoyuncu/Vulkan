@@ -985,18 +985,80 @@ Hatalar varsa, iletişim kutusunda listelenir — düzeltin ve tekrar `KABUL`.
 12. BASKI    → hangi değerlerin görüneceğini seç (DN/debi/uzunluk...)
 13. HIDROFOR → pompa boyutlandırma
 14. BASINC   → parçaların basınç kaybı tablosu — kritik devre kontrolü
-15. PIS-SU   → pis su borularını çiz
-16. YER-SUZGECI + ROGAR → drenaj bağlantısı
-17. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
-17b. KOLON   → katlar arası dikey boru bağlantısı
-18. YAGMUR   → yağmur suyu boyutlandırması
-19. KABUL    → doğrulama + numaralandırma (P-/SK-/PS-)
-20. RISER    → kolon şeması önizle, PDF/SVG kaydet
-21. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
-22. BOM      → keşif listesi (metraj + bağlantı)
-23. WORD     → Word/HTML rapor oluştur (tarayıcı veya Word ile açılır)
-24. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
+15. KATMAN   → Pis Su katmanını görünür yap (Temiz Su'yu gizle)
+16. PIS-SU   → pis su borularını çiz
+17. AKILLI   → ST panelinden Akıllı Bağlantı Noktası — sadece sembol
+18. YER-SUZGECI + ROGAR → drenaj bağlantısı
+19. BOSALTMA → ana tahliye noktasını (en alt Drain) işaretle
+20. KOPYA-KAT → tekrar eden katları kopyala (kolonlar otomatik dışarıda)
+20b. KOLON   → katlar arası dikey pis su borusu
+21. YAGMUR   → yağmur suyu boyutlandırması (EN 12056-3)
+22. KABUL    → doğrulama + numaralandırma (P-/SK-/PS-)
+23. RISER    → kolon şeması önizle, PDF/SVG kaydet
+24. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
+25. BOM      → keşif listesi (metraj + bağlantı)
+26. WORD     → Word/HTML rapor oluştur (tarayıcı veya Word ile açılır)
+27. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
 ```
+
+---
+
+## Bölüm 27 — Pis Su Katman Yönetimi
+
+### Hangi Katman Görünsün?
+
+`Görünüm → Katman Görünürlüğü` (Ctrl+Shift+L) ile her sistemi bağımsız açıp kapatın:
+
+| Seçim | Kullanım |
+|-------|----------|
+| Sadece Pis Su | Drenaj çizimi sırasında temiz su hatlarını gizle |
+| Temiz Su + Pis Su | İki sistemi birlikte gör, bağlantıları doğrula |
+| Tüm Katmanlar | Pafta almadan önce tam görünüm |
+
+**Komut:** `KATMAN`  
+**Kısayol:** Ctrl+Shift+L
+
+---
+
+## Bölüm 28 — Akıllı Bağlantı Noktaları
+
+### Mimari Planda Cihaz Zaten Varsa
+
+Banyoda WC, lavabo veya küvet mimaride zaten çiziliyse tekrar sembol eklemek gereksizdir.
+Bunun yerine **sadece pis su bağlantı noktasını** (magenta × sembolü) yerleştirin:
+
+**ST Cihazları Paneli Yöntemi (Önerilen):**
+1. Sağ panelde **ST Cihazları** sekmesini açın.
+2. Alt kısımdaki **mor "Akıllı Bağlantı Noktası"** checkbox'ını işaretleyin.
+3. Listeden cihaz tipini (WC, Lavabo vb.) seçip çift tıklayın.
+4. Cihazın pis su çıkış noktasına tıklayın.
+5. Ekrana **magenta × sembolü** gelir — "Baglanti" etiketiyle.
+
+**Komut:** `AKILLI` veya `AKILLI-BAGLANTI`
+
+| Cihaz Durumu | Yöntem |
+|-------------|--------|
+| Mimaride zaten çizili (WC, Lavabo) | Akıllı Bağlantı Noktası |
+| Mimaride çizimi yok (Yer Süzgeci) | Normal `YER-SUZGECI` |
+| Boşaltma noktası / Rögar | `ROGAR` komutu |
+
+---
+
+## Bölüm 29 — Ana Tahliye Noktası (Boşaltma Noktası)
+
+### Ana Kanalizasyon Bağlantısını İşaretleme
+
+Zemin katta tüm pis su kolonu birleştikten sonra ana tahliye noktasını sisteme tanıtın:
+
+1. `BOSALTMA` veya `Çizim → Ana Tahliye Noktasını İşaretle` komutunu çalıştırın.
+2. VKT, **en düşük Z kotundaki Drain node'u** otomatik bulur.
+3. Bu nokta overlay'de **turuncu "[ANA TAHLİYE]"** etiketi ile vurgulanır.
+4. Raporlarda (BOM, Word raporu) bina kanalizasyon bağlantısı olarak gösterilir.
+
+**Komut:** `BOSALTMA`
+
+> **İpucu:** Birden fazla Drain node'u varsa sistematik çalışın: önce rögarları yerleştirin
+> (`ROGAR`), ardından `BOSALTMA` ile en alttakini işaretleyin.
 
 ---
 

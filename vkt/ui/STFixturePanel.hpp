@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QListWidget>
+#include <QCheckBox>
 
 namespace vkt {
 namespace ui {
@@ -12,6 +13,9 @@ namespace ui {
  * Dock widget içinde gösterilir. Her cihaz çift tıklanınca
  * FixtureSelected() sinyali fırlatılır; MainWindow bu sinyali
  * PlaceFixture modunu etkinleştirmek için kullanır.
+ *
+ * "Akıllı Bağlantı Noktaları" checkbox: FineSANI eşdeğeri — mimari planda
+ * cihaz zaten çiziliyse, sadece pis su bağlantı sembolü (yıldız) yerleştir.
  */
 class STFixturePanel : public QWidget {
     Q_OBJECT
@@ -19,8 +23,13 @@ class STFixturePanel : public QWidget {
 public:
     explicit STFixturePanel(QWidget* parent = nullptr);
 
+    /// Akıllı Bağlantı Noktaları modu aktif mi?
+    bool IsSmartPointMode() const;
+
 signals:
     void FixtureSelected(const QString& fixtureName);
+    /// SmartPoint modu değiştiğinde yayınlanır
+    void SmartPointModeChanged(bool enabled);
 
 private slots:
     void OnItemActivated(QListWidgetItem* item);
@@ -28,7 +37,8 @@ private slots:
 private:
     void BuildUI();
 
-    QListWidget* m_list = nullptr;
+    QListWidget* m_list           = nullptr;
+    QCheckBox*   m_cbSmartPoint   = nullptr;
 };
 
 } // namespace ui

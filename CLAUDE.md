@@ -416,6 +416,10 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Çok katlı izometrik önizleme** — `VulkanRenderer::UpdateNetworkVertexData()`: `m_viewMode != Plan` iken Z metre → mm dönüşümü (`×1000`); hem edge vertex'leri hem node vertex'leri Z-skalı; izometrik görünümde bağlantılar gerçek 3D yüksekliklerinde render edilir
 - **Boru malzeme seçici düzeltmesi** — DrawPipe + OnDrawColumn: sabit "PVC" → `m_propMaterial->currentText()` + `Database::GetPipe().roughness_mm`; özellik paneli artık gerçekten etkili
 - **PrintLayoutDialog** — `vkt/ui/PrintLayoutDialog.hpp` + `src/ui/PrintLayoutDialog.cpp`; A3/A4/Yatay/Dikey sayfa seçimi; otomatik/manuel ölçek; ISO 7200 başlık bloğu (proje adı/pafta/firma/çizen/tarih); ProjectManager'dan otomatik doldurma; PDF + SVG çıktı; Ctrl+P + `PAFTA`/`PRINT` komutu
+- **Akıllı Bağlantı Noktası (SmartPoint)** — FineSANI "akıllı bağlantı noktaları" eşdeğeri; `fixtureType="SmartPoint"` Fixture node; GPU renderda magenta × sembolü (lineVertices); overlay'de `+ Baglanti` etiketi; STFixturePanel'e `m_cbSmartPoint` checkbox + `SmartPointModeChanged` sinyali; `OnItemActivated` SmartPoint mode'da "SmartPoint" gönderir; `AKILLI`/`AKILLI-BAGLANTI`/`SMART-POINT` komutları
+- **Uygulama Katman Görünürlüğü** — FineSANI "uygulama katmanlarını seç" eşdeğeri; `m_showTemizSu/m_showSicakSu/m_showPisSu` bool flag'leri; `OnLayerVisibility()` dialog (3 checkbox); `VulkanRenderer::SetLayerVisibility()` + `m_showTemizSu/Su/PisSu` member'lar; `UpdateNetworkVertexData()` edge tipi filtrelemesi; `RefreshTextOverlay()` edge label filtrelemesi; `VulkanWindow::SetLayerVisibility()` passthrough; Ctrl+Shift+L + `KATMAN`/`LAYER-VIS` komutu; Görünüm menüsüne eklendi
+- **Boşaltma Noktası (Ana Tahliye)** — `OnBosaltmaNoktasi()`: en düşük Z'li Drain node'u otomatik seçer → `m_mainDrainNodeId`; overlay'de turuncu "[ANA TAHLİYE]" etiketi; `BOSALTMA`/`ANA-TAHLIYE` komutu; Çizim menüsüne eklendi
+- **MinGW PATH fix (ctest)** — `catch_discover_tests ENVIRONMENT` PATH'e `C:/Qt/Tools/mingw1310_64/bin` eklendi; 108/108 test geçiyor
 
 ### Devam Eden
 

@@ -44,6 +44,11 @@ public:
     /// Aktif network referansı (render için)
     void SetNetwork(const mep::NetworkGraph* network) { m_network = network; }
 
+    /// MEP katman görünürlük filtreleri — Supply/HotWater/Drainage bağımsız gizle/göster
+    void SetLayerVisibility(bool showTemizSu, bool showSicakSu, bool showPisSu) {
+        m_renderer.SetLayerVisibility(showTemizSu, showSicakSu, showPisSu);
+    }
+
     /// CAD entity referansı (arka plan çizimi)
     void SetCADEntities(const std::vector<std::unique_ptr<cad::Entity>>* entities) {
         m_cadEntities = entities;

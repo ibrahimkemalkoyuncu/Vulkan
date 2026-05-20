@@ -131,6 +131,15 @@ private slots:
     void OnPlaceYerSuzgeci();
     void OnPlaceRogar();
 
+    // Akıllı Bağlantı Noktası — cihaz yerine sadece bağlantı sembolü (yıldız/artı)
+    void OnPlaceSmartPoint();
+
+    // Boşaltma Noktası — en alttaki Drain'i ana tahliye olarak işaretle
+    void OnBosaltmaNoktasi();
+
+    // Uygulama Katman Görünürlüğü — Temiz Su / Sıcak Su / Pis Su bağımsız gizle/göster
+    void OnLayerVisibility();
+
     // Sıcak su çizim komutları
     void OnDrawHotWaterPipe();
     void OnPlaceHotSource();
@@ -266,9 +275,12 @@ private:
     QAction* m_actDrawPipe        = nullptr;
     QAction* m_actDrawFixture     = nullptr;
     QAction* m_actDrawJunction    = nullptr;
-    QAction* m_actDrawDrainPipe    = nullptr;
-    QAction* m_actPlaceYerSuzgeci  = nullptr;
-    QAction* m_actPlaceRogar       = nullptr;
+    QAction* m_actDrawDrainPipe      = nullptr;
+    QAction* m_actPlaceYerSuzgeci    = nullptr;
+    QAction* m_actPlaceRogar         = nullptr;
+    QAction* m_actPlaceSmartPoint    = nullptr;
+    QAction* m_actBosaltmaNoktasi    = nullptr;
+    QAction* m_actLayerVisibility    = nullptr;
     QAction* m_actDrawHotWaterPipe = nullptr;
     QAction* m_actPlaceHotSource   = nullptr;
     QAction* m_actTesistatKabul    = nullptr;
@@ -332,6 +344,14 @@ private:
     bool m_labelShowLength   = false;
     bool m_labelShowVelocity = false;
     bool m_labelShowHeadLoss = false;
+
+    // Uygulama Katman Görünürlüğü — MEP katmanlarını bağımsız göster/gizle
+    bool m_showTemizSu = true;
+    bool m_showSicakSu = true;
+    bool m_showPisSu   = true;
+
+    // Ana Tahliye (Boşaltma) Noktası — işaretlenmiş Drain node
+    uint32_t m_mainDrainNodeId = 0;
 
     // MEP node drag taşıma
     bool     m_draggingNode   = false;

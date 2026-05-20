@@ -161,6 +161,13 @@ public:
         m_cadDirty = true; // vertex buffer'ı yeniden oluştur
     }
 
+    /** MEP katman görünürlük filtreleri — Supply/HotWater/Drainage bağımsız gizle */
+    void SetLayerVisibility(bool showTemizSu, bool showSicakSu, bool showPisSu) {
+        m_showTemizSu = showTemizSu;
+        m_showSicakSu = showSicakSu;
+        m_showPisSu   = showPisSu;
+    }
+
     // ── GPU Clash Detection ───────────────────────────────────────────────────
 
     struct GpuPipe {
@@ -294,6 +301,11 @@ private:
 
     // Layer renk haritası — ByLayer entity renklerini çözmek için
     std::unordered_map<std::string, cad::Layer> m_layerMap;
+
+    // MEP katman görünürlük filtreleri
+    bool m_showTemizSu = true;
+    bool m_showSicakSu = true;
+    bool m_showPisSu   = true;
 
     // ── SSAO ─────────────────────────────────────────────────────────────────
     struct SSAOImage {
