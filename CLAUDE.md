@@ -426,6 +426,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Manning fillRate hesabı** — `SolveDrainage()`: Manning kapasitesi ters çözümü (binary search 40 iter) → `edge.fillRate = h/d`; `%50` EN 12056 sınırı kontrolü Hesap Föyü'nde vurgulanıyor
 - **Baskı İçeriği — Pis Su etiketleri** — `m_labelShowSlope` + `m_labelShowFillRate`; `OnBaskiIcerigi()` dialog'a "Pis Su ek etiketleri" bölümü eklendi; `RefreshTextOverlay()` Drainage edge'lerde i(%) ve h/d(%) etiketi
 - **Eğitim.md Bölüm 30** — Pis Su Tesisat Hesapları: PIS-HESAP, BASKI, GUNCELLE, FOSEPTIK; tam iş akışı tablosu
+- **Pis Su Hesap Föyü "Boru Cinsi" sütunu** — `IsColumnEdge()` kullanarak yatay/kolon ayrımı; 9 sütunlu tablo
+- **Emdirme Çukuru** — `OnEmdirmeCukuru()`: toprak emme kapasitesi hesabı; perkolasyon testi düzeltmesi; `EMDIRME`/`EMDIRME-CUKURU` komutu
+- **Pis Su Çukuru** — `OnPisSuCukuru()`: geçirimsiz depolama tankı; tanker aralığı + emniyet katsayısı; silindir tank boyutu; `PIS-CUKUR` komutu
+- **Pis Su Pompası** — `OnPisSuPompasi()`: DIN EN 12050-1; Q/v/manometrik yükseklik/güç; standart motor seçimi; `PIS-POMPA` komutu
+- **Kolon Şeması DXF Export** — `OnRiserDiagram()` "DXF Kaydet" butonu; R12 format LINE + TEXT entity; riser diyagramı artık SVG/PDF/DXF olarak export edilebiliyor
 
 ### Devam Eden
 

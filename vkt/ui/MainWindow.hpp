@@ -203,6 +203,15 @@ private slots:
     // Pis Su Hesap Föyü — drenaj devresi ayrıntı tablosu
     void OnPisSuHesapFoyu();
 
+    // Emdirme Çukuru hesabı (toprak emme kapasitesi)
+    void OnEmdirmeCukuru();
+
+    // Pis Su Çukuru hesabı (geçirimsiz depolama tankı)
+    void OnPisSuCukuru();
+
+    // Pis Su Pompası boyutlandırma
+    void OnPisSuPompasi();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -310,6 +319,9 @@ private:
     QAction* m_actCizimiGuncelle     = nullptr;
     QAction* m_actFoseptik           = nullptr;
     QAction* m_actPisSuHesapFoyu     = nullptr;
+    QAction* m_actEmdirmeCukuru      = nullptr;
+    QAction* m_actPisSuCukuru        = nullptr;
+    QAction* m_actPisSuPompasi       = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;

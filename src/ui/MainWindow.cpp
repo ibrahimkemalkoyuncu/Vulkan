@@ -303,6 +303,18 @@ void MainWindow::CreateActions() {
     m_actPisSuHesapFoyu->setToolTip("Drenaj devresi: DU + egim + doluluk tablosu");
     connect(m_actPisSuHesapFoyu, &QAction::triggered, this, &MainWindow::OnPisSuHesapFoyu);
 
+    m_actEmdirmeCukuru = new QAction("Emdirme Cukuru Hesabi...", this);
+    m_actEmdirmeCukuru->setToolTip("Toprak emme kapasitesi hesabi");
+    connect(m_actEmdirmeCukuru, &QAction::triggered, this, &MainWindow::OnEmdirmeCukuru);
+
+    m_actPisSuCukuru = new QAction("Pis Su Cukuru Hesabi...", this);
+    m_actPisSuCukuru->setToolTip("Gecirimsiz depolama tanki hacim hesabi");
+    connect(m_actPisSuCukuru, &QAction::triggered, this, &MainWindow::OnPisSuCukuru);
+
+    m_actPisSuPompasi = new QAction("Pis Su Pompasi Boyutlandirma...", this);
+    m_actPisSuPompasi->setToolTip("Fosseptik/cukur tahliye pompa guc ve debi hesabi");
+    connect(m_actPisSuPompasi, &QAction::triggered, this, &MainWindow::OnPisSuPompasi);
+
     m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -434,6 +446,9 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actPisSuHesapFoyu);
     analyzeMenu->addAction(m_actFoseptik);
+    analyzeMenu->addAction(m_actPisSuCukuru);
+    analyzeMenu->addAction(m_actEmdirmeCukuru);
+    analyzeMenu->addAction(m_actPisSuPompasi);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
@@ -2423,7 +2438,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
-            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP");
+            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
@@ -2454,6 +2469,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnFoseptik();
     } else if (c == "PIS-HESAP" || c == "PIS-SU-HESAP") {
         OnPisSuHesapFoyu();
+    } else if (c == "EMDIRME" || c == "EMDIRME-CUKURU") {
+        OnEmdirmeCukuru();
+    } else if (c == "PIS-CUKUR" || c == "PIS-SU-CUKUR") {
+        OnPisSuCukuru();
+    } else if (c == "PIS-POMPA" || c == "PIS-SU-POMPA" || c == "FOSSEPTIK-POMPA") {
+        OnPisSuPompasi();
     } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
         OnFloorAlignment();
     } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
@@ -3566,9 +3587,11 @@ void MainWindow::OnRiserDiagram() {
     auto* btnRow    = new QHBoxLayout();
     auto* btnSvg    = new QPushButton("SVG Kaydet...", &dlg);
     auto* btnPdf    = new QPushButton("PDF Kaydet...", &dlg);
+    auto* btnDxf    = new QPushButton("DXF Kaydet...", &dlg);
     auto* btnClose  = new QPushButton("Kapat", &dlg);
     btnRow->addWidget(btnSvg);
     btnRow->addWidget(btnPdf);
+    btnRow->addWidget(btnDxf);
     btnRow->addStretch();
     btnRow->addWidget(btnClose);
     layout->addLayout(btnRow);
@@ -3623,6 +3646,41 @@ void MainWindow::OnRiserDiagram() {
         painter.end();
 
         statusBar()->showMessage(QString("PDF kaydedildi: %1").arg(path));
+    });
+
+    // DXF kaydet — R12 format, LINE + TEXT entity'leri
+    connect(btnDxf, &QPushButton::clicked, [&]() {
+        auto& pm = core::ProjectManager::Instance();
+        QString startDir = pm.HasActiveProject()
+            ? QString::fromStdString(pm.GetRaporFolder()) : "";
+        QString path = QFileDialog::getSaveFileName(&dlg,
+            "Kolon Semasi — DXF Kaydet", startDir, "DXF Dosyasi (*.dxf)");
+        if (path.isEmpty()) return;
+
+        std::ofstream f(path.toStdString());
+        if (!f.is_open()) {
+            QMessageBox::critical(&dlg, "Hata", "DXF dosyasi yazilamadi!");
+            return;
+        }
+
+        // DXF R12 minimal format
+        f << "0\nSECTION\n2\nHEADER\n0\nENDSEC\n";
+        f << "0\nSECTION\n2\nENTITIES\n";
+
+        for (const auto& ln : data.lines) {
+            f << "0\nLINE\n8\n0\n";
+            f << "10\n" << ln.a.x << "\n20\n" << -ln.a.y << "\n30\n0.0\n";
+            f << "11\n" << ln.b.x << "\n21\n" << -ln.b.y << "\n31\n0.0\n";
+        }
+        for (const auto& lb : data.labels) {
+            f << "0\nTEXT\n8\n0\n";
+            f << "10\n" << lb.x << "\n20\n" << -lb.y << "\n30\n0.0\n";
+            f << "40\n" << lb.fontSize << "\n";
+            f << "1\n" << lb.text << "\n";
+        }
+
+        f << "0\nENDSEC\n0\nEOF\n";
+        statusBar()->showMessage(QString("DXF kaydedildi: %1").arg(path));
     });
 
     if (m_logList)
@@ -3955,9 +4013,9 @@ void MainWindow::OnPisSuHesapFoyu() {
     auto* lay = new QVBoxLayout(&dlg);
     lay->addWidget(new QLabel("<b>Pis Su / Atik Su Devresi Hesap Foyu</b> &nbsp; <small>EN 12056-2 Manning</small>"));
 
-    auto* tbl = new QTableWidget(0, 8, &dlg);
+    auto* tbl = new QTableWidget(0, 9, &dlg);
     tbl->setHorizontalHeaderLabels({
-        "Boru No", "Malzeme", "DN (mm)", "L (m)",
+        "Boru No", "Boru Cinsi", "Malzeme", "DN (mm)", "L (m)",
         "DU", "Q (L/s)", "Egim i (%)", "Doluluk h/d (%)"
     });
     tbl->horizontalHeader()->setStretchLastSection(true);
@@ -3973,21 +4031,23 @@ void MainWindow::OnPisSuHesapFoyu() {
         double Q_Ls = edge.flowRate_m3s * 1000.0;
         double slopePct = edge.slope * 100.0;
         double fillPct  = edge.fillRate * 100.0;
+        bool isCol = network.IsColumnEdge(edge.id);
 
         tbl->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(edge.label.empty() ? ("B-" + std::to_string(edge.id)) : edge.label)));
-        tbl->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(edge.material)));
-        tbl->setItem(row, 2, new QTableWidgetItem(QString::number(edge.diameter_mm, 'f', 0)));
-        tbl->setItem(row, 3, new QTableWidgetItem(QString::number(edge.length_m, 'f', 2)));
-        tbl->setItem(row, 4, new QTableWidgetItem(QString::number(edge.cumulativeDU, 'f', 1)));
-        tbl->setItem(row, 5, new QTableWidgetItem(QString::number(Q_Ls, 'f', 3)));
-        tbl->setItem(row, 6, new QTableWidgetItem(QString::number(slopePct, 'f', 1)));
+        tbl->setItem(row, 1, new QTableWidgetItem(isCol ? "Kolon" : "Yatay"));
+        tbl->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(edge.material)));
+        tbl->setItem(row, 3, new QTableWidgetItem(QString::number(edge.diameter_mm, 'f', 0)));
+        tbl->setItem(row, 4, new QTableWidgetItem(QString::number(edge.length_m, 'f', 2)));
+        tbl->setItem(row, 5, new QTableWidgetItem(QString::number(edge.cumulativeDU, 'f', 1)));
+        tbl->setItem(row, 6, new QTableWidgetItem(QString::number(Q_Ls, 'f', 3)));
+        tbl->setItem(row, 7, new QTableWidgetItem(QString::number(slopePct, 'f', 1)));
 
         auto* fillItem = new QTableWidgetItem(QString::number(fillPct, 'f', 0) + "%");
         if (edge.fillRate > 0.50)  // EN 12056: max %50
             fillItem->setBackground(QColor(255, 180, 180));
         else if (edge.fillRate > 0.40)
             fillItem->setBackground(QColor(255, 240, 180));
-        tbl->setItem(row, 7, fillItem);
+        tbl->setItem(row, 8, fillItem);
 
         ++row;
     }
@@ -4003,6 +4063,242 @@ void MainWindow::OnPisSuHesapFoyu() {
     connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     lay->addWidget(btns);
 
+    dlg.exec();
+}
+
+// ============================================================
+//  EMDİRME ÇUKURU HESABI (toprak emme kapasitesi)
+// ============================================================
+void MainWindow::OnEmdirmeCukuru() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Emdirme Cukuru Hesabi — Toprak Emme Kapasitesi");
+    dlg.setMinimumWidth(460);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    lay->addWidget(new QLabel(
+        "<b>Emdirme Cukuru Boyutlandirma</b><br>"
+        "<small>TS 822 Ek-B — Perkolasyon testine gore toprak emme kapasitesi</small>"));
+
+    auto* form = new QFormLayout();
+
+    auto* spKisi    = new QSpinBox();   spKisi->setRange(1, 5000); spKisi->setValue(10); spKisi->setSuffix(" kisi");
+    auto* spGunluk  = new QDoubleSpinBox(); spGunluk->setRange(0.05, 5.0); spGunluk->setValue(0.15); spGunluk->setSuffix(" m³/kisi/gun");
+    auto* spPerko   = new QDoubleSpinBox(); spPerko->setRange(1, 120); spPerko->setValue(10); spPerko->setSuffix(" dk/cm (perkolasyon testi)");
+    auto* cmbToprak = new QComboBox();
+    cmbToprak->addItems({"Kum-cakil (20 L/m²/gun)", "Kumlu-kil (15 L/m²/gun)",
+                         "Killi (10 L/m²/gun)", "Agir kil (5 L/m²/gun)"});
+
+    form->addRow("Kisi sayisi:", spKisi);
+    form->addRow("Gunluk atiksu:", spGunluk);
+    form->addRow("Toprak tipi:", cmbToprak);
+    form->addRow("Perkolasyon suresi:", spPerko);
+    lay->addLayout(form);
+
+    auto* lblResult = new QLabel();
+    lblResult->setWordWrap(true);
+    lblResult->setStyleSheet("QLabel { background:#fff8e7; border:1px solid #cc9; padding:8px; font-family:monospace; }");
+    lay->addWidget(lblResult);
+
+    auto calcResult = [&]() {
+        int    kisi   = spKisi->value();
+        double gun    = spGunluk->value();
+        double perko  = spPerko->value();
+        int    idx    = cmbToprak->currentIndex();
+        static const double caps[] = {20.0, 15.0, 10.0, 5.0}; // L/m²/gün
+        double cap_m3 = caps[idx] / 1000.0; // m³/m²/gün
+
+        double Q_gun   = kisi * gun; // m³/gün toplam atıksu
+        double A_gerek = Q_gun / cap_m3; // gerekli yüzey alanı (m²)
+
+        // Perkolasyon testine göre düzeltme (perko > 30 dk/cm → azalt)
+        double duzeltme = 1.0;
+        if (perko > 30) duzeltme = 1.5;
+        else if (perko > 15) duzeltme = 1.25;
+        A_gerek *= duzeltme;
+
+        // Derinlik 1.5m varsayım → hacim
+        double V_gerek = A_gerek * 1.5;
+
+        QString html;
+        html += QString("<b>Emdirme Cukuru Hesap Sonuclari</b><br>");
+        html += QString("Toplam atiksu : %1 m³/gun<br>").arg(Q_gun, 0, 'f', 3);
+        html += QString("Emme kap.     : %1 L/m²/gun<br>").arg(caps[idx], 0, 'f', 0);
+        html += QString("Duzeltme fak. : x%1<br><br>").arg(duzeltme, 0, 'f', 2);
+        html += QString("<b>Gerekli alan  : %1 m²</b><br>").arg(A_gerek, 0, 'f', 1);
+        html += QString("<b>Gerekli hacim : %1 m³</b> (derinlik 1.5m)<br>").arg(V_gerek, 0, 'f', 2);
+        html += QString("<br><i>Not: Perkolasyon testi sahada yapilarak dogrulanmalidir.</i>");
+        lblResult->setText(html);
+    };
+
+    connect(spKisi,   QOverload<int>::of(&QSpinBox::valueChanged),         [&](int){ calcResult(); });
+    connect(spGunluk, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    connect(spPerko,  QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    connect(cmbToprak, QOverload<int>::of(&QComboBox::currentIndexChanged), [&](int){ calcResult(); });
+    calcResult();
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    lay->addWidget(btns);
+    dlg.exec();
+}
+
+// ============================================================
+//  PİS SU ÇUKURU HESABI (geçirimsiz depolama tankı)
+// ============================================================
+void MainWindow::OnPisSuCukuru() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Pis Su Cukuru Hesabi — Gecirimsiz Depolama Tanki");
+    dlg.setMinimumWidth(460);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    lay->addWidget(new QLabel(
+        "<b>Pis Su Cukuru (Gecirimsiz Depolama)</b><br>"
+        "<small>Kanalizasyona baglanamadiginda gecici depolama; tanker ile tahliye edilir.<br>"
+        "TS 822 Md. 5 — foseptikten farki: aritma yapilmaz, sizmaz tank.</small>"));
+
+    auto* form = new QFormLayout();
+
+    auto* spKisi    = new QSpinBox();   spKisi->setRange(1, 5000); spKisi->setValue(10); spKisi->setSuffix(" kisi");
+    auto* spGunluk  = new QDoubleSpinBox(); spGunluk->setRange(0.05, 5.0); spGunluk->setValue(0.15); spGunluk->setSuffix(" m³/kisi/gun");
+    auto* spAralik  = new QSpinBox();   spAralik->setRange(1, 90); spAralik->setValue(14); spAralik->setSuffix(" gun (tahliye araligi)");
+    auto* spEmniyet = new QDoubleSpinBox(); spEmniyet->setRange(1.0, 2.0); spEmniyet->setValue(1.25); spEmniyet->setSingleStep(0.05); spEmniyet->setDecimals(2);
+
+    form->addRow("Kisi sayisi:", spKisi);
+    form->addRow("Gunluk su tuketimi:", spGunluk);
+    form->addRow("Tanker tahliye araligi:", spAralik);
+    form->addRow("Emniyet katsayisi:", spEmniyet);
+    lay->addLayout(form);
+
+    auto* lblResult = new QLabel();
+    lblResult->setWordWrap(true);
+    lblResult->setStyleSheet("QLabel { background:#f0fff0; border:1px solid #9b9; padding:8px; font-family:monospace; }");
+    lay->addWidget(lblResult);
+
+    auto calcResult = [&]() {
+        int    kisi    = spKisi->value();
+        double gun     = spGunluk->value();
+        int    aralik  = spAralik->value();
+        double emniyet = spEmniyet->value();
+
+        double V_net   = kisi * gun * aralik;      // m³ — net depolama hacmi
+        double V_toplam = V_net * emniyet;          // emniyet pay dahil
+        double V_min   = std::max(V_toplam, 3.0);  // TS 822: minimum 3 m³
+
+        // Tavsiye: silindir tank D=2m → yükseklik
+        double h_sil = V_min / (3.14159 * 1.0 * 1.0); // D=2m → r=1m
+
+        QString html;
+        html += QString("<b>Pis Su Cukuru Hesap Sonuclari</b><br>");
+        html += QString("Gunluk atiksu : %1 m³<br>").arg(kisi * gun, 0, 'f', 3);
+        html += QString("Tahliye araligi: %1 gun<br>").arg(aralik);
+        html += QString("Net hacim     : %1 m³<br>").arg(V_net, 0, 'f', 2);
+        html += QString("Emniyet paylI : x%1<br>").arg(emniyet, 0, 'f', 2);
+        html += QString("<b style='color:red'>HESAP HACMi   : %1 m³</b><br>").arg(V_min, 0, 'f', 2);
+        html += QString("<br>Silindir tank (D=2m): yukseklik ≈ %1 m").arg(h_sil, 0, 'f', 2);
+        lblResult->setText(html);
+    };
+
+    connect(spKisi,    QOverload<int>::of(&QSpinBox::valueChanged),        [&](int){ calcResult(); });
+    connect(spGunluk,  QOverload<double>::of(&QDoubleSpinBox::valueChanged),[&](double){ calcResult(); });
+    connect(spAralik,  QOverload<int>::of(&QSpinBox::valueChanged),        [&](int){ calcResult(); });
+    connect(spEmniyet, QOverload<double>::of(&QDoubleSpinBox::valueChanged),[&](double){ calcResult(); });
+    calcResult();
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    lay->addWidget(btns);
+    dlg.exec();
+}
+
+// ============================================================
+//  PİS SU POMPASI BOYUTLANDIRMA
+// ============================================================
+void MainWindow::OnPisSuPompasi() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Pis Su Pompasi Boyutlandirma");
+    dlg.setMinimumWidth(480);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    lay->addWidget(new QLabel(
+        "<b>Pis Su Lift Istasyonu / Pompa Boyutlandirma</b><br>"
+        "<small>DIN EN 12050-1 — fosseptik/cukur tahliye pompasi debi + manometrik yukseklik + guc</small>"));
+
+    auto* form = new QFormLayout();
+
+    auto* spKisi    = new QSpinBox();       spKisi->setRange(1, 5000); spKisi->setValue(10); spKisi->setSuffix(" kisi");
+    auto* spStatik  = new QDoubleSpinBox(); spStatik->setRange(0, 50); spStatik->setValue(5.0); spStatik->setSuffix(" m (statik yukseklik)");
+    auto* spBoru_m  = new QDoubleSpinBox(); spBoru_m->setRange(1, 500); spBoru_m->setValue(30); spBoru_m->setSuffix(" m (boru boyu)");
+    auto* spDN      = new QComboBox();
+    spDN->addItems({"DN40", "DN50", "DN65", "DN80", "DN100"});
+    spDN->setCurrentIndex(1); // DN50
+    auto* spEta     = new QDoubleSpinBox(); spEta->setRange(0.3, 0.95); spEta->setValue(0.70); spEta->setDecimals(2); spEta->setSuffix(" (pompa verimi)");
+
+    form->addRow("Kisi sayisi:", spKisi);
+    form->addRow("Statik yukseklik:", spStatik);
+    form->addRow("Boru boyu:", spBoru_m);
+    form->addRow("Boru capi:", spDN);
+    form->addRow("Pompa verimi η:", spEta);
+    lay->addLayout(form);
+
+    auto* lblResult = new QLabel();
+    lblResult->setWordWrap(true);
+    lblResult->setStyleSheet("QLabel { background:#f0f0ff; border:1px solid #99b; padding:8px; font-family:monospace; }");
+    lay->addWidget(lblResult);
+
+    auto calcResult = [&]() {
+        int    kisi   = spKisi->value();
+        double H_stat = spStatik->value();
+        double L_boru = spBoru_m->value();
+        double eta    = spEta->value();
+
+        // Debi: EN 12050-1 — 0.15 L/s per kişi pikde
+        double Q_Ls  = kisi * 0.15; // L/s
+        double Q_m3h = Q_Ls * 3.6;  // m³/h
+
+        // Boru çapı (mm)
+        static const double dns[] = {40, 50, 65, 80, 100};
+        double D_mm = dns[spDN->currentIndex()];
+        double D_m  = D_mm / 1000.0;
+        double A    = 3.14159 * D_m * D_m / 4.0;
+        double v    = (Q_Ls / 1000.0) / A; // m/s
+
+        // Darcy-Weisbach tahmini kayıp: f=0.025, pis su λ≈0.03
+        double f    = 0.03;
+        double hf   = f * (L_boru / D_m) * (v * v) / (2 * 9.81);
+
+        // Manometrik yükseklik
+        double H_man = H_stat + hf * 1.15; // %15 lokal kayıp payı
+
+        // Güç: P = ρ × g × Q × H / η
+        double P_kW = (1000.0 * 9.81 * (Q_Ls / 1000.0) * H_man) / (eta * 1000.0);
+
+        // Standart motor seçimi (küçük üstü)
+        double P_motor = 0.37;
+        for (double s : {0.37, 0.55, 0.75, 1.1, 1.5, 2.2, 3.0, 4.0, 5.5, 7.5}) {
+            if (s >= P_kW) { P_motor = s; break; }
+        }
+
+        QString html;
+        html += QString("<b>Pompa Hesap Sonuclari</b><br>");
+        html += QString("Debi Q      : %1 L/s = %2 m³/h<br>").arg(Q_Ls, 0, 'f', 2).arg(Q_m3h, 0, 'f', 2);
+        html += QString("Hiz v       : %1 m/s<br>").arg(v, 0, 'f', 2);
+        html += QString("Boru kaybi  : %1 m<br>").arg(hf, 0, 'f', 2);
+        html += QString("<b>Manometrik H: %1 m</b><br>").arg(H_man, 0, 'f', 2);
+        html += QString("Hesap gucu  : %1 kW<br>").arg(P_kW, 0, 'f', 3);
+        html += QString("<b style='color:blue'>Secilen motor: %1 kW</b>").arg(P_motor, 0, 'f', 2);
+        lblResult->setText(html);
+    };
+
+    connect(spKisi,   QOverload<int>::of(&QSpinBox::valueChanged),         [&](int){ calcResult(); });
+    connect(spStatik, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    connect(spBoru_m, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    connect(spDN,     QOverload<int>::of(&QComboBox::currentIndexChanged),  [&](int){ calcResult(); });
+    connect(spEta,    QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    calcResult();
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    lay->addWidget(btns);
     dlg.exec();
 }
 
