@@ -194,6 +194,15 @@ private slots:
     // Hesap Föyü — DN Manuel Override
     void OnDNOverride();
 
+    // Çizimi Güncelle — hesap sonuçlarını çizime yaz
+    void OnCizimiGuncelle();
+
+    // Kapalı Çukur / Foseptik Hesabı (TS 822 / EN 12566-1)
+    void OnFoseptik();
+
+    // Pis Su Hesap Föyü — drenaj devresi ayrıntı tablosu
+    void OnPisSuHesapFoyu();
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -298,6 +307,9 @@ private:
     QAction* m_actBOM                = nullptr;
     QAction* m_actRiserDiagram       = nullptr;
     QAction* m_actDNOverride         = nullptr;
+    QAction* m_actCizimiGuncelle     = nullptr;
+    QAction* m_actFoseptik           = nullptr;
+    QAction* m_actPisSuHesapFoyu     = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -344,6 +356,8 @@ private:
     bool m_labelShowLength   = false;
     bool m_labelShowVelocity = false;
     bool m_labelShowHeadLoss = false;
+    bool m_labelShowSlope    = false;   ///< Drenaj eğimi (%)
+    bool m_labelShowFillRate = false;   ///< Doluluk derecesi h/d (%)
 
     // Uygulama Katman Görünürlüğü — MEP katmanlarını bağımsız göster/gizle
     bool m_showTemizSu = true;

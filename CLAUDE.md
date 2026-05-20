@@ -419,7 +419,13 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Akıllı Bağlantı Noktası (SmartPoint)** — FineSANI "akıllı bağlantı noktaları" eşdeğeri; `fixtureType="SmartPoint"` Fixture node; GPU renderda magenta × sembolü (lineVertices); overlay'de `+ Baglanti` etiketi; STFixturePanel'e `m_cbSmartPoint` checkbox + `SmartPointModeChanged` sinyali; `OnItemActivated` SmartPoint mode'da "SmartPoint" gönderir; `AKILLI`/`AKILLI-BAGLANTI`/`SMART-POINT` komutları
 - **Uygulama Katman Görünürlüğü** — FineSANI "uygulama katmanlarını seç" eşdeğeri; `m_showTemizSu/m_showSicakSu/m_showPisSu` bool flag'leri; `OnLayerVisibility()` dialog (3 checkbox); `VulkanRenderer::SetLayerVisibility()` + `m_showTemizSu/Su/PisSu` member'lar; `UpdateNetworkVertexData()` edge tipi filtrelemesi; `RefreshTextOverlay()` edge label filtrelemesi; `VulkanWindow::SetLayerVisibility()` passthrough; Ctrl+Shift+L + `KATMAN`/`LAYER-VIS` komutu; Görünüm menüsüne eklendi
 - **Boşaltma Noktası (Ana Tahliye)** — `OnBosaltmaNoktasi()`: en düşük Z'li Drain node'u otomatik seçer → `m_mainDrainNodeId`; overlay'de turuncu "[ANA TAHLİYE]" etiketi; `BOSALTMA`/`ANA-TAHLIYE` komutu; Çizim menüsüne eklendi
-- **MinGW PATH fix (ctest)** — `catch_discover_tests ENVIRONMENT` PATH'e `C:/Qt/Tools/mingw1310_64/bin` eklendi; 108/108 test geçiyor
+- **MinGW PATH fix (ctest)** — `catch_discover_tests PROPERTIES ENVIRONMENT` hardcoded PATH (MinGW + vcpkg + System32); `$ENV{PATH}` configure-time genişlemesi yerine sabit path; 108/108 test geçiyor
+- **Pis Su Hesap Föyü** — `OnPisSuHesapFoyu()`: drenaj edge'leri DN/L/DU/Q/eğim/doluluk QTableWidget; h/d>%50 kırmızı, h/d %40-50 sarı; `Analiz → Pis Su Hesap Foyu` + `PIS-HESAP`/`PIS-SU-HESAP` komutu
+- **Çizimi Güncelle** — `OnCizimiGuncelle()`: hangi değerlerin çizime yazılacağını seçim dialog; seçilen label flag'lerini açar + `ScheduleAutoHydro()` tetikler; Ctrl+Shift+U + `GUNCELLE`/`CIZIMI-GUNCELLE` komutu; FineSANI "Çizimi Güncelle" eşdeğeri
+- **Kapalı Çukur / Foseptik Hesabı** — `OnFoseptik()`: TS 822 + EN 12566-1; kişi sayısı × günlük tüketim × bekleme süresi; çamur hacmi (+%30); çift odalı seçenek (%67/%33); anlık sonuç + tahliye sıklığı; `Analiz → Kapali Cukur` + `FOSEPTIK`/`KAPALI-CUKUR`/`SEPTIK` komutu
+- **Manning fillRate hesabı** — `SolveDrainage()`: Manning kapasitesi ters çözümü (binary search 40 iter) → `edge.fillRate = h/d`; `%50` EN 12056 sınırı kontrolü Hesap Föyü'nde vurgulanıyor
+- **Baskı İçeriği — Pis Su etiketleri** — `m_labelShowSlope` + `m_labelShowFillRate`; `OnBaskiIcerigi()` dialog'a "Pis Su ek etiketleri" bölümü eklendi; `RefreshTextOverlay()` Drainage edge'lerde i(%) ve h/d(%) etiketi
+- **Eğitim.md Bölüm 30** — Pis Su Tesisat Hesapları: PIS-HESAP, BASKI, GUNCELLE, FOSEPTIK; tam iş akışı tablosu
 
 ### Devam Eden
 

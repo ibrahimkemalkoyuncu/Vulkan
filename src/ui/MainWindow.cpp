@@ -290,6 +290,19 @@ void MainWindow::CreateActions() {
     m_actDNOverride->setToolTip("Hesap foyunde boru caplarinI manuel duzenle");
     connect(m_actDNOverride, &QAction::triggered, this, &MainWindow::OnDNOverride);
 
+    m_actCizimiGuncelle = new QAction("Cizimi Guncelle...", this);
+    m_actCizimiGuncelle->setShortcut(QKeySequence("Ctrl+Shift+U"));
+    m_actCizimiGuncelle->setToolTip("Hesap sonuclarini (uzunluk/doluluk/egim) cizime yaz");
+    connect(m_actCizimiGuncelle, &QAction::triggered, this, &MainWindow::OnCizimiGuncelle);
+
+    m_actFoseptik = new QAction("Kapali Cukur / Foseptik Hesabi...", this);
+    m_actFoseptik->setToolTip("TS 822 / EN 12566-1 hacim hesabi");
+    connect(m_actFoseptik, &QAction::triggered, this, &MainWindow::OnFoseptik);
+
+    m_actPisSuHesapFoyu = new QAction("Pis Su Hesap Foyu...", this);
+    m_actPisSuHesapFoyu->setToolTip("Drenaj devresi: DU + egim + doluluk tablosu");
+    connect(m_actPisSuHesapFoyu, &QAction::triggered, this, &MainWindow::OnPisSuHesapFoyu);
+
     m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -417,6 +430,10 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actRiserDiagram);
     analyzeMenu->addAction(m_actDNOverride);
+    analyzeMenu->addAction(m_actCizimiGuncelle);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actPisSuHesapFoyu);
+    analyzeMenu->addAction(m_actFoseptik);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
@@ -2406,7 +2423,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
-            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF");
+            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
@@ -2431,6 +2448,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnRiserDiagram();
     } else if (c == "DN-OVERRIDE" || c == "DN-DEGISTIR") {
         OnDNOverride();
+    } else if (c == "GUNCELLE" || c == "CIZIMI-GUNCELLE" || c == "CIZIM-GUNCELLE") {
+        OnCizimiGuncelle();
+    } else if (c == "FOSEPTIK" || c == "KAPALI-CUKUR" || c == "SEPTIK") {
+        OnFoseptik();
+    } else if (c == "PIS-HESAP" || c == "PIS-SU-HESAP") {
+        OnPisSuHesapFoyu();
     } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
         OnFloorAlignment();
     } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
@@ -2608,6 +2631,10 @@ void MainWindow::RefreshTextOverlay() {
             parts << QString("v=%1").arg(edge.velocity_ms, 0, 'f', 2);
         if (m_labelShowHeadLoss && edge.headLoss_m > 0.0)
             parts << QString("dH=%1").arg(edge.headLoss_m, 0, 'f', 3);
+        if (m_labelShowSlope && edge.type == mep::EdgeType::Drainage)
+            parts << QString("i=%1%").arg(edge.slope * 100.0, 0, 'f', 1);
+        if (m_labelShowFillRate && edge.type == mep::EdgeType::Drainage && edge.fillRate > 0.0)
+            parts << QString("h/d=%1%").arg(edge.fillRate * 100.0, 0, 'f', 0);
 
         if (parts.isEmpty()) continue;
 
@@ -3066,17 +3093,25 @@ void MainWindow::OnBaskiIcerigi() {
     auto* layout = new QVBoxLayout(&dlg);
     layout->addWidget(new QLabel("<b>Boru etiketi bileşenleri:</b>"));
 
-    auto* cbDN   = new QCheckBox("DN (çap, örn: DN32)");        cbDN->setChecked(m_labelShowDN);
-    auto* cbFlow = new QCheckBox("Debi Q (L/s)");               cbFlow->setChecked(m_labelShowFlow);
-    auto* cbLen  = new QCheckBox("Uzunluk L (m)");              cbLen->setChecked(m_labelShowLength);
-    auto* cbVel  = new QCheckBox("Hız v (m/s)");                cbVel->setChecked(m_labelShowVelocity);
-    auto* cbHL   = new QCheckBox("Basınç kaybı ΔH (m)");        cbHL->setChecked(m_labelShowHeadLoss);
+    auto* cbDN       = new QCheckBox("DN (çap, örn: DN32)");              cbDN->setChecked(m_labelShowDN);
+    auto* cbFlow     = new QCheckBox("Debi Q (L/s)");                     cbFlow->setChecked(m_labelShowFlow);
+    auto* cbLen      = new QCheckBox("Uzunluk L (m)");                    cbLen->setChecked(m_labelShowLength);
+    auto* cbVel      = new QCheckBox("Hız v (m/s)  [Temiz Su]");          cbVel->setChecked(m_labelShowVelocity);
+    auto* cbHL       = new QCheckBox("Basınç kaybı ΔH (m)  [Temiz Su]"); cbHL->setChecked(m_labelShowHeadLoss);
 
     layout->addWidget(cbDN);
     layout->addWidget(cbFlow);
     layout->addWidget(cbLen);
     layout->addWidget(cbVel);
     layout->addWidget(cbHL);
+
+    layout->addWidget(new QLabel("<b>Pis Su ek etiketleri:</b>"));
+
+    auto* cbSlope    = new QCheckBox("Eğim i (%)  [Pis Su]");             cbSlope->setChecked(m_labelShowSlope);
+    auto* cbFillRate = new QCheckBox("Doluluk h/d (%)  [Pis Su]");        cbFillRate->setChecked(m_labelShowFillRate);
+
+    layout->addWidget(cbSlope);
+    layout->addWidget(cbFillRate);
 
     auto* note = new QLabel("<small><i>Seçimler anlık etiket overlay'ini etkiler.</i></small>");
     layout->addWidget(note);
@@ -3093,6 +3128,8 @@ void MainWindow::OnBaskiIcerigi() {
     m_labelShowLength   = cbLen->isChecked();
     m_labelShowVelocity = cbVel->isChecked();
     m_labelShowHeadLoss = cbHL->isChecked();
+    m_labelShowSlope    = cbSlope->isChecked();
+    m_labelShowFillRate = cbFillRate->isChecked();
 
     RefreshTextOverlay();
     statusBar()->showMessage("Baskı İçeriği güncellendi — etiketler yenilendi", 2000);
@@ -3775,6 +3812,198 @@ void MainWindow::OnPBRMaterialChanged(float roughness, float metalness, float am
     (void)r; (void)g; (void)b; // base color applies to individual pipes via SetCurrentMaterial
 
     if (m_vulkanWindow) m_vulkanWindow->requestUpdate();
+}
+
+// ============================================================
+//  CİZİMİ GUNCELLE — hesap sonuclarini cizime yaz
+// ============================================================
+void MainWindow::OnCizimiGuncelle() {
+    if (!m_document) return;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Cizimi Guncelle — Hesap Sonuclari");
+    dlg.setMinimumWidth(340);
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel("<b>Cizime yazilacak degerler:</b>"));
+
+    auto* cbDN       = new QCheckBox("Boru capi (DN / mm)");         cbDN->setChecked(true);
+    auto* cbLen      = new QCheckBox("Boru boyu (L)");               cbLen->setChecked(true);
+    auto* cbSlope    = new QCheckBox("Egim i (%) — Pis Su boru");    cbSlope->setChecked(true);
+    auto* cbFillRate = new QCheckBox("Doluluk h/d (%) — Pis Su");    cbFillRate->setChecked(true);
+    lay->addWidget(cbDN);
+    lay->addWidget(cbLen);
+    lay->addWidget(cbSlope);
+    lay->addWidget(cbFillRate);
+
+    lay->addWidget(new QLabel(
+        "<small><i>Cizimi Guncelle: Auto-Hydro yeniden kosturulur,<br>"
+        "secilen degerler overlay etiketlerinde gosterilir.</i></small>"));
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(btns);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    // Seçilen etiket flaglerini güncelle
+    if (cbDN->isChecked())       m_labelShowDN     = true;
+    if (cbLen->isChecked())      m_labelShowLength  = true;
+    if (cbSlope->isChecked())    m_labelShowSlope   = true;
+    if (cbFillRate->isChecked()) m_labelShowFillRate = true;
+
+    // Hesabı yeniden çalıştır + overlay yenile
+    ScheduleAutoHydro();
+    statusBar()->showMessage("Cizim guncelleniyor — hesap yeniden kosturuluyor...", 3000);
+}
+
+// ============================================================
+//  KAPALI CUKUR / FOSEPTIK HESABI (TS 822 / EN 12566-1)
+// ============================================================
+void MainWindow::OnFoseptik() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Kapali Cukur / Foseptik Hesabi — TS 822 / EN 12566-1");
+    dlg.setMinimumWidth(440);
+    auto* lay = new QVBoxLayout(&dlg);
+
+    lay->addWidget(new QLabel(
+        "<b>Foseptik Hacim Hesabi</b><br>"
+        "<small>Standart: TS 822 + EN 12566-1</small>"));
+
+    auto* form = new QFormLayout();
+
+    auto* spKisi     = new QSpinBox();   spKisi->setRange(1, 10000);  spKisi->setValue(10);  spKisi->setSuffix(" kisi");
+    auto* spGunluk   = new QDoubleSpinBox(); spGunluk->setRange(0.05, 10.0); spGunluk->setValue(0.15); spGunluk->setSuffix(" m³/kisi/gun");
+    auto* spBekleme  = new QSpinBox();   spBekleme->setRange(1, 90);   spBekleme->setValue(3); spBekleme->setSuffix(" gun (bekleme suresi)");
+    auto* cbCift     = new QCheckBox("Cift odacikli tasarim (EN 12566-1 Madde 5.3)");
+
+    form->addRow("Kisi sayisi:", spKisi);
+    form->addRow("Gunluk su tuketimi:", spGunluk);
+    form->addRow("Bekleme suresi:", spBekleme);
+    form->addRow("", cbCift);
+    lay->addLayout(form);
+
+    auto* lblResult = new QLabel();
+    lblResult->setWordWrap(true);
+    lblResult->setStyleSheet("QLabel { background:#f0f8ff; border:1px solid #99b; padding:8px; font-family:monospace; }");
+    lay->addWidget(lblResult);
+
+    auto calcResult = [&]() {
+        int    kisi    = spKisi->value();
+        double gunluk  = spGunluk->value();
+        int    bekleme = spBekleme->value();
+
+        // TS 822: V_total = kisi × gunluk × bekleme (min 1.5 m³)
+        double V_brut = kisi * gunluk * bekleme;
+        double V_net  = std::max(V_brut, 1.5);
+
+        // Çamur hacmi — EN 12566-1: ek %30
+        double V_camur = V_net * 0.30;
+        double V_toplam = V_net + V_camur;
+
+        QString html;
+        html += QString("<b>Hesap Sonuclari (TS 822 / EN 12566-1)</b><br>");
+        html += QString("Kisi sayisi : %1<br>").arg(kisi);
+        html += QString("Gunluk debi : %1 m³/kisi/gun<br>").arg(gunluk, 0, 'f', 3);
+        html += QString("Bekleme     : %1 gun<br><br>").arg(bekleme);
+        html += QString("<b>Bekleme hacmi (V_net) : %1 m³</b><br>").arg(V_net, 0, 'f', 2);
+        html += QString("Camur hacmi (+30%%)    : %1 m³<br>").arg(V_camur, 0, 'f', 2);
+        html += QString("<b style='color:red'>TOPLAM HACIM          : %1 m³</b><br>").arg(V_toplam, 0, 'f', 2);
+
+        if (cbCift->isChecked()) {
+            double V1 = V_toplam * 0.67;
+            double V2 = V_toplam * 0.33;
+            html += QString("<br>Cift odacikli: 1. odacik %1 m³ / 2. odacik %2 m³<br>")
+                        .arg(V1, 0, 'f', 2).arg(V2, 0, 'f', 2);
+        }
+
+        // Tahliye frekansı
+        double gunler = (V_toplam / (kisi * gunluk));
+        html += QString("<br>Tahliye sikligI : her ~%1 gunde bir").arg((int)gunler);
+
+        lblResult->setText(html);
+    };
+
+    connect(spKisi,    QOverload<int>::of(&QSpinBox::valueChanged),    [&](int){ calcResult(); });
+    connect(spGunluk,  QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcResult(); });
+    connect(spBekleme, QOverload<int>::of(&QSpinBox::valueChanged),    [&](int){ calcResult(); });
+    connect(cbCift,    &QCheckBox::toggled,                            [&](bool){ calcResult(); });
+
+    calcResult(); // İlk hesap
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok);
+    connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    lay->addWidget(btns);
+
+    dlg.exec();
+}
+
+// ============================================================
+//  PIS SU HESAP FOYU — drenaj devresi detay tablosu
+// ============================================================
+void MainWindow::OnPisSuHesapFoyu() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+
+    // Önce drenaj hesabını çalıştır
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Pis Su Hesap Foyu — EN 12056-2");
+    dlg.resize(820, 500);
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel("<b>Pis Su / Atik Su Devresi Hesap Foyu</b> &nbsp; <small>EN 12056-2 Manning</small>"));
+
+    auto* tbl = new QTableWidget(0, 8, &dlg);
+    tbl->setHorizontalHeaderLabels({
+        "Boru No", "Malzeme", "DN (mm)", "L (m)",
+        "DU", "Q (L/s)", "Egim i (%)", "Doluluk h/d (%)"
+    });
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setAlternatingRowColors(true);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+    int row = 0;
+    for (auto& [id, edge] : network.GetEdgeMap()) {
+        if (edge.type != mep::EdgeType::Drainage) continue;
+        tbl->insertRow(row);
+
+        double Q_Ls = edge.flowRate_m3s * 1000.0;
+        double slopePct = edge.slope * 100.0;
+        double fillPct  = edge.fillRate * 100.0;
+
+        tbl->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(edge.label.empty() ? ("B-" + std::to_string(edge.id)) : edge.label)));
+        tbl->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(edge.material)));
+        tbl->setItem(row, 2, new QTableWidgetItem(QString::number(edge.diameter_mm, 'f', 0)));
+        tbl->setItem(row, 3, new QTableWidgetItem(QString::number(edge.length_m, 'f', 2)));
+        tbl->setItem(row, 4, new QTableWidgetItem(QString::number(edge.cumulativeDU, 'f', 1)));
+        tbl->setItem(row, 5, new QTableWidgetItem(QString::number(Q_Ls, 'f', 3)));
+        tbl->setItem(row, 6, new QTableWidgetItem(QString::number(slopePct, 'f', 1)));
+
+        auto* fillItem = new QTableWidgetItem(QString::number(fillPct, 'f', 0) + "%");
+        if (edge.fillRate > 0.50)  // EN 12056: max %50
+            fillItem->setBackground(QColor(255, 180, 180));
+        else if (edge.fillRate > 0.40)
+            fillItem->setBackground(QColor(255, 240, 180));
+        tbl->setItem(row, 7, fillItem);
+
+        ++row;
+    }
+
+    tbl->resizeColumnsToContents();
+    lay->addWidget(tbl, 1);
+
+    lay->addWidget(new QLabel(
+        "<small>Kirmizi = EN 12056 siniri asilmis (h/d > 50%). "
+        "Sari = uyari bolgesi (h/d 40-50%).</small>"));
+
+    auto* btns = new QDialogButtonBox(QDialogButtonBox::Close);
+    connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    lay->addWidget(btns);
+
+    dlg.exec();
 }
 
 } // namespace ui

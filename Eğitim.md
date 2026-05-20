@@ -739,4 +739,92 @@ Bu kural hem temiz su hem pis su sistemi için geçerlidir — yeniden bağlamak
 
 ---
 
+## Bölüm 30 — Pis Su Tesisat Hesapları
+
+### 30.1 Pis Su Hesap Föyü
+
+Drenaj devrelerinin tüm hesap sonuçlarını tablolu olarak görmek için:
+
+**Menü:** `Analiz → Pis Su Hesap Foyu` veya komut: `PIS-HESAP`
+
+Tablo sütunları:
+| Sütun | Açıklama |
+|-------|---------|
+| Boru No | Etiket veya otomatik ID |
+| Malzeme | PVC / PP / PE / Beton |
+| DN (mm) | Manning ile hesaplanan çap |
+| L (m) | Boru uzunluğu |
+| DU | Kümülatif Deşarj Birimi |
+| Q (L/s) | EN 12056-2: Q = K × √ΣDU |
+| Eğim i (%) | Boru eğimi (varsayılan %2) |
+| Doluluk h/d (%) | Gerçek doluluk oranı |
+
+**Renk uyarısı:**
+- **Kırmızı:** h/d > %50 — EN 12056 sınırı aşılmış, çap büyütülmeli
+- **Sarı:** h/d %40–50 — dikkat bölgesi
+
+### 30.2 Doluluk Derecesi (h/d) ve Eğim Etiketleri
+
+Boru üzerinde doluluk ve eğim değerlerini overlay'de göstermek için:
+
+**Menü:** `Analiz → Baskı İçeriği` veya komut: `BASKI`
+
+"Pis Su ek etiketleri" bölümünden seçin:
+- **Eğim i (%)** — Pis su borularında eğim oranı
+- **Doluluk h/d (%)** — Manning ile hesaplanan gerçek doluluk
+
+Örnek overlay etiketi: `DN110  i=2.0%  h/d=38%`
+
+### 30.3 Çizimi Güncelle
+
+Hesap sonuçlarını (çap, uzunluk, eğim, doluluk) çizime işlemek için:
+
+**Menü:** `Analiz → Cizimi Guncelle` veya komut: `GUNCELLE` (Ctrl+Shift+U)
+
+Dialog'da güncellenecek değerleri seçin:
+- Boru çapı (DN / mm)
+- Boru boyu (L)
+- Eğim i (%) — Pis Su
+- Doluluk h/d (%) — Pis Su
+
+"Tamam" sonrası AutoHydro yeniden çalışır, seçilen etiket overlay'de görünür hale gelir.
+
+**FineSANI karşılığı:** "Hesap Föyü → Çizimden Güncelle" + "Çizimi Güncelle" birleşimi
+
+### 30.4 Kapalı Çukur / Foseptik Hesabı
+
+Kanalizasyon bağlantısı olmayan projeler için TS 822 ve EN 12566-1 uyumlu hacim hesabı:
+
+**Menü:** `Analiz → Kapali Cukur / Foseptik Hesabi` veya komut: `FOSEPTIK`
+
+Giriş parametreleri:
+| Parametre | Varsayılan | Açıklama |
+|-----------|-----------|---------|
+| Kişi sayısı | 10 | Bina toplam nüfus yükü |
+| Günlük tüketim | 0.15 m³/kişi/gün | TS 822: konut için 150 L/kişi/gün |
+| Bekleme süresi | 3 gün | Arıtma/çökelme süresi |
+| Çift odalı | seçimsiz | EN 12566-1 Md. 5.3: 1. oda %67 / 2. oda %33 |
+
+**Hesap formülü (TS 822):**
+```
+V_bekleme = kişi × günlük × bekleme  (min 1.5 m³)
+V_çamur   = V_bekleme × 0.30
+V_TOPLAM  = V_bekleme + V_çamur
+```
+
+Sonuçlar anlık olarak güncellenir; tahliye sıklığı da otomatik hesaplanır.
+
+### 30.5 Pis Su Hesap İş Akışı Özeti
+
+| Adım | Komut | Açıklama |
+|------|-------|---------|
+| 1 | `DEVRE` | Eğim, boru cinsi, pürüzlülük ayarla |
+| 2 | `PIS-HESAP` | Hesap föyü tablosunu kontrol et |
+| 3 | `BASKI` | Doluluk + eğim etiketlerini aç |
+| 4 | `GUNCELLE` | Çizimi hesap sonuçlarıyla güncelle |
+| 5 | `FOSEPTIK` | Foseptik hacim hesabı (gerekirse) |
+| 6 | `WORD` veya `EXPORT-REPORT` | Rapor çıktısı al |
+
+---
+
 *VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

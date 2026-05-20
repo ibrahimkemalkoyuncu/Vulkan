@@ -264,10 +264,25 @@ void HydraulicSolver::SolveDrainage() {
         double minDiameter = SelectDrainPipeDiameter_Manning(flowRate_Ls, edge.slope, edge.material);
         edge.diameter_mm = std::max(edge.diameter_mm, minDiameter);
 
+        // Gerçek doluluk oranını hesapla (h/d): binary search ile Manning ters çözümü
+        // ManningCapacity(d, slope, n, fillRatio) = flowRate_Ls → fillRatio bul
+        {
+            double n = GetManningN(edge.material);
+            double d_m = edge.diameter_mm / 1000.0;
+            double lo = 0.01, hi = 0.99, mid = 0.5;
+            for (int iter = 0; iter < 40; ++iter) {
+                mid = (lo + hi) / 2.0;
+                double q = ManningCapacity(d_m, edge.slope, n, mid);
+                if (q < flowRate_Ls) lo = mid; else hi = mid;
+            }
+            edge.fillRate = std::clamp(mid, 0.0, 0.99);
+        }
+
         std::cout << "Drenaj " << edge.id << ": "
                   << "DU=" << edge.cumulativeDU << ", "
                   << "Q=" << flowRate_Ls << " L/s, "
-                  << "Ø=" << edge.diameter_mm << " mm"
+                  << "Ø=" << edge.diameter_mm << " mm, "
+                  << "h/d=" << (edge.fillRate * 100.0) << "%"
                   << std::endl;
     }
 
