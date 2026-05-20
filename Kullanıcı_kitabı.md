@@ -1062,4 +1062,223 @@ Zemin katta tüm pis su kolonu birleştikten sonra ana tahliye noktasını siste
 
 ---
 
+## Bölüm 30 — Pis Su Tesisat Hesapları {#pis-su-hesap}
+
+Bu bölüm, pis su tesisatının tamamlandıktan sonra VKT'de nasıl hesaplanacağını ve raporlanacağını adım adım anlatır.
+
+---
+
+### Adım 1 — Tesisatı Kabul Et
+
+Hesaplara geçmeden önce çizimin hatasız olduğunu programa onaylatın.
+
+```
+KABUL   veya   Çizim → Tesisatı Kabul Et   (Ctrl+Enter)
+```
+
+- VKT açık uç kontrolü + kaynak varlık kontrolü yapar.
+- Tüm borular **PS-** (pis su), **P-** (temiz su), **SK-** (sıcak su) prefix ile numaralandırılır.
+- Hata varsa dialog listesi çıkar — önce hataları düzeltin.
+
+> **İpucu:** VKT, `KABUL` komutunu çalıştırmadan da otomatik hesap (`AutoHydro`) yapar; ancak numaralandırma için KABUL zorunludur.
+
+---
+
+### Adım 2 — Pis Su Hesap Föyünü Açma
+
+Tüm drenaj borularının hesap tablosunu görüntüleyin:
+
+```
+PIS-HESAP   veya   Analiz → Pis Su Hesap Foyu
+```
+
+**Tablo sütunları:**
+
+| Sütun | Açıklama |
+|-------|---------|
+| Boru No | KABUL'de atanan numara (örn. PS-03) |
+| **Boru Cinsi** | Yatay boru / Kolon borusu |
+| Malzeme | PVC, PP, PE, Beton |
+| DN (mm) | Manning ile hesaplanan standart çap |
+| L (m) | Çizimden otomatik algılanan uzunluk |
+| DU | Kümülatif Deşarj Birimi |
+| Q (L/s) | EN 12056-2: Q = K × √ΣDU |
+| Eğim i (%) | Boru eğimi |
+| **Doluluk h/d (%)** | Gerçek doluluk — EN 12056 max %50 |
+
+**Renk uyarıları:**
+- 🔴 Kırmızı: h/d > %50 — çap büyütülmeli
+- 🟡 Sarı: h/d %40–50 — dikkat bölgesi
+
+---
+
+### Adım 3 — Devre Seçeneklerini Belirleme
+
+Hesap yöntemini ve boru özelliklerini ayarlayın:
+
+```
+DEVRE   veya   Analiz → Devre Secenekleri   (Ctrl+Shift+D)
+```
+
+**Ayarlanabilir parametreler:**
+
+| Parametre | Açıklama |
+|-----------|---------|
+| Bina tipi | Konut / Otel / Endüstri (K faktörü) |
+| Boru cinsi | PVC / PP / PE / Beton (pürüzlülük) |
+| Pürüzlülük (mm) | Manning n katsayısı için |
+| Ana eğim | Yatay borular için varsayılan eğim (örn. %2) |
+| Norm | **EN 806-3** (sarfiyat birimi) veya **DIN 1988-300** |
+
+"Tamam"a tıklayınca tüm borular seçilen norma göre anında yeniden hesaplanır.
+
+---
+
+### Adım 4 — Ek Hesaplar (Fosseptik / Çukur / Pompa)
+
+Kanalizasyon bağlantısı olmayan projelerde ek hesaplar gerekebilir:
+
+#### 4a. Kapalı Çukur / Foseptik
+
+```
+FOSEPTIK   veya   Analiz → Kapali Cukur / Foseptik Hesabi
+```
+
+- Girin: **kişi sayısı** + **kişi başı günlük su tüketimi** (m³/kişi/gün)
+- Kırmızı değerler = VKT'nin hesapladığı sonuçlar (TS 822 + EN 12566-1)
+- Çift odalı seçenek: 1. oda %67, 2. oda %33 (EN 12566-1 Md. 5.3)
+
+#### 4b. Emdirme Çukuru
+
+```
+EMDIRME   veya   Analiz → Emdirme Cukuru Hesabi
+```
+
+- Toprak tipi seçimi (kum-çakıl / kumlu-kil / killi / ağır kil)
+- Perkolasyon testi süresi girişi → gerekli yüzey alanı m² hesabı
+
+#### 4c. Pis Su Çukuru (Geçirimsiz Depolama)
+
+```
+PIS-CUKUR   veya   Analiz → Pis Su Cukuru Hesabi
+```
+
+- Foseptikten farkı: arıtma yok — tanker ile periyodik tahliye
+- Tanker aralığı + emniyet katsayısı → toplam depolama hacmi m³
+
+#### 4d. Pis Su Pompası
+
+```
+PIS-POMPA   veya   Analiz → Pis Su Pompasi Boyutlandirma
+```
+
+- Statik yükseklik + boru kayıpları → manometrik yükseklik
+- Hesap gücü → standart motor serisi (0.37–7.5 kW)
+
+---
+
+### Adım 5 — Keşif Listesi
+
+```
+BOM   veya   KESIF   (Ctrl+K)
+```
+
+- Tüm malzemelerin boru tipi + çap + boy bazında listesi
+- DN gruplarına göre toplam metraj
+
+---
+
+### Adım 6 — Baskı İçeriği Seçimi
+
+Raporda ve çizimde hangi değerlerin görüneceğini seçin:
+
+```
+BASKI   veya   Analiz → Baskı İçeriği
+```
+
+**Temiz su boru etiketleri:** DN / Q (debi) / L (uzunluk) / v (hız) / ΔH (kayıp)
+
+**Pis su ek etiketleri:**
+- ☑ Eğim i (%) — yatay boru eğimi
+- ☑ Doluluk h/d (%) — Manning doluluk oranı
+
+---
+
+### Adım 7 — Word/HTML Rapor Oluşturma
+
+```
+WORD   veya   Analiz → Word/HTML Rapor
+```
+
+Rapor içeriği:
+- Devre seçenekleri (norm, bina tipi, boru cinsi)
+- Boru hesap föyü (baskı içeriğinde seçilenler)
+- Kritik devre özeti
+- Armatür / keşif listesi
+
+Rapor **`rapor/`** klasörüne `.htm` uzantısıyla kaydedilir — Word ve tüm tarayıcılar açar.
+
+> **Not:** VKT'de proje klasörü `ProjectManager` ile yönetilir. Proje kök klasörünü ayarlarsanız (`Dosya → Proje Kök Klasörü Ayarla`) rapor otomatik doğru yola kaydedilir.
+
+---
+
+### Adım 8 — Hesapları Çizime Yaz (Çizimi Güncelle)
+
+Hesap sonuçlarını boru etiketleri olarak çizime işleyin:
+
+```
+GUNCELLE   veya   Analiz → Cizimi Guncelle   (Ctrl+Shift+U)
+```
+
+**Seçenekler:**
+- ☑ Boru çapı (DN / mm)
+- ☑ Boru boyu (L)
+- ☑ Eğim i (%) — Pis Su
+- ☑ Doluluk h/d (%) — Pis Su
+
+"Tamam" → AutoHydro yeniden çalışır → seçilen değerler overlay etiketleri olarak çizimde görünür.
+
+> **FineSANI karşılığı:** "Otomatik Yerleştirme" butonu — aynı işlev, aynı sonuç.
+
+---
+
+### Adım 9 — Kolon Şeması Oluşturma
+
+```
+RISER   veya   Analiz → Kolon Semasi   (Ctrl+R)
+```
+
+VKT kolon şemasını üç formatta export eder:
+
+| Format | Açıklama |
+|--------|---------|
+| **SVG** | Tarayıcıda açılır, ölçeklenebilir vektör |
+| **PDF** | A3 Yatay, baskıya hazır |
+| **DXF** | R12 format, CAD programlarında açılır — FineSANI .dwg eşdeğeri |
+
+DXF dosyası üzerinde AutoCAD / LibreCAD'de istenilen manuel düzenlemeler yapılabilir.
+
+> **Not:** DXF dosyası `rapor/` klasörüne kaydedilir. Sonradan erişmek için `Dosya → Proje Klasörünü Aç` ile klasörü açın.
+
+---
+
+### Pis Su Hesapları — Hızlı Komut Referansı
+
+| Adım | Komut | Ctrl Kısayolu | Açıklama |
+|------|-------|--------------|---------|
+| 1 | `KABUL` | Ctrl+Enter | Tesisatı doğrula + numaralandır |
+| 2 | `PIS-HESAP` | — | Pis su hesap föyü tablosu |
+| 3 | `DEVRE` | Ctrl+Shift+D | Hesap normu, eğim, boru cinsi |
+| 4a | `FOSEPTIK` | — | Kapalı çukur / foseptik hacmi |
+| 4b | `EMDIRME` | — | Emdirme çukuru yüzey alanı |
+| 4c | `PIS-CUKUR` | — | Geçirimsiz depolama tankı |
+| 4d | `PIS-POMPA` | — | Pis su pompası gücü |
+| 5 | `BOM` | Ctrl+K | Keşif listesi + malzeme metrajı |
+| 6 | `BASKI` | — | Çizim etiketi seçici |
+| 7 | `WORD` | — | HTML/Word rapor çıktısı |
+| 8 | `GUNCELLE` | Ctrl+Shift+U | Hesapları çizime yaz |
+| 9 | `RISER` | Ctrl+R | Kolon şeması (SVG/PDF/DXF) |
+
+---
+
 *VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*
