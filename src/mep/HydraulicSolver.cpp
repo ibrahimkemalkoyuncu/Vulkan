@@ -54,6 +54,12 @@ void HydraulicSolver::Solve() {
     // 2. Topolojik debi dağılımı — leaf'lerden source'a kümülatif toplama
     DistributeSupplyFlows();
 
+    // 2b. Nominal debi kaydet (DIN simultaneity veya başka faktör uygulanmadan önceki ham LU debisi)
+    for (auto& [id, edge] : m_network.GetEdgeMap()) {
+        if (edge.type == EdgeType::Supply || edge.type == EdgeType::HotWater)
+            edge.nominalFlow_Ls = edge.flowRate_m3s * 1000.0;
+    }
+
     // 3. Debi bilinen borular için otomatik çap seçimi (TS EN 806-3 hız kısıtı)
     AutoSizeSupplyPipes();
 

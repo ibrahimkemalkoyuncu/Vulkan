@@ -1611,6 +1611,32 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
             triVertices.push_back(p1);
             triVertices.push_back(p2);
         }
+
+        // Armatür yön oku — rotation_deg yönünde kısa ok çizgisi
+        if (node.type == mep::NodeType::Fixture) {
+            const float radF  = static_cast<float>(node.rotation_deg * 3.14159265f / 180.0f);
+            const float aLen  = nodeSize * 2.2f;   // ok gövdesi uzunluğu
+            const float aHead = nodeSize * 0.7f;   // ok başı kolu uzunluğu
+            const float tipX  = x + aLen * std::cos(radF);
+            const float tipY  = y + aLen * std::sin(radF);
+            // Ok gövdesi
+            geom::Vertex vBase{}, vTip{};
+            vBase.pos[0] = x;    vBase.pos[1] = y;    vBase.pos[2] = z;
+            vTip.pos[0]  = tipX; vTip.pos[1]  = tipY; vTip.pos[2]  = z;
+            std::copy(color.begin(), color.end(), vBase.color);
+            std::copy(color.begin(), color.end(), vTip.color);
+            lineVertices.push_back(vBase); lineVertices.push_back(vTip);
+            // Ok başı (±30° dalları)
+            const float hA1 = radF + 2.618f; // π - π/6 = 150°
+            const float hA2 = radF - 2.618f;
+            geom::Vertex hL{}, hR{};
+            hL.pos[0] = tipX + aHead * std::cos(hA1); hL.pos[1] = tipY + aHead * std::sin(hA1); hL.pos[2] = z;
+            hR.pos[0] = tipX + aHead * std::cos(hA2); hR.pos[1] = tipY + aHead * std::sin(hA2); hR.pos[2] = z;
+            std::copy(color.begin(), color.end(), hL.color);
+            std::copy(color.begin(), color.end(), hR.color);
+            lineVertices.push_back(vTip); lineVertices.push_back(hL);
+            lineVertices.push_back(vTip); lineVertices.push_back(hR);
+        }
     }
 
     m_lineVertexOffset = 0;

@@ -325,6 +325,14 @@ void MainWindow::CreateActions() {
     m_actPisSuPompasi->setToolTip("Fosseptik/cukur tahliye pompa guc ve debi hesabi");
     connect(m_actPisSuPompasi, &QAction::triggered, this, &MainWindow::OnPisSuPompasi);
 
+    m_actGenlesimTanki = new QAction("Membranlı Genleşme Tankı...", this);
+    m_actGenlesimTanki->setToolTip("EN 12828 — kapalı ısıtma/sıcak su devresinde tank hacmi");
+    connect(m_actGenlesimTanki, &QAction::triggered, this, &MainWindow::OnGenlesimTanki);
+
+    m_actYagmurAlani = new QAction("Yağmur Alanı (Poligon)...", this);
+    m_actYagmurAlani->setToolTip("Çizimden poligon seçip yağmur suyu debi hesabı");
+    connect(m_actYagmurAlani, &QAction::triggered, this, &MainWindow::OnYagmurAlani);
+
     m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -462,6 +470,9 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addAction(m_actPisSuCukuru);
     analyzeMenu->addAction(m_actEmdirmeCukuru);
     analyzeMenu->addAction(m_actPisSuPompasi);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actGenlesimTanki);
+    analyzeMenu->addAction(m_actYagmurAlani);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
@@ -1210,6 +1221,10 @@ void MainWindow::RunAutoHydro() {
 // ============================================================
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
+        if (m_currentToolMode == ToolMode::DrawPolyArea) {
+            m_polyAreaPoints.clear();
+            if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+        }
         if (m_currentToolMode != ToolMode::Select) {
             m_currentToolMode = ToolMode::Select;
             m_drawState       = DrawState::Idle;
@@ -1220,6 +1235,14 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         }
         event->accept();
         return;
+    }
+    // Enter / Return — DrawPolyArea polygon kapatma
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+        if (m_currentToolMode == ToolMode::DrawPolyArea) {
+            FinishPolyArea();
+            event->accept();
+            return;
+        }
     }
     QMainWindow::keyPressEvent(event);
 }
@@ -2035,31 +2058,66 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         break;
     }
     case ToolMode::PlaceFixture: {
-        mep::Node node;
-        node.type = mep::NodeType::Fixture;
-        node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
-        std::string typeName = m_selectedFixtureType.toStdString();
-        node.fixtureType = typeName;
-        node.label = typeName;
-        auto& db = mep::Database::Instance();
-        auto fixture = db.GetFixture(typeName);
-        node.loadUnit = fixture.loadUnit;
-        auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
-        m_document->ExecuteCommand(std::move(cmd));
-        m_document->SetModified(true);
-        UpdateUI();
-        ScheduleAutoHydro(); // armatür eklendi → LU değişti → DN yeniden hesapla
-        statusBar()->showMessage(QString("Armatür eklendi: %1 (x=%2, y=%3)")
-            .arg(m_selectedFixtureType).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        if (m_drawState == DrawState::WaitingFirstPoint || m_drawState == DrawState::Idle) {
+            // 1. tıklama — konumu kaydet, yön için ikinci tıklamayı bekle
+            m_firstClickPos = geom::Vec3(worldX, worldY, GetActiveFloorZ());
+            m_drawState = DrawState::WaitingSecondPoint;
+            const auto& vp = m_vulkanWindow->GetViewport();
+            geom::Vec3 sp = vp.WorldToScreen(m_firstClickPos);
+            m_firstClickScreen = QPoint(static_cast<int>(sp.x), static_cast<int>(sp.y));
+            if (m_snapOverlay) m_snapOverlay->show();
+            statusBar()->showMessage(QString("Armatür [%1]: Yön için ikinci noktayı tıklayın (veya ESC)")
+                .arg(m_selectedFixtureType));
+        } else if (m_drawState == DrawState::WaitingSecondPoint) {
+            // 2. tıklama — açıyı hesapla ve armatürü ekle
+            double dx = worldX - m_firstClickPos.x;
+            double dy = worldY - m_firstClickPos.y;
+            double angle_deg = (std::abs(dx) > 0.1 || std::abs(dy) > 0.1)
+                ? std::atan2(dy, dx) * 180.0 / M_PI : 0.0;
+
+            mep::Node node;
+            node.type        = mep::NodeType::Fixture;
+            node.position    = m_firstClickPos;
+            node.rotation_deg = angle_deg;
+            std::string typeName = m_selectedFixtureType.toStdString();
+            node.fixtureType = typeName;
+            node.label       = typeName;
+            auto& db = mep::Database::Instance();
+            auto fixture = db.GetFixture(typeName);
+            node.loadUnit = fixture.loadUnit;
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            if (m_snapOverlay) m_snapOverlay->ClearRubberBand();
+            m_drawState = DrawState::WaitingFirstPoint; // mod devam et
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("Armatür eklendi: %1 (yön: %2°)")
+                .arg(m_selectedFixtureType).arg(angle_deg, 0, 'f', 1));
+        }
         break;
     }
     case ToolMode::PlaceJunction: {
         mep::Node node;
         node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
         if (m_drainLabel == "__HOT_SOURCE__") {
-            node.type  = mep::NodeType::HotSource;
-            node.label = "Sofben";
+            node.type = mep::NodeType::HotSource;
             m_drainLabel.clear();
+            // Kaynak tipi seçimi
+            QStringList srcTypes;
+            srcTypes << "Doğalgaz Kombi (merkezi)"
+                     << "Elektrikli Su Isıtıcısı — 6 kW"
+                     << "Elektrikli Su Isıtıcısı — 12 kW"
+                     << "Güneş Enerjisi + Depolu";
+            bool ok = false;
+            QString srcType = QInputDialog::getItem(this,
+                "Sıcak Su Kaynağı", "Kaynak tipi:", srcTypes, 0, false, &ok);
+            if (!ok) srcType = srcTypes[0];
+            // Label: kısa ad
+            if (srcType.contains("6 kW"))       node.label = "El.Ist. 6kW";
+            else if (srcType.contains("12 kW")) node.label = "El.Ist. 12kW";
+            else if (srcType.contains("Güneş")) node.label = "Güneş+Depo";
+            else                                node.label = "Kombi";
             auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
             m_document->ExecuteCommand(std::move(cmd));
             m_document->SetModified(true);
@@ -2301,6 +2359,14 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
         }
         break;
     }
+    case ToolMode::DrawPolyArea: {
+        // Her tıklama → polygon noktası ekle
+        m_polyAreaPoints.push_back(geom::Vec3(worldX, worldY, GetActiveFloorZ()));
+        if (m_snapOverlay) m_snapOverlay->show();
+        statusBar()->showMessage(QString("Yağmur alanı: %1 nokta eklendi — Enter ile kapat, ESC ile iptal")
+            .arg(m_polyAreaPoints.size()));
+        break;
+    }
     } // switch
 } // HandleMousePress
 
@@ -2382,10 +2448,18 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
 
     m_snapOverlay->Update(screenPos, snap);
 
-    // Rubber-band: DrawPipe ikinci nokta bekliyorsa çizgi göster
-    if (m_currentToolMode == ToolMode::DrawPipe &&
-        m_drawState == DrawState::WaitingSecondPoint) {
+    // Rubber-band: ikinci nokta beklenen modlarda çizgi göster
+    if (m_drawState == DrawState::WaitingSecondPoint &&
+        (m_currentToolMode == ToolMode::DrawPipe ||
+         m_currentToolMode == ToolMode::PlaceFixture)) {
         m_snapOverlay->SetRubberBand(m_firstClickScreen, screenPos, true);
+    } else if (m_currentToolMode == ToolMode::DrawPolyArea &&
+               !m_polyAreaPoints.empty()) {
+        // Poligon çizimi: son noktadan imlece çizgi
+        const auto& vp2 = m_vulkanWindow->GetViewport();
+        geom::Vec3 lastSp = vp2.WorldToScreen(m_polyAreaPoints.back());
+        QPoint lastScreen(static_cast<int>(lastSp.x), static_cast<int>(lastSp.y));
+        m_snapOverlay->SetRubberBand(lastScreen, screenPos, true);
     } else {
         m_snapOverlay->ClearRubberBand();
     }
@@ -2451,7 +2525,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
-            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA");
+            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA  GENLESIM  YAGMUR-ALAN");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
@@ -2488,6 +2562,10 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnPisSuCukuru();
     } else if (c == "PIS-POMPA" || c == "PIS-SU-POMPA" || c == "FOSSEPTIK-POMPA") {
         OnPisSuPompasi();
+    } else if (c == "GENLESIM" || c == "GENLESIM-TANKI" || c == "EXPANSION-TANK") {
+        OnGenlesimTanki();
+    } else if (c == "YAGMUR-ALAN" || c == "ALAN-CIZIM" || c == "POLY-ALAN") {
+        OnYagmurAlani();
     } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
         OnFloorAlignment();
     } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
@@ -3190,7 +3268,8 @@ void MainWindow::OnBaskiKaybi() {
     html += "<table border='1' cellpadding='4' cellspacing='0' width='100%'>";
     html += "<tr style='background:#2255aa;color:white'>"
             "<th>Devre No</th><th>Tip</th><th>Malzeme</th>"
-            "<th>DN (mm)</th><th>L (m)</th><th>Q (L/s)</th>"
+            "<th>DN (mm)</th><th>L (m)</th>"
+            "<th>Q_nom (L/s)</th><th>Q_hes (L/s)</th>"
             "<th>v (m/s)</th><th>ΔH (m)</th><th>Durum</th></tr>";
 
     // Kritik devreyi bul
@@ -3216,17 +3295,27 @@ void MainWindow::OnBaskiKaybi() {
             default:                       typeStr = "Diğer";    break;
         }
 
+        double qNom = (edge.nominalFlow_Ls > 0.0) ? edge.nominalFlow_Ls : edge.flowRate_m3s * 1000.0;
+        double qHes = edge.flowRate_m3s * 1000.0;
+        QString qNomStr = QString("%1").arg(qNom, 0, 'f', 3);
+        // Eğer DIN simultaneity uygulandıysa nominal > hesap → vurgula
+        QString qHesStr = (qNom > qHes + 0.001)
+            ? QString("<font color='#00a'>%1</font>").arg(qHes, 0, 'f', 3)
+            : QString("%1").arg(qHes, 0, 'f', 3);
+
         html += QString("<tr style='background:%1'>"
                         "<td>%2</td><td>%3</td><td>%4</td>"
-                        "<td>%5</td><td>%6</td><td>%7</td>"
-                        "<td>%8</td><td>%9</td><td>%10</td></tr>")
+                        "<td>%5</td><td>%6</td>"
+                        "<td>%7</td><td>%8</td>"
+                        "<td>%9</td><td>%10</td><td>%11</td></tr>")
             .arg(bg)
             .arg(edge.label.empty() ? QString("E%1").arg(eid) : QString::fromStdString(edge.label))
             .arg(typeStr)
             .arg(QString::fromStdString(edge.material))
             .arg(edge.diameter_mm, 0, 'f', 0)
             .arg(edge.length_m, 0, 'f', 2)
-            .arg(edge.flowRate_m3s * 1000.0, 0, 'f', 3)
+            .arg(qNomStr)
+            .arg(qHesStr)
             .arg(edge.velocity_ms, 0, 'f', 2)
             .arg(edge.headLoss_m, 0, 'f', 4)
             .arg(isCrit ? "<b style='color:#c00'>KRİTİK</b>" : "OK");
@@ -4452,6 +4541,208 @@ void MainWindow::OnPisSuPompasi() {
     connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     lay->addWidget(btns);
     dlg.exec();
+}
+
+// ============================================================
+//  MEMBRANLΙ GENLEŞİM TANKI BOYUTLANDIRMA (EN 12828)
+// ============================================================
+void MainWindow::OnGenlesimTanki() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Membranlı Genleşme Tankı — EN 12828");
+    dlg.resize(480, 440);
+    auto* lay  = new QVBoxLayout(&dlg);
+    auto* form = new QFormLayout();
+
+    // Sistem hacmini boru ağından otomatik hesapla
+    double autoVol = 0.0;
+    if (m_document) {
+        for (const auto& [id, edge] : m_document->GetNetwork().GetEdgeMap()) {
+            if (edge.type == mep::EdgeType::HotWater || edge.type == mep::EdgeType::Supply) {
+                double D_m = edge.diameter_mm / 1000.0;
+                double A   = 3.14159265 * (D_m / 2.0) * (D_m / 2.0);
+                autoVol   += A * edge.length_m * 1000.0; // m³ → L
+            }
+        }
+    }
+
+    auto* spVsys   = new QDoubleSpinBox(); spVsys->setRange(1, 50000); spVsys->setDecimals(1); spVsys->setSuffix(" L"); spVsys->setValue(std::max(autoVol, 10.0));
+    auto* spTcold  = new QDoubleSpinBox(); spTcold->setRange(0, 30);   spTcold->setDecimals(0); spTcold->setSuffix(" °C"); spTcold->setValue(10.0);
+    auto* spThot   = new QDoubleSpinBox(); spThot->setRange(40, 100);  spThot->setDecimals(0); spThot->setSuffix(" °C"); spThot->setValue(60.0);
+    auto* spHstat  = new QDoubleSpinBox(); spHstat->setRange(0, 100);  spHstat->setDecimals(1); spHstat->setSuffix(" m (statik yük)"); spHstat->setValue(10.0);
+    auto* spPsafety= new QDoubleSpinBox(); spPsafety->setRange(2, 10); spPsafety->setDecimals(1); spPsafety->setSuffix(" bar (emniyet ventili)"); spPsafety->setValue(3.0);
+
+    if (autoVol > 0.1)
+        spVsys->setToolTip(QString("Ağdan otomatik hesap: %1 L").arg(autoVol, 0, 'f', 2));
+
+    form->addRow("Sistem hacmi V_sys:", spVsys);
+    form->addRow("Dolum sıcaklığı T_cold:", spTcold);
+    form->addRow("Maks. çalışma sıcaklığı T_hot:", spThot);
+    form->addRow("Statik yük H:", spHstat);
+    form->addRow("Emniyet ventili basıncı P_S:", spPsafety);
+    lay->addLayout(form);
+
+    auto* lblRes = new QLabel();
+    lblRes->setWordWrap(true);
+    lblRes->setStyleSheet("QLabel{background:#f0fff4;border:1px solid #8c8;padding:8px;font-family:monospace;}");
+    lay->addWidget(lblRes);
+
+    // EN 12828 su genleşme katsayısı tablosu (10°C referans)
+    auto expansionCoeff = [](double Tcold, double Thot) -> double {
+        // Doğrusal interpolasyon: ρ_water(T) ≈ 1/(1 + e_v(T)) baz alındı
+        // e_v: genleşme oranı (10°C → T_hot)
+        static const double T[] = {10, 20, 40, 60, 70, 80, 90};
+        static const double e[] = {0.0, 0.0002, 0.0078, 0.0170, 0.0225, 0.0286, 0.0356};
+        constexpr int N = 7;
+        // ΔT etkin: dolum sıcaklığını referans al
+        double eHot = 0.0, eCold = 0.0;
+        for (int i = 1; i < N; ++i) {
+            if (Thot <= T[i]) {
+                double f = (Thot - T[i-1]) / (T[i] - T[i-1]);
+                eHot = e[i-1] + f * (e[i] - e[i-1]);
+                break;
+            } else if (i == N-1) eHot = e[N-1];
+        }
+        for (int i = 1; i < N; ++i) {
+            if (Tcold <= T[i]) {
+                double f = (Tcold - T[i-1]) / (T[i] - T[i-1]);
+                eCold = e[i-1] + f * (e[i] - e[i-1]);
+                break;
+            }
+        }
+        return std::max(eHot - eCold, 0.001);
+    };
+
+    auto calcTank = [&]() {
+        double V_sys    = spVsys->value();
+        double T_cold   = spTcold->value();
+        double T_hot    = spThot->value();
+        double H_stat   = spHstat->value();
+        double P_safety = spPsafety->value();
+
+        double e_v  = expansionCoeff(T_cold, T_hot);
+        // Basınçlar (bar mano.)
+        double P_min = H_stat / 10.0 + 0.3; // dolum basıncı = statik + 0.3 bar ön şarj toleransı
+        double P_max = P_safety - 0.5;        // güvenlik marjı
+        if (P_max <= P_min) P_max = P_min + 0.5;
+        // EN 12828: V_tank = V_sys × e_v × (P_max + 1) / (P_max - P_min)   [bar mutlak]
+        double V_tank = V_sys * e_v * (P_max + 1.0) / (P_max - P_min);
+        double V_nominal = V_tank * 1.25; // %25 emniyet
+
+        // Standart tank boyutları (L)
+        static const double std_sizes[] = {2,4,8,12,18,25,35,50,80,100,150,200,300,500};
+        double sel = 500;
+        for (double s : std_sizes) { if (s >= V_nominal) { sel = s; break; } }
+
+        QString html;
+        html += QString("<b>Genleşme Katsayısı e_v:</b> %1 (%2 → %3°C)<br>").arg(e_v, 0, 'f', 4).arg(T_cold, 0, 'f', 0).arg(T_hot, 0, 'f', 0);
+        html += QString("<b>P_min (dolum):</b> %1 bar — <b>P_max (çalışma):</b> %2 bar<br>").arg(P_min, 0, 'f', 2).arg(P_max, 0, 'f', 2);
+        html += QString("<b>Hesap hacmi V_n:</b> %1 L<br>").arg(V_tank, 0, 'f', 1);
+        html += QString("<b>%25 marjlı nominál:</b> %1 L<br>").arg(V_nominal, 0, 'f', 1);
+        html += QString("<b style='color:#006600'>Seçilen standart tank: <big>%1 L</big></b><br>").arg(sel, 0, 'f', 0);
+        html += QString("Ön şarj basıncı: %1 bar").arg(P_min, 0, 'f', 2);
+        lblRes->setText(html);
+    };
+
+    connect(spVsys,    QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcTank(); });
+    connect(spTcold,   QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcTank(); });
+    connect(spThot,    QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcTank(); });
+    connect(spHstat,   QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcTank(); });
+    connect(spPsafety, QOverload<double>::of(&QDoubleSpinBox::valueChanged), [&](double){ calcTank(); });
+    calcTank();
+
+    lay->addWidget(new QDialogButtonBox(QDialogButtonBox::Ok, Qt::Horizontal, &dlg));
+    connect(lay->itemAt(lay->count()-1)->widget(), SIGNAL(accepted()), &dlg, SLOT(accept()));
+    dlg.exec();
+
+    if (m_logList)
+        m_logList->addItem("Genleşme tankı hesabı yapıldı (EN 12828).");
+}
+
+// ============================================================
+//  YAĞMUR DÜŞME ALANI — çizimden poligon seçimi
+// ============================================================
+void MainWindow::OnYagmurAlani() {
+    m_polyAreaPoints.clear();
+    m_currentToolMode = ToolMode::DrawPolyArea;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    if (m_snapOverlay) m_snapOverlay->show();
+    statusBar()->showMessage("Yağmur alanı: Köşe noktalarını tıklayın — Enter ile kapat, ESC iptal");
+    if (m_commandBar) m_commandBar->SetPrompt("Köşe noktası");
+}
+
+void MainWindow::FinishPolyArea() {
+    if (m_polyAreaPoints.size() < 3) {
+        statusBar()->showMessage("En az 3 nokta gerekli.");
+        return;
+    }
+    // Shoelace alanı (mm² → m²)
+    double area_mm2 = 0.0;
+    int n = static_cast<int>(m_polyAreaPoints.size());
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        area_mm2 += m_polyAreaPoints[i].x * m_polyAreaPoints[j].y;
+        area_mm2 -= m_polyAreaPoints[j].x * m_polyAreaPoints[i].y;
+    }
+    double area_m2 = std::abs(area_mm2) / 2.0 / 1e6; // mm² → m²
+
+    m_polyAreaPoints.clear();
+    m_currentToolMode = ToolMode::Select;
+    m_drawState = DrawState::Idle;
+    if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+
+    // Yağmur hesabı — yüzey tipi seçimi
+    QStringList surfaceTypes;
+    surfaceTypes << "Çatı / Çatı kaplaması (C=1.0)"
+                 << "Beton / Asfalt zemin (C=0.9)"
+                 << "Yeşil çatı (C=0.5)"
+                 << "Çakıllı geçirimli zemin (C=0.6)";
+    bool ok = false;
+    QString surface = QInputDialog::getItem(this,
+        "Yüzey Tipi", QString("Ölçülen alan: <b>%1 m²</b><br>Yüzey tipi:").arg(area_m2, 0, 'f', 2),
+        surfaceTypes, 0, false, &ok);
+    if (!ok) return;
+
+    double C = 1.0;
+    if (surface.contains("Beton")) C = 0.9;
+    else if (surface.contains("Yeşil")) C = 0.5;
+    else if (surface.contains("akıllı") || surface.contains("Çakıl")) C = 0.6;
+
+    double rD = 0.03;
+    double Q_ls = C * area_m2 * rD;
+
+    static const struct { double dn; double cap_ls; } kTable[] = {
+        {50,1.2},{75,3.5},{100,8.0},{125,15.0},{150,25.0},{200,50.0},{0,0}
+    };
+    double dnPerPipe = 200.0;
+    double numPipes = 1;
+    if (Q_ls > 50.0) numPipes = std::ceil(Q_ls / 50.0);
+    double qPer = Q_ls / numPipes;
+    for (int i = 0; kTable[i].dn > 0; ++i) {
+        if (kTable[i].cap_ls >= qPer) { dnPerPipe = kTable[i].dn; break; }
+    }
+
+    QString msg;
+    msg += QString("<h3>Yağmur Suyu Tahliye — Çizimden Ölçüm (EN 12056-3)</h3>");
+    msg += QString("<table border='0' cellspacing='4'>");
+    msg += QString("<tr><td>Ölçülen alan:</td><td><b>%1 m²</b></td></tr>").arg(area_m2, 0, 'f', 2);
+    msg += QString("<tr><td>Yüzey katsayısı (C):</td><td>%1</td></tr>").arg(C, 0, 'f', 2);
+    msg += QString("<tr><td>r_D:</td><td>0.030 l/(s·m²)</td></tr>");
+    msg += QString("<tr><td><b>Tasarım debisi Q:</b></td><td><font color='red'><b>%1 l/s</b></font></td></tr>").arg(Q_ls, 0, 'f', 2);
+    msg += QString("<tr><td>Önerilen boru:</td><td><b>%1× DN%2</b></td></tr>").arg((int)numPipes).arg((int)dnPerPipe);
+    msg += QString("</table>");
+
+    QMessageBox dlg2(this);
+    dlg2.setWindowTitle("Yağmur Suyu — Poligon Alanı");
+    dlg2.setTextFormat(Qt::RichText);
+    dlg2.setText(msg);
+    dlg2.setIcon(QMessageBox::Information);
+    dlg2.exec();
+
+    if (m_logList)
+        m_logList->addItem(QString("Yağmur (poligon): A=%1m², Q=%2l/s → %3×DN%4")
+            .arg(area_m2,0,'f',1).arg(Q_ls,0,'f',2).arg((int)numPipes).arg((int)dnPerPipe));
+    statusBar()->showMessage(QString("Yağmur alanı: %1 m² → Q=%2 l/s")
+        .arg(area_m2,0,'f',2).arg(Q_ls,0,'f',2));
 }
 
 } // namespace ui

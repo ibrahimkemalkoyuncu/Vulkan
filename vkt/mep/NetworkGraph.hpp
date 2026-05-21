@@ -59,6 +59,7 @@ struct Node {
     // Armatür özellikleri
     std::string fixtureType;            ///< "Lavabo", "WC", "Duş"
     bool isSimultaneous = false;        ///< Eşzamanlı kullanım
+    double rotation_deg = 0.0;          ///< Armatür yönü (x-ekseninden derece, saat yönü tersi)
 };
 
 /**
@@ -88,6 +89,7 @@ struct Edge {
     double slope = 0.02;                ///< Eğim (drenaj için, %2 = 0.02)
     double cumulativeDU = 0.0;          ///< Kümülatif DU (EN 12056 için)
     double fillRate = 0.0;              ///< Doluluk derecesi h/d (EN 12056: max %50)
+    double nominalFlow_Ls = 0.0;        ///< Nominal (LU/DU brüt) debi — simultaneity öncesi (l/s)
     
     std::string material = "PVC";       ///< Boru malzemesi
     std::string label;                  ///< Etiket

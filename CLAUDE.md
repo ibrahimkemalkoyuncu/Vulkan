@@ -434,6 +434,11 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Tam Proje DXF Export** — `OnExportDXF()`: `DXFWriter::Write()` ile tüm CAD entity + MEP şebekesi DXF R2000; `Dosya → Tam Proje DXF` + `EXPORT-DXF`/`CIKTI-DXF` komutu; Ctrl+Shift+E
 - **Kat Bazlı DXF Export** — `OnExportFloorDXF()`: kat seçim dialog; Z aralığı filtresi ile hem MEP node/edge hem CAD entity filtresi; FineSANI "ekran çizimi + xref bağla" eşdeğeri; `KAT-DXF`/`EKRAN-CIZIMI` komutu
 - **Kullanıcı_kitabı.md Bölüm 31** — Çıktı Dosyasının Hazırlanması: VKT vs FineSANI karşılaştırma tablosu; KATMAN/EXPORT-DXF/KAT-DXF/RISER/PAFTA iş akışı
+- **Armatür yön seçimi (2-tıklama)** — `PlaceFixture` state machine 2-adımlı: 1. tıklama=konum, 2. tıklama=yön açısı; `Node.rotation_deg` yeni alan; VulkanRenderer'da yön oku (circle + arrow + arrowhead) her fixture için çiziliyor; rubber band yön için de aktif; FineSANI'nin eksik olduğu kritik P1 özelliği
+- **Membranlı Genleşme Tankı (EN 12828)** — `OnGenlesimTanki()`: sistem hacmi ağdan otomatik hesap (boru kesit × uzunluk); genleşme katsayısı su yoğunluk tablosundan interpolasyon; P_min/P_max'tan V_tank = V_sys × e_v × (P_max+1)/(P_max-P_min); %25 emniyet marjı; standart tank boyutu seçimi (2–500L); ön şarj basıncı; Analiz menüsü + `GENLESIM`/`EXPANSION-TANK` komutu
+- **Nominal/Hesap Debisi ayrımı** — `Edge.nominalFlow_Ls` yeni alan; `HydraulicSolver::Solve()` DistributeSupplyFlows sonrası LU-bazlı debyi kaydeder; `OnBaskiKaybi()` tablosuna "Q_nom / Q_hes" çift sütun eklendi; DIN norm simultanite farkı mavi renk ile vurgulanıyor
+- **HotSource kW seçimi** — Sofben/Kazan yerleştirmede `QInputDialog` ile kaynak tipi seçimi: Kombi / Elektrikli 6kW / Elektrikli 12kW / Güneş+Depo; node.label'a kısa isim atanıyor
+- **Yağmur Düşme Alanı Poligonu** — `ToolMode::DrawPolyArea` yeni mod; çizimden köşe noktaları tıklanarak poligon çizilir; Enter tuşuyla kapanır; Shoelace alanı (mm² → m²) hesabı; yüzey tipi seçimi → EN 12056-3 yağmur debisi + DN seçimi; Analiz menüsü + `YAGMUR-ALAN`/`POLY-ALAN` komutu; 108/108 test geçiyor
 
 ### Devam Eden
 

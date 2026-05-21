@@ -37,7 +37,7 @@ namespace render { class VulkanWindow; }
 namespace ui {
 
 /// Aktif cizim araci
-enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction, PlaceDrain, ConnectFixture };
+enum class ToolMode { Select, DrawPipe, PlaceFixture, PlaceJunction, PlaceDrain, ConnectFixture, DrawPolyArea };
 enum class DrawState { Idle, WaitingFirstPoint, WaitingSecondPoint };
 
 /**
@@ -216,6 +216,13 @@ private slots:
     // Pis Su Pompası boyutlandırma
     void OnPisSuPompasi();
 
+    // Membranlı Genleşme Tankı boyutlandırma (EN 12828)
+    void OnGenlesimTanki();
+
+    // Yağmur Düşme Alanı — çizimden poligon seçimi
+    void OnYagmurAlani();
+    void FinishPolyArea();   ///< Enter tuşuyla polygon kapatıp alan+yağmur hesabı
+
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
@@ -328,6 +335,8 @@ private:
     QAction* m_actPisSuPompasi       = nullptr;
     QAction* m_actExportDXF          = nullptr;
     QAction* m_actExportFloorDXF     = nullptr;
+    QAction* m_actGenlesimTanki      = nullptr;
+    QAction* m_actYagmurAlani        = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -402,6 +411,9 @@ private:
     bool       m_measureMode       = false;
     bool       m_measureHasFirstPt = false;
     geom::Vec3 m_measurePt1;
+
+    // Yağmur düşme alanı poligon çizim noktaları (DrawPolyArea modu)
+    std::vector<geom::Vec3> m_polyAreaPoints;
 
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
