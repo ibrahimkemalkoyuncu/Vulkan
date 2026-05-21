@@ -164,6 +164,10 @@ private slots:
     // PDF Pafta (Sayfa) Düzeni
     void OnPrintLayout();
 
+    // DXF Export — tüm proje veya aktif kat
+    void OnExportDXF();
+    void OnExportFloorDXF();
+
     // Hidrofor / Ekipman Boyutlandırma
     void OnHidrofor();
 
@@ -322,6 +326,8 @@ private:
     QAction* m_actEmdirmeCukuru      = nullptr;
     QAction* m_actPisSuCukuru        = nullptr;
     QAction* m_actPisSuPompasi       = nullptr;
+    QAction* m_actExportDXF          = nullptr;
+    QAction* m_actExportFloorDXF     = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;

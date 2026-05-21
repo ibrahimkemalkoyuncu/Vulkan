@@ -431,6 +431,9 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Pis Su Çukuru** — `OnPisSuCukuru()`: geçirimsiz depolama tankı; tanker aralığı + emniyet katsayısı; silindir tank boyutu; `PIS-CUKUR` komutu
 - **Pis Su Pompası** — `OnPisSuPompasi()`: DIN EN 12050-1; Q/v/manometrik yükseklik/güç; standart motor seçimi; `PIS-POMPA` komutu
 - **Kolon Şeması DXF Export** — `OnRiserDiagram()` "DXF Kaydet" butonu; R12 format LINE + TEXT entity; riser diyagramı artık SVG/PDF/DXF olarak export edilebiliyor
+- **Tam Proje DXF Export** — `OnExportDXF()`: `DXFWriter::Write()` ile tüm CAD entity + MEP şebekesi DXF R2000; `Dosya → Tam Proje DXF` + `EXPORT-DXF`/`CIKTI-DXF` komutu; Ctrl+Shift+E
+- **Kat Bazlı DXF Export** — `OnExportFloorDXF()`: kat seçim dialog; Z aralığı filtresi ile hem MEP node/edge hem CAD entity filtresi; FineSANI "ekran çizimi + xref bağla" eşdeğeri; `KAT-DXF`/`EKRAN-CIZIMI` komutu
+- **Kullanıcı_kitabı.md Bölüm 31** — Çıktı Dosyasının Hazırlanması: VKT vs FineSANI karşılaştırma tablosu; KATMAN/EXPORT-DXF/KAT-DXF/RISER/PAFTA iş akışı
 
 ### Devam Eden
 

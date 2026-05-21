@@ -23,6 +23,7 @@
 #include "core/Application.hpp"
 #include "core/Commands.hpp"
 #include "cad/Text.hpp"
+#include "cad/DXFWriter.hpp"
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QMessageBox>
@@ -247,6 +248,15 @@ void MainWindow::CreateActions() {
     m_actPrintLayout->setShortcut(QKeySequence("Ctrl+P"));
     connect(m_actPrintLayout, &QAction::triggered, this, &MainWindow::OnPrintLayout);
 
+    m_actExportDXF = new QAction("Tam Proje DXF Olarak Kaydet...", this);
+    m_actExportDXF->setToolTip("Tum katlar + MEP sebekesi DXF R2000 formatinda");
+    m_actExportDXF->setShortcut(QKeySequence("Ctrl+Shift+E"));
+    connect(m_actExportDXF, &QAction::triggered, this, &MainWindow::OnExportDXF);
+
+    m_actExportFloorDXF = new QAction("Aktif Kat DXF Olarak Kaydet...", this);
+    m_actExportFloorDXF->setToolTip("Sadece aktif katin tesisat sebekesini DXF'e aktar");
+    connect(m_actExportFloorDXF, &QAction::triggered, this, &MainWindow::OnExportFloorDXF);
+
     m_actHidrofor = new QAction("Hidrofor Boyutlandirma...", this);
     m_actHidrofor->setToolTip("Kritik devre analizi sonucuna gore hidrofor/pompa secimi");
     connect(m_actHidrofor, &QAction::triggered, this, &MainWindow::OnHidrofor);
@@ -380,6 +390,9 @@ void MainWindow::CreateMenus() {
     fileMenu->addAction(m_actSaveAs);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actImportDXF);
+    fileMenu->addSeparator();
+    fileMenu->addAction(m_actExportDXF);
+    fileMenu->addAction(m_actExportFloorDXF);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actSetProjectsRoot);
     fileMenu->addAction(m_actOpenProjectFolder);
@@ -2439,7 +2452,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA");
-            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
+            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -2538,7 +2551,11 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnNew();
     } else if (c == "OPEN") {
         OnOpen();
-    } else if (c == "EXPORT-DXF" || c == "EXPORT-PDF") {
+    } else if (c == "EXPORT-DXF" || c == "CIKTI-DXF") {
+        OnExportDXF();
+    } else if (c == "KAT-DXF" || c == "FLOOR-DXF" || c == "EKRAN-CIZIMI") {
+        OnExportFloorDXF();
+    } else if (c == "EXPORT-PDF") {
         OnExportReport();
     } else {
         statusBar()->showMessage(QString("Bilinmeyen komut: %1  (HELP yazın)").arg(cmd));
@@ -4064,6 +4081,141 @@ void MainWindow::OnPisSuHesapFoyu() {
     lay->addWidget(btns);
 
     dlg.exec();
+}
+
+// ============================================================
+//  DXF EXPORT — tam proje (tüm katlar + MEP şebekesi)
+// ============================================================
+void MainWindow::OnExportDXF() {
+    if (!m_document) return;
+
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject()
+        ? QString::fromStdString(pm.GetRaporFolder()) : "";
+
+    QString path = QFileDialog::getSaveFileName(this,
+        "Tam Proje — DXF Olarak Kaydet", startDir,
+        "DXF Dosyasi (*.dxf)");
+    if (path.isEmpty()) return;
+
+    cad::DXFWriter writer;
+    QString projName = QString::fromStdString(
+        pm.HasActiveProject() ? pm.GetProjectName() : "VKT Projesi");
+
+    bool ok = writer.Write(path.toStdString(),
+                           m_document->GetCADEntities(),
+                           m_document->GetNetwork(),
+                           projName.toStdString());
+
+    if (ok) {
+        statusBar()->showMessage(QString("DXF kaydedildi: %1").arg(path), 4000);
+        if (m_logList)
+            m_logList->addItem(QString("DXF Export: %1").arg(QFileInfo(path).fileName()));
+    } else {
+        QMessageBox::critical(this, "DXF Export Hatasi", "Dosya yazılamadi!");
+    }
+}
+
+// ============================================================
+//  DXF EXPORT — aktif kat filtreli (FineSANI "ekran çizimi" eşdeğeri)
+// ============================================================
+void MainWindow::OnExportFloorDXF() {
+    if (!m_document) return;
+
+    const auto& floors = m_floorManager.GetFloors();
+    if (floors.empty()) {
+        QMessageBox::information(this, "Kat DXF Export",
+            "Once Mimari Belirle (Ctrl+M) ile kat tanimlayin.\n"
+            "Kat tanimsizsa tam proje DXF icin: Dosya → Tam Proje DXF");
+        return;
+    }
+
+    // Aktif kat seçici
+    QStringList katlar;
+    for (const auto& f : floors)
+        katlar << QString("[%1] %2 (kot=%3m)")
+                     .arg(f.index).arg(QString::fromStdString(f.label))
+                     .arg(f.elevation_m, 0, 'f', 2);
+
+    bool ok2;
+    QString secilen = QInputDialog::getItem(this, "Kat Secimi",
+        "DXF'e aktarilacak kati secin:", katlar, m_activeFloorIndex, false, &ok2);
+    if (!ok2 || secilen.isEmpty()) return;
+
+    int katIdx = katlar.indexOf(secilen);
+    if (katIdx < 0 || katIdx >= (int)floors.size()) return;
+    const core::Floor& kat = floors[katIdx];
+
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject()
+        ? QString::fromStdString(pm.GetRaporFolder()) : "";
+
+    // Varsayılan dosya adı: proje + kat etiketi
+    QString defaultName = QString::fromStdString(
+        pm.HasActiveProject() ? pm.GetProjectName() : "proje");
+    defaultName += "_" + QString::fromStdString(kat.label)
+                             .replace(" ", "_").replace(".", "");
+
+    QString path = QFileDialog::getSaveFileName(this,
+        "Kat DXF Kaydet — " + QString::fromStdString(kat.label),
+        startDir + "/" + defaultName + ".dxf",
+        "DXF Dosyasi (*.dxf)");
+    if (path.isEmpty()) return;
+
+    // Kat Z aralığı: elevation_m ± tolerans (kat yüksekliğinin yarısı)
+    double zLo = kat.elevation_m - 0.3;
+    double zHi = kat.elevation_m + kat.height_m + 0.3;
+
+    // MEP: aktif kata ait node + edge'leri filtrele
+    mep::NetworkGraph floorNet;
+    std::unordered_map<uint32_t, uint32_t> nodeRemap; // eski id → yeni id
+
+    for (const auto& [nid, node] : m_document->GetNetwork().GetNodeMap()) {
+        if (node.position.z >= zLo && node.position.z <= zHi) {
+            mep::Node copy = node;
+            uint32_t newId = floorNet.AddNode(copy);
+            nodeRemap[nid] = newId;
+        }
+    }
+    for (const auto& [eid, edge] : m_document->GetNetwork().GetEdgeMap()) {
+        auto itA = nodeRemap.find(edge.nodeA);
+        auto itB = nodeRemap.find(edge.nodeB);
+        if (itA == nodeRemap.end() || itB == nodeRemap.end()) continue;
+        mep::Edge copy = edge;
+        copy.nodeA = itA->second;
+        copy.nodeB = itB->second;
+        floorNet.AddEdge(copy);
+    }
+
+    // CAD arka plan: Z aralığında olan entity'leri seç
+    // (import sırasında Z offset uygulandığı için kat koordinatları biliniyor)
+    std::vector<std::unique_ptr<cad::Entity>> floorEntities;
+    for (const auto& e : m_document->GetCADEntities()) {
+        if (!e) continue;
+        auto bb = e->GetBounds();
+        double ez = (bb.min.z + bb.max.z) / 2.0;
+        if (ez >= zLo && ez <= zHi)
+            floorEntities.push_back(e->Clone());
+    }
+
+    cad::DXFWriter writer;
+    bool ok3 = writer.Write(path.toStdString(),
+                            floorEntities,
+                            floorNet,
+                            kat.label);
+    if (ok3) {
+        statusBar()->showMessage(
+            QString("Kat DXF kaydedildi: %1 (%2 entity, %3 boru)")
+                .arg(QFileInfo(path).fileName())
+                .arg((int)floorEntities.size())
+                .arg((int)floorNet.GetEdgeCount()), 4000);
+        if (m_logList)
+            m_logList->addItem(QString("Kat DXF: %1 → %2")
+                .arg(QString::fromStdString(kat.label))
+                .arg(QFileInfo(path).fileName()));
+    } else {
+        QMessageBox::critical(this, "Hata", "DXF dosyasi yazılamadi!");
+    }
 }
 
 // ============================================================
