@@ -123,6 +123,7 @@ void MainWindow::SetDocument(core::Document* doc) {
     if (m_vulkanWindow && doc) {
         m_vulkanWindow->SetNetwork(&doc->GetNetwork());
     }
+    RefreshLayerPanel();
     UpdateUI();
 }
 
@@ -626,6 +627,76 @@ void MainWindow::CreateDockPanels() {
                     on ? "Akilli Baglanti Noktasi: AKTIF — cihazlar yildiz sembolu olarak yerlestirilecek"
                        : "Akilli Baglanti Noktasi: KAPALI — tam cihaz simgesi yerlestirilecek", 3000);
             });
+
+    // Layer Manager Paneli — AutoCAD tarzı katman görünürlük kontrolü
+    m_layerPanel = new QDockWidget("Katman Yöneticisi", this);
+    auto* layWid = new QWidget();
+    auto* layVBox = new QVBoxLayout(layWid);
+    layVBox->setContentsMargins(2, 2, 2, 2);
+    layVBox->setSpacing(2);
+
+    // Araç çubuğu: Tümünü Göster / Tümünü Gizle
+    auto* layToolRow = new QHBoxLayout();
+    auto* btnLayerAll = new QPushButton("Tümünü Göster");
+    auto* btnLayerNone = new QPushButton("Tümünü Gizle");
+    btnLayerAll->setFixedHeight(22);
+    btnLayerNone->setFixedHeight(22);
+    layToolRow->addWidget(btnLayerAll);
+    layToolRow->addWidget(btnLayerNone);
+    layVBox->addLayout(layToolRow);
+
+    m_layerList = new QListWidget();
+    m_layerList->setStyleSheet(
+        "QListWidget::item { padding: 2px; }"
+        "QListWidget::item:selected { background: #2255aa; color: white; }");
+    layVBox->addWidget(m_layerList);
+
+    m_layerPanel->setWidget(layWid);
+    m_layerPanel->setMinimumWidth(200);
+    addDockWidget(Qt::LeftDockWidgetArea, m_layerPanel);
+    tabifyDockWidget(m_spacePanel, m_layerPanel);
+
+    // Layer checkbox değişince görünürlük güncelle
+    connect(m_layerList, &QListWidget::itemChanged, this,
+        [this](QListWidgetItem* item) {
+            if (!m_document) return;
+            QString layName = item->text();
+            auto& layers = m_document->GetLayersMutable();
+            auto it = layers.find(layName.toStdString());
+            if (it == layers.end()) return;
+            bool visible = (item->checkState() == Qt::Checked);
+            it->second.SetVisible(visible);
+            // Renderer'ı ve overlay'i yenile
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
+                m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+                m_vulkanWindow->GetRenderer()->InvalidateCADData();
+            }
+            RefreshTextOverlay();
+        });
+
+    connect(btnLayerAll, &QPushButton::clicked, this, [this]() {
+        if (!m_document) return;
+        for (auto& [name, layer] : m_document->GetLayersMutable())
+            layer.SetVisible(true);
+        RefreshLayerPanel();
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
+            m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+            m_vulkanWindow->GetRenderer()->InvalidateCADData();
+        }
+        RefreshTextOverlay();
+    });
+
+    connect(btnLayerNone, &QPushButton::clicked, this, [this]() {
+        if (!m_document) return;
+        for (auto& [name, layer] : m_document->GetLayersMutable())
+            layer.SetVisible(false);
+        RefreshLayerPanel();
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
+            m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+            m_vulkanWindow->GetRenderer()->InvalidateCADData();
+        }
+        RefreshTextOverlay();
+    });
 
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
@@ -2938,6 +3009,12 @@ void MainWindow::RefreshTextOverlay() {
         if (ent->GetType() != cad::EntityType::Text &&
             ent->GetType() != cad::EntityType::MText) continue;
 
+        // Layer görünürlük kontrolü
+        {
+            auto layIt = layerMap.find(ent->GetLayerName());
+            if (layIt != layerMap.end() && !layIt->second.IsDrawable()) continue;
+        }
+
         const auto* txt = static_cast<const cad::Text*>(ent.get());
         const std::string& content = txt->GetText();
         if (content.empty()) continue;
@@ -2947,7 +3024,9 @@ void MainWindow::RefreshTextOverlay() {
             sp.y < -200 || sp.y > vp.GetHeight() + 200) continue;
 
         double heightPx = txt->GetHeight() * vp.GetZoom();
-        if (heightPx < 3.0) continue;
+        // Minimum 7px'in altında render etme — ama çok küçük kalınca min boyut uygula
+        if (heightPx < 1.5) continue;
+        if (heightPx < 7.0) heightPx = 7.0;  // minimum okunabilir boy
 
         cad::Color col = ent->GetColor();
         QColor qcol;
@@ -5285,6 +5364,34 @@ void MainWindow::OnBirleskMod() {
         : "Birleşik Mod KAPALI";
     statusBar()->showMessage(msg);
     if (m_logList) m_logList->addItem(msg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Katman Yöneticisi panelini güncelle
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::RefreshLayerPanel() {
+    if (!m_layerList) return;
+    m_layerList->blockSignals(true);
+    m_layerList->clear();
+    if (!m_document) {
+        m_layerList->blockSignals(false);
+        return;
+    }
+    const auto& layers = m_document->GetLayers();
+    std::vector<std::string> names;
+    names.reserve(layers.size());
+    for (const auto& [name, _] : layers) names.push_back(name);
+    std::sort(names.begin(), names.end());
+    for (const auto& name : names) {
+        const cad::Layer& layer = layers.at(name);
+        auto* item = new QListWidgetItem(QString::fromStdString(name));
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(layer.IsVisible() ? Qt::Checked : Qt::Unchecked);
+        cad::Color col = layer.GetColor();
+        item->setForeground(QColor(col.r, col.g, col.b));
+        m_layerList->addItem(item);
+    }
+    m_layerList->blockSignals(false);
 }
 
 } // namespace ui

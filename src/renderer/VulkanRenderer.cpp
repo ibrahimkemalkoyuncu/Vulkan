@@ -1845,6 +1845,15 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
     for (const auto& entity : entities) {
         if (!entity) { skipCount++; continue; }
 
+        // Layer görünürlük kontrolü — kapalı/donmuş katman entity'leri render etme
+        {
+            auto layIt = m_layerMap.find(entity->GetLayerName());
+            if (layIt != m_layerMap.end() && !layIt->second.IsDrawable()) {
+                skipCount++;
+                continue;
+            }
+        }
+
         size_t prevSize = vertices.size();
 
         // Determine color from entity — resolve ByLayer and residual ByBlock

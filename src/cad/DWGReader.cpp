@@ -941,7 +941,29 @@ Entity* DWGReader::ParseText(void* obj_ptr) {
     double height   = (txt->height > 0.0) ? txt->height : 2.5;
     double rotation = txt->rotation * (180.0 / M_PI); // rad → deg
 
-    return new Text(insertPt, std::string(txt->text_value), height, rotation);
+    auto* t = new Text(insertPt, std::string(txt->text_value), height, rotation);
+
+    // DWG TEXT hizalama: horiz_alignment (0=Left,1=Center,2=Right,3=Aligned,4=Middle,5=Fit)
+    //                    vert_alignment  (0=Baseline,1=Bottom,2=Middle,3=Top)
+    int hAlign = static_cast<int>(txt->horiz_alignment);
+    int vAlign = static_cast<int>(txt->vert_alignment);
+    t->SetHAlign(hAlign);
+    t->SetVAlign(vAlign);
+
+    // Hizalamalı text'lerde asıl konum align_pt — insertPt anchor ile değil
+    if (hAlign != 0 || vAlign != 0) {
+        // alignment_pt: dataflags & 2 set ise geçerli (DXF 11)
+        geom::Vec3 alignPt(txt->alignment_pt.x, txt->alignment_pt.y, 0.0);
+        if (alignPt.x != 0.0 || alignPt.y != 0.0)
+            t->SetAlignPoint(alignPt);
+        else {
+            // alignment_pt yoksa hAlign/vAlign'i sıfırla — insertPt'yi kullan
+            t->SetHAlign(0);
+            t->SetVAlign(0);
+        }
+    }
+
+    return t;
 }
 
 // MTEXT format kodlarını temizle: {\fFont;}, \P, {\H2.5;} → düz metin

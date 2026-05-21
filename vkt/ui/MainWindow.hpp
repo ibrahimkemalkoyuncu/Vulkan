@@ -444,6 +444,9 @@ private:
 
     // CAD text entity'lerini SnapOverlay'e aktar
     void RefreshTextOverlay();
+
+    // Layer panelini document'taki layer listesiyle güncelle
+    void RefreshLayerPanel();
 };
 
 } // namespace ui

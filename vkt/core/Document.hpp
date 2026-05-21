@@ -66,6 +66,7 @@ public:
     // Layer yönetimi (DWG'den okunan katman bilgileri)
     void SetLayers(const std::unordered_map<std::string, cad::Layer>& layers) { m_layers = layers; }
     const std::unordered_map<std::string, cad::Layer>& GetLayers() const { return m_layers; }
+    std::unordered_map<std::string, cad::Layer>& GetLayersMutable() { return m_layers; }
 
     // Kat yönetimi
     FloorManager& GetFloorManager() { return m_floorManager; }
