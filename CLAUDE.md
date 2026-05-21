@@ -439,6 +439,10 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Nominal/Hesap Debisi ayrımı** — `Edge.nominalFlow_Ls` yeni alan; `HydraulicSolver::Solve()` DistributeSupplyFlows sonrası LU-bazlı debyi kaydeder; `OnBaskiKaybi()` tablosuna "Q_nom / Q_hes" çift sütun eklendi; DIN norm simultanite farkı mavi renk ile vurgulanıyor
 - **HotSource kW seçimi** — Sofben/Kazan yerleştirmede `QInputDialog` ile kaynak tipi seçimi: Kombi / Elektrikli 6kW / Elektrikli 12kW / Güneş+Depo; node.label'a kısa isim atanıyor
 - **Yağmur Düşme Alanı Poligonu** — `ToolMode::DrawPolyArea` yeni mod; çizimden köşe noktaları tıklanarak poligon çizilir; Enter tuşuyla kapanır; Shoelace alanı (mm² → m²) hesabı; yüzey tipi seçimi → EN 12056-3 yağmur debisi + DN seçimi; Analiz menüsü + `YAGMUR-ALAN`/`POLY-ALAN` komutu; 108/108 test geçiyor
+- **Norm Karşılaştırma (EN 806-3 vs DIN 1988-300)** — `OnNormKarsilastirma()`: iki ayrı Solve() çağrısı (savedNorm ile geri yükleme); DN/Q_nom/Q_hes/v/ΔH her iki norm için yan yana HTML tablosu; sarı=DIN büyük DN, yeşil=DIN küçük DN; özet sayaçlar; Analiz menüsü + `NORM-KARSILASTIR`/`EN-DIN` komutu
+- **Hesap Kararı ("Neden Bu Çap?")** — `OnHesapKarari()`: EN 806-3 Solve() sonrası her Supply/HotWater edge için; DN-1 ve DN+1 alternatif hız simülasyonu (velForDN lambda); gerekçe: hız limiti / ekonomi / min hız / seri sonu; kırmızı=aşım, sarı=ekonomi satırı; QTableWidget; Analiz menüsü + `HESAP-KARARI` komutu
+- **Kritik Devre 3D Vurgulama** — `VulkanRenderer::m_criticalPathEdges` (unordered_set<uint32_t>); `GetEdgeColor()` sonrası orange override {1.0f,0.25f,0.0f}; `VulkanWindow::SetCriticalPathEdges()` passthrough; `RunAutoHydro()` sonunda `CalculateCriticalPath()` → `SetCriticalPathEdges()` çağrısı; Vulkan viewport'ta turuncu kritik devre
+- **Birleşik Yerleştirme Modu** — `m_birleskMod` bool flag; `OnBirleskMod()` toggle + checkable QAction; PlaceFixture 2. tıklamada node eklendikten sonra nearest Fixture bulunur → `m_batchFixtureIds`'e eklenir → `ConnectFixture` moduna otomatik geçiş; status bar bildirir; Analiz menüsü + `BIRLESIK-MOD`/`AUTO-BAGLA` komutu
 
 ### Devam Eden
 

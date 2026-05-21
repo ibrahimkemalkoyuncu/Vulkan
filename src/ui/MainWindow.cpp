@@ -333,6 +333,19 @@ void MainWindow::CreateActions() {
     m_actYagmurAlani->setToolTip("Çizimden poligon seçip yağmur suyu debi hesabı");
     connect(m_actYagmurAlani, &QAction::triggered, this, &MainWindow::OnYagmurAlani);
 
+    m_actNormKarsilastirma = new QAction("Norm Karşılaştırma (EN vs DIN)...", this);
+    m_actNormKarsilastirma->setToolTip("EN 806-3 ve DIN 1988-300 hesap sonuçlarını yan yana karşılaştır");
+    connect(m_actNormKarsilastirma, &QAction::triggered, this, &MainWindow::OnNormKarsilastirma);
+
+    m_actHesapKarari = new QAction("Hesap Kararı (Neden Bu Çap?)...", this);
+    m_actHesapKarari->setToolTip("Her boru için çap seçim gerekçesini göster");
+    connect(m_actHesapKarari, &QAction::triggered, this, &MainWindow::OnHesapKarari);
+
+    m_actBirleskMod = new QAction("Birleşik Yerleştirme Modu", this);
+    m_actBirleskMod->setCheckable(true);
+    m_actBirleskMod->setToolTip("Armatür yerleştirince otomatik boru hattına bağla (BAGLA modu)");
+    connect(m_actBirleskMod, &QAction::triggered, this, &MainWindow::OnBirleskMod);
+
     m_actSelect = new QAction("Sec", this);
     connect(m_actSelect, &QAction::triggered, this, &MainWindow::OnSelectMode);
 
@@ -473,6 +486,10 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenlesimTanki);
     analyzeMenu->addAction(m_actYagmurAlani);
+    analyzeMenu->addSeparator();
+    analyzeMenu->addAction(m_actNormKarsilastirma);
+    analyzeMenu->addAction(m_actHesapKarari);
+    analyzeMenu->addAction(m_actBirleskMod);
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
@@ -1213,6 +1230,15 @@ void MainWindow::RunAutoHydro() {
         RefreshTextOverlay();
         statusBar()->showMessage(
             QString("⚡ Otomatik DN: %1 boru güncellendi (EN 806-3)").arg(updated), 3000);
+    }
+
+    // Kritik devre edge'lerini renderer'a bildir → turuncu-kırmızı vurgulama
+    if (m_vulkanWindow) {
+        mep::HydraulicSolver critSolver(network);
+        critSolver.Solve();
+        auto critResult = critSolver.CalculateCriticalPath();
+        m_vulkanWindow->SetCriticalPathEdges(critResult.criticalPath);
+        m_vulkanWindow->requestUpdate();
     }
 }
 
@@ -2089,11 +2115,31 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             m_document->ExecuteCommand(std::move(cmd));
             m_document->SetModified(true);
             if (m_snapOverlay) m_snapOverlay->ClearRubberBand();
-            m_drawState = DrawState::WaitingFirstPoint; // mod devam et
             UpdateUI();
             ScheduleAutoHydro();
             statusBar()->showMessage(QString("Armatür eklendi: %1 (yön: %2°)")
                 .arg(m_selectedFixtureType).arg(angle_deg, 0, 'f', 1));
+            // Birleşik Mod: anında ConnectFixture moduna geç
+            if (m_birleskMod) {
+                uint32_t newId = 0;
+                double bestD2 = 1e18;
+                for (const auto& [nid, nd] : network.GetNodeMap()) {
+                    if (nd.type != mep::NodeType::Fixture) continue;
+                    double dx = nd.position.x - m_firstClickPos.x;
+                    double dy = nd.position.y - m_firstClickPos.y;
+                    double d2 = dx*dx + dy*dy;
+                    if (d2 < bestD2) { bestD2 = d2; newId = nid; }
+                }
+                if (newId) {
+                    m_batchFixtureIds.clear();
+                    m_batchFixtureIds.push_back(newId);
+                    m_currentToolMode = ToolMode::ConnectFixture;
+                    m_drawState = DrawState::WaitingFirstPoint;
+                    statusBar()->showMessage(QString("Birleşik Mod: Boru hattını tıklayın → armatür otomatik bağlanır"));
+                    break;
+                }
+            }
+            m_drawState = DrawState::WaitingFirstPoint;
         }
         break;
     }
@@ -2525,7 +2571,7 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
-            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA  GENLESIM  YAGMUR-ALAN");
+            m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA  GENLESIM  YAGMUR-ALAN  NORM-KARSILASTIR  HESAP-KARARI  BIRLESIK-MOD");
             m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
@@ -2566,6 +2612,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnGenlesimTanki();
     } else if (c == "YAGMUR-ALAN" || c == "ALAN-CIZIM" || c == "POLY-ALAN") {
         OnYagmurAlani();
+    } else if (c == "NORM-KARSILASTIR" || c == "KARSILASTIR" || c == "EN-DIN") {
+        OnNormKarsilastirma();
+    } else if (c == "HESAP-KARARI" || c == "NEDEN-CAP" || c == "CAP-KARAR") {
+        OnHesapKarari();
+    } else if (c == "BIRLESIK-MOD" || c == "BIRLESIK" || c == "AUTO-BAGLA") {
+        OnBirleskMod();
     } else if (c == "HIZALAMA" || c == "FLOOR-ALIGN" || c == "3D-KONTROL") {
         OnFloorAlignment();
     } else if (c == "KOLON" || c == "COLUMN" || c == "DIKEY-BORU") {
@@ -4743,6 +4795,266 @@ void MainWindow::FinishPolyArea() {
             .arg(area_m2,0,'f',1).arg(Q_ls,0,'f',2).arg((int)numPipes).arg((int)dnPerPipe));
     statusBar()->showMessage(QString("Yağmur alanı: %1 m² → Q=%2 l/s")
         .arg(area_m2,0,'f',2).arg(Q_ls,0,'f',2));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Norm Karşılaştırma — EN 806-3 ile DIN 1988-300 yan yana
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::OnNormKarsilastirma() {
+    auto* doc = m_document;
+    if (!doc) { QMessageBox::information(this, "Norm Karşılaştırma", "Açık proje yok."); return; }
+    auto& network = doc->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Norm Karşılaştırma", "Ağda boru bulunamadı.");
+        return;
+    }
+
+    // EN 806-3 hesabı
+    mep::HydroNorm savedNorm = mep::HydraulicSolver::GlobalNorm();
+    mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
+    mep::HydraulicSolver solverEN(network);
+    solverEN.SetNorm(mep::HydroNorm::EN806_3);
+    solverEN.Solve();
+
+    struct EdgeResult {
+        uint32_t id;
+        double dn_en, q_nom_en, q_hes_en, v_en, dh_en;
+        double dn_din, q_nom_din, q_hes_din, v_din, dh_din;
+    };
+    std::vector<EdgeResult> rows;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type != mep::EdgeType::Supply && edge.type != mep::EdgeType::HotWater) continue;
+        EdgeResult r;
+        r.id      = eid;
+        r.dn_en   = edge.diameter_mm;
+        r.q_nom_en = edge.nominalFlow_Ls;
+        r.q_hes_en = edge.flowRate_m3s * 1000.0;
+        r.v_en    = edge.velocity_ms;
+        r.dh_en   = edge.headLoss_m;
+        rows.push_back(r);
+    }
+
+    // DIN 1988-300 hesabı — aynı ağ üzerinde (field'ları geçici yazar)
+    mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
+    mep::HydraulicSolver solverDIN(network);
+    solverDIN.SetNorm(mep::HydroNorm::DIN1988);
+    solverDIN.Solve();
+
+    for (auto& r : rows) {
+        auto it = network.GetEdgeMap().find(r.id);
+        if (it == network.GetEdgeMap().end()) continue;
+        const auto& e = it->second;
+        r.dn_din   = e.diameter_mm;
+        r.q_nom_din = e.nominalFlow_Ls;
+        r.q_hes_din = e.flowRate_m3s * 1000.0;
+        r.v_din    = e.velocity_ms;
+        r.dh_din   = e.headLoss_m;
+    }
+
+    // Aktif normu geri yükle
+    mep::HydraulicSolver::GlobalNorm() = savedNorm;
+
+    // HTML tablo oluştur
+    QString html;
+    html += "<h3>Norm Karşılaştırma — EN 806-3 vs DIN 1988-300</h3>";
+    html += "<table border='1' cellspacing='0' cellpadding='4'>";
+    html += "<tr style='background:#ddeeff'>"
+            "<th>Boru ID</th>"
+            "<th colspan='4'>EN 806-3</th>"
+            "<th colspan='4'>DIN 1988-300</th>"
+            "<th>DN Fark</th></tr>";
+    html += "<tr style='background:#eef4ff'>"
+            "<th></th>"
+            "<th>DN</th><th>Q_nom (l/s)</th><th>Q_hes (l/s)</th><th>v (m/s)</th><th>ΔH (m)</th>"
+            "<th>DN</th><th>Q_nom (l/s)</th><th>Q_hes (l/s)</th><th>v (m/s)</th><th>ΔH (m)</th>"
+            "<th></th></tr>";
+
+    int upCount = 0, downCount = 0, sameCount = 0;
+    for (const auto& r : rows) {
+        bool bigger  = r.dn_din > r.dn_en;
+        bool smaller = r.dn_din < r.dn_en;
+        if (bigger) ++upCount; else if (smaller) ++downCount; else ++sameCount;
+        QString rowColor = bigger ? "#fff8e1" : (smaller ? "#e8f5e9" : "white");
+        QString diffStr  = bigger ? QString("+%1mm").arg(r.dn_din - r.dn_en, 0, 'f', 0)
+                         : smaller ? QString("-%1mm").arg(r.dn_en - r.dn_din, 0, 'f', 0)
+                         : "=";
+        html += QString("<tr style='background:%1'>"
+                        "<td>%2</td>"
+                        "<td>DN%3</td><td>%4</td><td>%5</td><td>%6</td><td>%7</td>"
+                        "<td>DN%8</td><td>%9</td><td>%10</td><td>%11</td><td>%12</td>"
+                        "<td><b>%13</b></td></tr>")
+            .arg(rowColor)
+            .arg(r.id)
+            .arg(r.dn_en, 0, 'f', 0)
+            .arg(r.q_nom_en, 0, 'f', 3)
+            .arg(r.q_hes_en, 0, 'f', 3)
+            .arg(r.v_en, 0, 'f', 2)
+            .arg(r.dh_en, 0, 'f', 3)
+            .arg(r.dn_din, 0, 'f', 0)
+            .arg(r.q_nom_din, 0, 'f', 3)
+            .arg(r.q_hes_din, 0, 'f', 3)
+            .arg(r.v_din, 0, 'f', 2)
+            .arg(r.dh_din, 0, 'f', 3)
+            .arg(diffStr);
+    }
+    html += "</table>";
+    html += QString("<br><b>Özet:</b> DIN vs EN — Büyük çap: <font color='orange'>%1</font> boru | "
+                    "Küçük çap: <font color='green'>%2</font> boru | "
+                    "Aynı: %3 boru").arg(upCount).arg(downCount).arg(sameCount);
+    html += "<br><small>Sarı satır: DIN daha büyük DN seçti | Yeşil satır: DIN daha küçük DN seçti</small>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Norm Karşılaştırma — EN 806-3 vs DIN 1988-300");
+    dlg.resize(960, 560);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* tb  = new QTextBrowser(&dlg);
+    tb->setHtml(html);
+    lay->addWidget(tb);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    lay->addWidget(btn);
+    dlg.exec();
+
+    if (m_logList)
+        m_logList->addItem(QString("Norm karş.: %1 boru — DIN büyük:%2 küçük:%3 aynı:%4")
+            .arg(rows.size()).arg(upCount).arg(downCount).arg(sameCount));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Hesap Kararı — "Neden bu çap?" per-pipe gerekçe
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::OnHesapKarari() {
+    auto* doc = m_document;
+    if (!doc) { QMessageBox::information(this, "Hesap Kararı", "Açık proje yok."); return; }
+    auto& network = doc->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Hesap Kararı", "Ağda boru bulunamadı.");
+        return;
+    }
+
+    // Güncel hesabı çalıştır
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+
+    // DN serisi (mm)
+    static const double kDNSeries[] = {10,15,20,25,32,40,50,65,80,100,125,150,200,0};
+    auto nextDN = [](double dn) -> double {
+        for (int i = 0; kDNSeries[i] > 0; ++i)
+            if (kDNSeries[i] > dn) return kDNSeries[i];
+        return dn;
+    };
+    auto prevDN = [](double dn) -> double {
+        double prev = 0;
+        for (int i = 0; kDNSeries[i] > 0; ++i) {
+            if (kDNSeries[i] >= dn) return (prev > 0 ? prev : dn);
+            prev = kDNSeries[i];
+        }
+        return dn;
+    };
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Hesap Kararı — Neden Bu Çap?");
+    dlg.resize(820, 480);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* table = new QTableWidget(&dlg);
+    table->setColumnCount(7);
+    table->setHorizontalHeaderLabels({
+        "Boru ID", "DN (mm)", "Q (l/s)", "v (m/s)",
+        "DN-1 → v", "DN+1 → v", "Gerekçe"
+    });
+    table->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Stretch);
+
+    const double V_MAX = 3.0;  // EN 806-3 max hız m/s
+    const double V_MIN = 0.5;  // minimum akış hızı m/s
+
+    int row = 0;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type != mep::EdgeType::Supply && edge.type != mep::EdgeType::HotWater) continue;
+        table->insertRow(row);
+
+        double q_m3s = edge.flowRate_m3s;
+        double dn    = edge.diameter_mm;
+        double v_cur = edge.velocity_ms;
+
+        // Hız hesabı için yardımcı lambda
+        auto velForDN = [&](double d_mm) -> double {
+            if (d_mm <= 0) return 0;
+            double r = d_mm / 2000.0;
+            double area = 3.14159265 * r * r;
+            return area > 0 ? q_m3s / area : 0;
+        };
+
+        double dn_prev = prevDN(dn);
+        double dn_next = nextDN(dn);
+        double v_prev  = (dn_prev != dn) ? velForDN(dn_prev) : -1.0;
+        double v_next  = (dn_next != dn) ? velForDN(dn_next) : -1.0;
+
+        // Gerekçe belirle
+        QString reason;
+        if (v_prev > 0 && v_prev <= V_MAX && v_prev >= V_MIN)
+            reason = "Bir küçük DN hız limiti içinde → Ekonomi";
+        else if (v_cur > V_MAX)
+            reason = "Mevcut hız max sınırı aşıyor!";
+        else if (v_next > 0 && v_next < V_MIN)
+            reason = "Bir büyük DN min hızı sağlamıyor";
+        else if (dn_prev == dn)
+            reason = "Serinin en küçük boyutu";
+        else
+            reason = "EN 806-3: hız + basınç dengesi";
+
+        auto makeItem = [](const QString& txt, Qt::AlignmentFlag align = Qt::AlignHCenter) {
+            auto* it = new QTableWidgetItem(txt);
+            it->setTextAlignment(align | Qt::AlignVCenter);
+            it->setFlags(it->flags() & ~Qt::ItemIsEditable);
+            return it;
+        };
+
+        table->setItem(row, 0, makeItem(QString::number(eid)));
+        table->setItem(row, 1, makeItem(QString("DN%1").arg(dn, 0, 'f', 0)));
+        table->setItem(row, 2, makeItem(QString("%1").arg(q_m3s * 1000.0, 0, 'f', 3)));
+        table->setItem(row, 3, makeItem(QString("%1").arg(v_cur, 0, 'f', 2)));
+
+        QString prevStr = (dn_prev != dn && v_prev >= 0)
+            ? QString("DN%1→%2 m/s").arg(dn_prev, 0, 'f', 0).arg(v_prev, 0, 'f', 2)
+            : "—";
+        QString nextStr = (dn_next != dn && v_next >= 0)
+            ? QString("DN%1→%2 m/s").arg(dn_next, 0, 'f', 0).arg(v_next, 0, 'f', 2)
+            : "—";
+
+        table->setItem(row, 4, makeItem(prevStr));
+        table->setItem(row, 5, makeItem(nextStr));
+        auto* reasonItem = makeItem(reason, Qt::AlignLeft);
+        if (v_cur > V_MAX)
+            reasonItem->setBackground(QColor(255, 200, 200));
+        else if (reason.contains("Ekonomi"))
+            reasonItem->setBackground(QColor(255, 255, 180));
+        table->setItem(row, 6, reasonItem);
+
+        ++row;
+    }
+
+    lay->addWidget(table);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    lay->addWidget(btn);
+    dlg.exec();
+
+    if (m_logList)
+        m_logList->addItem(QString("Hesap kararı: %1 boru için gerekçe gösterildi").arg(row));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Birleşik Yerleştirme Modu toggle
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::OnBirleskMod() {
+    m_birleskMod = !m_birleskMod;
+    if (m_actBirleskMod)
+        m_actBirleskMod->setChecked(m_birleskMod);
+    QString msg = m_birleskMod
+        ? "Birleşik Mod AÇIK — Armatür yerleştirince otomatik boru hattına bağlanır"
+        : "Birleşik Mod KAPALI";
+    statusBar()->showMessage(msg);
+    if (m_logList) m_logList->addItem(msg);
 }
 
 } // namespace ui

@@ -49,6 +49,11 @@ public:
         m_renderer.SetLayerVisibility(showTemizSu, showSicakSu, showPisSu);
     }
 
+    /// Kritik devre vurgulama — edge ID listesini renderer'a ilet
+    void SetCriticalPathEdges(const std::vector<uint32_t>& ids) {
+        m_renderer.SetCriticalPathEdges(ids);
+    }
+
     /// CAD entity referansı (arka plan çizimi)
     void SetCADEntities(const std::vector<std::unique_ptr<cad::Entity>>* entities) {
         m_cadEntities = entities;

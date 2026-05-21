@@ -34,6 +34,7 @@
 #include "mep/NetworkGraph.hpp"
 #include "render/Gizmo.hpp"
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 
 namespace vkt {
@@ -166,6 +167,12 @@ public:
         m_showTemizSu = showTemizSu;
         m_showSicakSu = showSicakSu;
         m_showPisSu   = showPisSu;
+    }
+
+    /** Kritik devre vurgulama — verilen edge ID'leri turuncu/kırmızı render edilir */
+    void SetCriticalPathEdges(const std::vector<uint32_t>& ids) {
+        m_criticalPathEdges.clear();
+        for (uint32_t id : ids) m_criticalPathEdges.insert(id);
     }
 
     // ── GPU Clash Detection ───────────────────────────────────────────────────
@@ -306,6 +313,9 @@ private:
     bool m_showTemizSu = true;
     bool m_showSicakSu = true;
     bool m_showPisSu   = true;
+
+    // Kritik devre vurgulama: bu edge ID'leri farklı renkte çizilir
+    std::unordered_set<uint32_t> m_criticalPathEdges;
 
     // ── SSAO ─────────────────────────────────────────────────────────────────
     struct SSAOImage {

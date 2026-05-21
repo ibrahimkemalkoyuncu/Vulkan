@@ -1531,6 +1531,9 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
 
         const bool isCol = network.IsColumnEdge(edge.id);
         auto color = GetEdgeColor(edge.type, isCol);
+        // Kritik devre override: turuncu-kırmızı
+        if (m_criticalPathEdges.count(edge.id))
+            color = {1.0f, 0.25f, 0.0f};
 
         geom::Vertex v1{}, v2{};
         v1.pos[0] = static_cast<float>(nodeA->position.x);

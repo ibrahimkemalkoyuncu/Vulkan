@@ -216,12 +216,21 @@ private slots:
     // Pis Su Pompası boyutlandırma
     void OnPisSuPompasi();
 
+    // Norm karşılaştırma yan yana (EN 806-3 vs DIN 1988-300)
+    void OnNormKarsilastirma();
+
+    // Hesap kararı görünürlüğü — her boru için neden bu DN seçildi
+    void OnHesapKarari();
+
     // Membranlı Genleşme Tankı boyutlandırma (EN 12828)
     void OnGenlesimTanki();
 
     // Yağmur Düşme Alanı — çizimden poligon seçimi
     void OnYagmurAlani();
     void FinishPolyArea();   ///< Enter tuşuyla polygon kapatıp alan+yağmur hesabı
+
+    // Birleşik Yerleştirme Modu — PlaceFixture bitince otomatik BAGLA moduna gir
+    void OnBirleskMod();
 
     // Komut satırı
     void OnCommandEntered(const QString& cmd);
@@ -337,6 +346,8 @@ private:
     QAction* m_actExportFloorDXF     = nullptr;
     QAction* m_actGenlesimTanki      = nullptr;
     QAction* m_actYagmurAlani        = nullptr;
+    QAction* m_actNormKarsilastirma  = nullptr;
+    QAction* m_actHesapKarari        = nullptr;
     QAction* m_actSelect = nullptr;
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
@@ -414,6 +425,10 @@ private:
 
     // Yağmur düşme alanı poligon çizim noktaları (DrawPolyArea modu)
     std::vector<geom::Vec3> m_polyAreaPoints;
+
+    // Birleşik yerleştirme modu — fixture sonrası oto-BAGLA
+    bool m_birleskMod = false;
+    QAction* m_actBirleskMod = nullptr;
 
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
