@@ -175,6 +175,15 @@ public:
         for (uint32_t id : ids) m_criticalPathEdges.insert(id);
     }
 
+    /** Seçili CAD entity ID — vertex buffer'da sarı highlight ile çizilir */
+    void SetHighlightCADEntityId(cad::EntityId id) {
+        if (m_highlightCADEntityId != id) {
+            m_highlightCADEntityId = id;
+            m_cadDirty = true;
+        }
+    }
+    cad::EntityId GetHighlightCADEntityId() const { return m_highlightCADEntityId; }
+
     // ── GPU Clash Detection ───────────────────────────────────────────────────
 
     struct GpuPipe {
@@ -316,6 +325,9 @@ private:
 
     // Kritik devre vurgulama: bu edge ID'leri farklı renkte çizilir
     std::unordered_set<uint32_t> m_criticalPathEdges;
+
+    // CAD entity seçim vurgulaması: bu ID sarı renkte çizilir
+    cad::EntityId m_highlightCADEntityId = 0;
 
     // ── SSAO ─────────────────────────────────────────────────────────────────
     struct SSAOImage {

@@ -1871,6 +1871,11 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
             b = col.b / 255.0f;
         }
 
+        // Seçili entity sarı highlight — rengi override et
+        if (m_highlightCADEntityId != 0 && entity->GetId() == m_highlightCADEntityId) {
+            r = 1.0f; g = 0.95f; b = 0.0f;
+        }
+
         auto addVertex = [&](double x, double y, double z = 0.0) {
             geom::Vertex v{};
             v.pos[0] = static_cast<float>(x);

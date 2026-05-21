@@ -1246,6 +1246,54 @@ void MainWindow::RunAutoHydro() {
 //  ESC — ÇİZİM MODU İPTAL
 // ============================================================
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    // F11 — tam ekran toggle (AutoCAD Ctrl+0 benzeri)
+    if (event->key() == Qt::Key_F11) {
+        m_isFullScreen = !m_isFullScreen;
+        if (m_isFullScreen)
+            showFullScreen();
+        else
+            showNormal();
+        event->accept();
+        return;
+    }
+
+    // Delete — seçili CAD entity veya MEP node sil
+    if (event->key() == Qt::Key_Delete && m_document) {
+        if (m_selectedCADEntityId != 0) {
+            auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+                m_document->GetCADEntities());
+            auto it = std::find_if(entities.begin(), entities.end(),
+                [this](const std::unique_ptr<cad::Entity>& e) {
+                    return e && e->GetId() == m_selectedCADEntityId;
+                });
+            if (it != entities.end()) {
+                entities.erase(it);
+                m_selectedCADEntityId = 0;
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                m_vulkanWindow->GetRenderer()->InvalidateCADData();
+                m_document->SetModified(true);
+                RefreshTextOverlay();
+                UpdateUI();
+                statusBar()->showMessage("CAD entity silindi");
+            }
+            event->accept();
+            return;
+        }
+        if (m_selectedNodeId != 0) {
+            auto& network = m_document->GetNetwork();
+            auto cmd = std::make_unique<core::DeleteNodeCommand>(network, m_selectedNodeId);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            m_selectedNodeId = 0;
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage("Node silindi");
+            event->accept();
+            return;
+        }
+    }
+
     if (event->key() == Qt::Key_Escape) {
         if (m_currentToolMode == ToolMode::DrawPolyArea) {
             m_polyAreaPoints.clear();
@@ -1258,6 +1306,12 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             if (m_snapOverlay) m_snapOverlay->ClearRubberBand();
             if (m_snapOverlay) m_snapOverlay->Hide();
             statusBar()->showMessage("Çizim iptal edildi — Seçim modu");
+        }
+        // ESC seçimi de temizler
+        if (m_selectedCADEntityId != 0) {
+            m_selectedCADEntityId = 0;
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
         }
         event->accept();
         return;
@@ -1976,8 +2030,114 @@ void MainWindow::OnSlopeChanged(const QString& text) {
 // MOUSE EVENT HANDLERS (Cizim Araclari - Adim 6)
 // ============================================================
 
+// ── CAD entity yakın noktası (pick aperture) ──────────────────────────────────
+static double DistToCADEntity(double wx, double wy,
+                               const cad::Entity* ent) {
+    if (!ent) return 1e18;
+    auto bb = ent->GetBounds();
+    auto ctr = bb.GetCenter();
+    // Line'larda merkez yerine bbox merkezi iyi yeterli (tolerance geniş tutulur)
+    double dx = wx - ctr.x, dy = wy - ctr.y;
+    return std::sqrt(dx*dx + dy*dy);
+}
+
 void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton button) {
-    if (button != Qt::LeftButton || !m_document) return;
+    if (!m_document) return;
+
+    // ── Sağ tık context menüsü ────────────────────────────────────────────────
+    if (button == Qt::RightButton) {
+        QMenu ctxMenu(this);
+
+        if (m_currentToolMode != ToolMode::Select) {
+            // Çizim modundayken: iptal seçeneği
+            ctxMenu.addAction(QIcon::fromTheme("process-stop"), "Çizimi İptal Et (ESC)", this, [this]() {
+                m_currentToolMode = ToolMode::Select;
+                m_drawState = DrawState::Idle;
+                m_firstNodeInGraph = false;
+                m_polyAreaPoints.clear();
+                if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+                statusBar()->showMessage("Çizim iptal edildi — Seçim modu");
+            });
+            ctxMenu.exec(QCursor::pos());
+            return;
+        }
+
+        // Seçim modundayken: yakın MEP node veya CAD entity kontekst menüsü
+        auto& network = m_document->GetNetwork();
+        const double nodePickR = 3000.0; // 3m world birim (zoom'a göre)
+
+        // En yakın MEP node'unu bul
+        uint32_t nearNodeId = 0;
+        double nearDist = nodePickR;
+        for (const auto& [nid, nd] : network.GetNodeMap()) {
+            double dx = nd.position.x - worldX, dy = nd.position.y - worldY;
+            double d = std::sqrt(dx*dx + dy*dy);
+            if (d < nearDist) { nearDist = d; nearNodeId = nid; }
+        }
+
+        if (nearNodeId != 0) {
+            const mep::Node& nd = *network.GetNode(nearNodeId);
+            ctxMenu.setTitle(QString("Node #%1").arg(nearNodeId));
+            ctxMenu.addAction(QString("Özellikler: %1 — %2")
+                .arg(QString::fromStdString(nd.fixtureType.empty() ? nd.label : nd.fixtureType))
+                .arg(nearNodeId))->setEnabled(false);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Node Sil", this, [this, nearNodeId]() {
+                auto& net = m_document->GetNetwork();
+                auto cmd = std::make_unique<core::DeleteNodeCommand>(net, nearNodeId);
+                m_document->ExecuteCommand(std::move(cmd));
+                m_document->SetModified(true);
+                m_selectedNodeId = 0;
+                UpdateUI();
+                ScheduleAutoHydro();
+                statusBar()->showMessage(QString("Node #%1 silindi").arg(nearNodeId));
+            });
+            ctxMenu.addAction("Seçim Temizle", this, [this]() {
+                m_selectedNodeId = 0;
+                m_selectedEdgeId = 0;
+            });
+        } else if (m_selectedCADEntityId != 0) {
+            ctxMenu.addAction(QString("Seçili CAD entity #%1").arg(m_selectedCADEntityId))->setEnabled(false);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("CAD Entity Sil (Delete)", this, [this]() {
+                auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+                    m_document->GetCADEntities());
+                auto it = std::find_if(entities.begin(), entities.end(),
+                    [this](const std::unique_ptr<cad::Entity>& e) {
+                        return e && e->GetId() == m_selectedCADEntityId;
+                    });
+                if (it != entities.end()) {
+                    entities.erase(it);
+                    m_selectedCADEntityId = 0;
+                    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                        m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                    m_vulkanWindow->GetRenderer()->InvalidateCADData();
+                    m_document->SetModified(true);
+                    RefreshTextOverlay();
+                    UpdateUI();
+                }
+            });
+            ctxMenu.addAction("Seçimi Kaldır (ESC)", this, [this]() {
+                m_selectedCADEntityId = 0;
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+            });
+        } else {
+            // Boş alan — genel menü
+            ctxMenu.addAction("Zoom Extents (Tümünü Göster)", this, &MainWindow::OnZoomExtents);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Seçim Modu", this, &MainWindow::OnSelectMode);
+            ctxMenu.addAction("Boru Çiz", this, &MainWindow::OnDrawPipe);
+            ctxMenu.addAction("Pis Su Borusu", this, &MainWindow::OnDrawDrainPipe);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Geri Al (Ctrl+Z)", this, &MainWindow::OnUndo);
+            ctxMenu.addAction("Yinele (Ctrl+Y)", this, &MainWindow::OnRedo);
+        }
+        ctxMenu.exec(QCursor::pos());
+        return;
+    }
+
+    if (button != Qt::LeftButton) return;
 
     // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
     if (m_measureMode) {
@@ -2396,12 +2556,52 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                 .arg(edge ? edge->diameter_mm : 0.0, 0, 'f', 1)
                 .arg(edge ? QString::fromStdString(edge->material) : ""));
         } else {
+            // MEP hiç seçilmedi — CAD entity pick dene
             m_selectedNodeId = 0;
             m_selectedEdgeId = 0;
             if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
             if (m_fixturePanel) m_fixturePanel->Clear();
-            statusBar()->showMessage(QString("Konum: x=%1, y=%2")
-                .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+
+            // CAD entity en yakınını bul (1m = 1000mm aperture)
+            const double CAD_APERTURE_MM = 1000.0;
+            cad::EntityId pickedId = 0;
+            double pickedDist = CAD_APERTURE_MM;
+            for (const auto& ent : m_document->GetCADEntities()) {
+                if (!ent) continue;
+                double d = DistToCADEntity(worldX, worldY, ent.get());
+                if (d < pickedDist) {
+                    pickedDist = d;
+                    pickedId = ent->GetId();
+                }
+            }
+
+            if (pickedId != 0) {
+                m_selectedCADEntityId = pickedId;
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(pickedId);
+                // Drag başlat
+                auto it = std::find_if(m_document->GetCADEntities().begin(),
+                                       m_document->GetCADEntities().end(),
+                    [pickedId](const std::unique_ptr<cad::Entity>& e) {
+                        return e && e->GetId() == pickedId;
+                    });
+                if (it != m_document->GetCADEntities().end()) {
+                    auto bb = (*it)->GetBounds();
+                    m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
+                    m_cadDragEntityOrigin = bb.GetCenter();
+                    m_draggingCADEntity = true;
+                }
+                statusBar()->showMessage(QString("CAD entity seçildi: #%1 — Sürükle veya Delete ile sil")
+                    .arg(pickedId));
+            } else {
+                // Hiç seçim yok
+                m_selectedCADEntityId = 0;
+                m_draggingCADEntity = false;
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                statusBar()->showMessage(QString("Konum: x=%1, y=%2")
+                    .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+            }
         }
         break;
     }
@@ -2417,7 +2617,20 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
 } // HandleMousePress
 
 void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButton btn) {
-    if (btn != Qt::LeftButton || !m_draggingNode || !m_document) return;
+    if (btn != Qt::LeftButton || !m_document) return;
+
+    // CAD entity drag bırakma
+    if (m_draggingCADEntity) {
+        m_draggingCADEntity = false;
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->InvalidateCADData();
+        m_document->SetModified(true);
+        RefreshTextOverlay();
+        statusBar()->showMessage(QString("CAD entity #%1 taşındı").arg(m_selectedCADEntityId), 2000);
+        return;
+    }
+
+    if (!m_draggingNode) return;
     m_draggingNode = false;
 
     auto& network = m_document->GetNetwork();
@@ -2444,6 +2657,23 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
 }
 
 void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    // CAD entity drag
+    if (m_draggingCADEntity && m_document && m_selectedCADEntityId != 0) {
+        double ddx = worldX - m_cadDragAnchor.x;
+        double ddy = worldY - m_cadDragAnchor.y;
+        // Entity'yi bul ve taşı (delta uygula)
+        for (const auto& ent : m_document->GetCADEntities()) {
+            if (!ent || ent->GetId() != m_selectedCADEntityId) continue;
+            ent->Move(geom::Vec3(ddx, ddy, 0));
+            break;
+        }
+        m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->InvalidateCADData();
+        RefreshTextOverlay();
+        return;
+    }
+
     // MEP node drag
     if (m_draggingNode && m_document && m_currentToolMode == ToolMode::Select) {
         auto& network = m_document->GetNetwork();

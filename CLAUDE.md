@@ -443,6 +443,9 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Hesap Kararı ("Neden Bu Çap?")** — `OnHesapKarari()`: EN 806-3 Solve() sonrası her Supply/HotWater edge için; DN-1 ve DN+1 alternatif hız simülasyonu (velForDN lambda); gerekçe: hız limiti / ekonomi / min hız / seri sonu; kırmızı=aşım, sarı=ekonomi satırı; QTableWidget; Analiz menüsü + `HESAP-KARARI` komutu
 - **Kritik Devre 3D Vurgulama** — `VulkanRenderer::m_criticalPathEdges` (unordered_set<uint32_t>); `GetEdgeColor()` sonrası orange override {1.0f,0.25f,0.0f}; `VulkanWindow::SetCriticalPathEdges()` passthrough; `RunAutoHydro()` sonunda `CalculateCriticalPath()` → `SetCriticalPathEdges()` çağrısı; Vulkan viewport'ta turuncu kritik devre
 - **Birleşik Yerleştirme Modu** — `m_birleskMod` bool flag; `OnBirleskMod()` toggle + checkable QAction; PlaceFixture 2. tıklamada node eklendikten sonra nearest Fixture bulunur → `m_batchFixtureIds`'e eklenir → `ConnectFixture` moduna otomatik geçiş; status bar bildirir; Analiz menüsü + `BIRLESIK-MOD`/`AUTO-BAGLA` komutu
+- **F11 Tam Ekran** — `keyPressEvent` Qt::Key_F11 handler; `m_isFullScreen` toggle; `showFullScreen()` / `showNormal()` geçişi; AutoCAD Ctrl+0 benzeri kullanım
+- **Sağ Tık Context Menüsü** — `HandleMousePress` RightButton dalı; çizim modunda "İptal Et"; MEP node seçiliyse "Node Sil + Özellikler"; CAD entity seçiliyse "Entity Sil + Seçimi Kaldır"; boş alanda "Zoom Extents / Boru Çiz / Geri Al / Yinele"; `QMenu::exec(QCursor::pos())` ile gösterim
+- **CAD Entity Seçimi ve Sürükleme** — Select modunda sol tık; MEP miss sonrası `DistToCADEntity()` ile en yakın CAD entity pick (1m aperture); `m_selectedCADEntityId` kayıt; `VulkanRenderer::SetHighlightCADEntityId()` → sarı highlight + `m_cadDirty=true`; sürükle → `Move(delta)` + `InvalidateCADData()` gerçek zamanlı; mouse release'de `SetModified`; Delete tuşu ile entity silme; ESC seçimi temizler
 
 ### Devam Eden
 

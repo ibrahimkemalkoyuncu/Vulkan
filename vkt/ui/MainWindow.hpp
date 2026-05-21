@@ -410,6 +410,13 @@ private:
     uint32_t m_dragNodeId     = 0;
     geom::Vec3 m_dragStartPos;        // Drag öncesi node pozisyonu (undo için)
 
+    // CAD entity seçimi ve sürükleme (Select modu)
+    cad::EntityId m_selectedCADEntityId = 0;   // 0 = seçim yok
+    bool          m_draggingCADEntity   = false;
+    geom::Vec3    m_cadDragAnchor;             // Fare world konumu drag başında
+    geom::Vec3    m_cadDragEntityOrigin;       // Entity BBox merkezi drag başında
+    bool          m_isFullScreen        = false;
+
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;
 
