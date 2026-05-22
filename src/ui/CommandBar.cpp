@@ -17,24 +17,55 @@ namespace vkt {
 namespace ui {
 
 const QStringList CommandBar::s_builtinCommands = {
-    // Çizim
-    "LINE", "POLYLINE", "CIRCLE", "ARC", "TEXT",
-    // MEP
-    "PIPE", "FIXTURE", "JUNCTION", "SOURCE", "DRAIN",
-    "VALVE", "PUMP", "METER",
-    // Düzenleme
-    "MOVE", "COPY", "DELETE", "ROTATE", "SCALE", "MIRROR",
-    "TRIM", "EXTEND", "OFFSET",
-    // Görünüm
-    "ZOOM", "ZOOM-EXTENTS", "ZOOM-IN", "ZOOM-OUT",
-    "PAN", "VIEW-PLAN", "VIEW-ISO",
+    // Çizim — temiz su
+    "PIPE", "SICAK-SU", "HOT-WATER", "HOT-PIPE",
+    // Çizim — pis su
+    "PIS-SU", "YER-SUZGECI", "ROGAR", "DRAIN-PIPE",
+    // MEP elemanlar
+    "FIXTURE", "JUNCTION", "SOURCE", "DRAIN",
+    "VALVE", "PUMP", "SOFBEN", "KAZAN",
+    "SMART-POINT", "AKILLI", "AKILLI-BAGLANTI",
+    // Bağlantı
+    "BAGLA", "CONNECT", "AUTO-BAGLA", "BIRLESIK-MOD",
+    "KOLON", "COLUMN", "DIKEY-BORU",
+    // Seçim / Düzenleme
+    "SELECT", "DELETE", "UNDO", "REDO",
+    "KOPYA-KAT", "UZAKLIK", "DISTANCE", "DIST",
     // Analiz
-    "HYDRAULICS", "DRAINAGE", "SCHEDULE", "RISER",
-    // Dosya
-    "NEW", "OPEN", "SAVE", "SAVE-AS",
-    "EXPORT-DXF", "EXPORT-PDF", "EXPORT-EXCEL",
+    "HYDRAULICS", "RISER", "SCHEDULE",
+    "HIDROFOR", "PUMP-SIZE",
+    "BOM", "KESIF",
+    "NORM", "NORM-KARSILASTIR", "EN-DIN",
+    "HESAP-KARARI", "NEDEN-CAP",
+    "PIS-HESAP", "PIS-SU-HESAP",
+    "BASINC", "BASINC-KAYBI", "PARCALAR",
+    "FOSEPTIK", "KAPALI-CUKUR", "SEPTIK",
+    "EMDIRME", "PIS-CUKUR", "PIS-POMPA",
+    "YAGMUR", "YAGMUR-ALAN", "POLY-ALAN",
+    "GENLESIM", "EXPANSION-TANK",
+    "DN-OVERRIDE", "DN-DEGISTIR",
+    "KABUL", "ACCEPT", "TESISAT-KABUL",
+    "BOSALTMA", "ANA-TAHLIYE",
+    // Görünüm
+    "ZOOM-EXTENTS", "ZE", "VIEW-PLAN", "VIEW-ISO",
+    "KATMAN", "LAYER-VIS", "KATMAN-VIS",
+    "HIZALAMA", "FLOOR-ALIGN",
+    // Çizim destek
+    "BASKI", "BASKI-ICERIGI",
+    "GUNCELLE", "CIZIMI-GUNCELLE",
+    "DEVRE", "DEVRE-SEC",
+    "BIRLESIK-MOD", "BIRLESIK",
+    // Çıktı
+    "PAFTA", "PRINT", "YAZDIR",
+    "EXPORT-DXF", "CIKTI-DXF",
+    "KAT-DXF", "EKRAN-CIZIMI",
+    "RISER", "KOLON-SEMA",
+    "WORD", "HTML-RAPOR", "RAPOR-WORD",
+    // Proje / Mimari
+    "NEW", "OPEN", "SAVE",
+    "MIMARI",
     // Diğer
-    "UNDO", "REDO", "HELP",
+    "HELP",
 };
 
 // ═══════════════════════════════════════════════════════════

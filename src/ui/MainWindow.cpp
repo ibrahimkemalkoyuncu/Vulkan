@@ -57,9 +57,14 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <chrono>
 
 static void LogCAD(const std::string& msg) {
+#ifndef NDEBUG
     std::cout << "[MainWindow] " << msg << std::endl;
+#else
+    (void)msg;
+#endif
 }
 
 namespace vkt {
@@ -97,8 +102,16 @@ MainWindow::MainWindow(QWidget* parent)
         [this](double wx, double wy) { HandleMouseMove(wx, wy); });
     m_vulkanWindow->SetMouseReleaseCallback(
         [this](double wx, double wy, Qt::MouseButton btn) { HandleMouseRelease(wx, wy, btn); });
-    m_vulkanWindow->SetViewportChangeCallback(
-        [this]() { RefreshTextOverlay(); });
+    // Viewport callback throttle: pan/zoom sırasında her frame yeniden çizmeyi önler
+    m_vulkanWindow->SetViewportChangeCallback([this]() {
+        using Clock = std::chrono::steady_clock;
+        static auto s_lastOverlayRefresh = Clock::now();
+        auto now = Clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_lastOverlayRefresh).count() >= 50) {
+            s_lastOverlayRefresh = now;
+            RefreshTextOverlay();
+        }
+    });
 
     CreateActions();
     CreateMenus();
@@ -115,7 +128,16 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 MainWindow::~MainWindow() {
-    std::cout << "MainWindow kapatılıyor..." << std::endl;
+    // Kapatma sırasında callback'ler tetiklenmemeli (use-after-free riski)
+    if (m_autoHydroTimer) m_autoHydroTimer->stop();
+    if (m_vulkanWindow) {
+        m_vulkanWindow->SetMousePressCallback({});
+        m_vulkanWindow->SetMouseMoveCallback({});
+        m_vulkanWindow->SetMouseReleaseCallback({});
+        m_vulkanWindow->SetViewportChangeCallback({});
+    }
+    // m_vulkanWindow: createWindowContainer ownership'i alıyor, Qt cleanup ile silinir
+    // m_snapOverlay, m_autoHydroTimer: Qt parent-child ile silinir
 }
 
 void MainWindow::SetDocument(core::Document* doc) {
@@ -595,7 +617,7 @@ void MainWindow::CreateDockPanels() {
     m_fixtureDock->setMinimumWidth(220);
     addDockWidget(Qt::RightDockWidgetArea, m_fixtureDock);
     tabifyDockWidget(m_propertyPanel, m_fixtureDock);
-    m_propertyPanel->raise(); // Boru özellikleri varsayılan sekme
+    m_fixtureDock->raise(); // Armatür Özellikleri varsayılan sekme
 
     connect(m_fixturePanel, &FixturePropertiesPanel::NodeUpdated,
             this,           &MainWindow::OnNodeUpdated);
@@ -655,6 +677,7 @@ void MainWindow::CreateDockPanels() {
     m_layerPanel->setMinimumWidth(200);
     addDockWidget(Qt::LeftDockWidgetArea, m_layerPanel);
     tabifyDockWidget(m_spacePanel, m_layerPanel);
+    m_layerPanel->raise(); // Katman Yöneticisi varsayılan sekme (Space Panel değil)
 
     // Layer checkbox değişince görünürlük güncelle
     connect(m_layerList, &QListWidget::itemChanged, this,
@@ -666,12 +689,7 @@ void MainWindow::CreateDockPanels() {
             if (it == layers.end()) return;
             bool visible = (item->checkState() == Qt::Checked);
             it->second.SetVisible(visible);
-            // Renderer'ı ve overlay'i yenile
-            if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
-                m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
-                m_vulkanWindow->GetRenderer()->InvalidateCADData();
-            }
-            RefreshTextOverlay();
+            InvalidateRenderer();
         });
 
     connect(btnLayerAll, &QPushButton::clicked, this, [this]() {
@@ -679,11 +697,7 @@ void MainWindow::CreateDockPanels() {
         for (auto& [name, layer] : m_document->GetLayersMutable())
             layer.SetVisible(true);
         RefreshLayerPanel();
-        if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
-            m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
-            m_vulkanWindow->GetRenderer()->InvalidateCADData();
-        }
-        RefreshTextOverlay();
+        InvalidateRenderer();
     });
 
     connect(btnLayerNone, &QPushButton::clicked, this, [this]() {
@@ -691,11 +705,7 @@ void MainWindow::CreateDockPanels() {
         for (auto& [name, layer] : m_document->GetLayersMutable())
             layer.SetVisible(false);
         RefreshLayerPanel();
-        if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
-            m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
-            m_vulkanWindow->GetRenderer()->InvalidateCADData();
-        }
-        RefreshTextOverlay();
+        InvalidateRenderer();
     });
 
     // Log Panel
@@ -747,7 +757,7 @@ void MainWindow::OnNew() {
     auto* doc = app.CreateNewDocument();
     SetDocument(doc);
     setWindowTitle("VKT - Mekanik Tesisat CAD (FINE SANI++) - Yeni Proje");
-    statusBar()->showMessage("Yeni proje olusturuldu");
+    statusBar()->showMessage("Yeni proje olusturuldu", 3000);
 }
 
 void MainWindow::OnOpen() {
@@ -771,7 +781,7 @@ void MainWindow::OnOpen() {
         SetDocument(doc);
         setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
             QString::fromStdString(pm.GetProjectName())));
-        statusBar()->showMessage(QString("Proje açıldı: %1").arg(filePath));
+        statusBar()->showMessage(QString("Proje açıldı: %1").arg(filePath), 3000);
     } else {
         QMessageBox::critical(this, "Hata", "Proje dosyası açılamadı!");
     }
@@ -786,7 +796,7 @@ void MainWindow::OnSave() {
     }
 
     if (m_document->Save(m_document->GetFilePath())) {
-        statusBar()->showMessage("Proje kaydedildi");
+        statusBar()->showMessage("Proje kaydedildi", 3000);
     } else {
         QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
     }
@@ -814,7 +824,7 @@ void MainWindow::OnSaveAs() {
     if (m_document->Save(filePath.toStdString())) {
         setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
             QString::fromStdString(pm.GetProjectName())));
-        statusBar()->showMessage(QString("Proje kaydedildi: %1").arg(filePath));
+        statusBar()->showMessage(QString("Proje kaydedildi: %1").arg(filePath), 3000);
     } else {
         QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
     }
@@ -914,10 +924,9 @@ void MainWindow::OnImportDXF() {
                        + " m_document=" + std::string(m_document ? "valid" : "NULL"));
             }
 
-            // Space paneli güncelle
-            if (m_spacePanel) {
-                m_spacePanel->RefreshList();
-            }
+            // Space + Layer paneli güncelle
+            if (m_spacePanel) m_spacePanel->RefreshList();
+            RefreshLayerPanel();
 
             m_logList->clear();
             m_logList->addItem(QString("CAD dosyası import başarılı!"));
@@ -926,7 +935,7 @@ void MainWindow::OnImportDXF() {
             m_logList->addItem(QString("- %1 mahal eklendi").arg(addedCount));
 
             statusBar()->showMessage(QString("%1 entity, %2 layer, %3 mahal başarıyla yüklendi!")
-                .arg(entityCount).arg(layers.size()).arg(addedCount));
+                .arg(entityCount).arg(layers.size()).arg(addedCount), 4000);
 
             // Auto zoom to fit imported drawing
             OnZoomExtents();
@@ -962,7 +971,7 @@ void MainWindow::OnDelete() {
     if (m_selectedNodeId != 0) {
         auto cmd = std::make_unique<core::DeleteNodeCommand>(network, m_selectedNodeId);
         m_document->ExecuteCommand(std::move(cmd));
-        statusBar()->showMessage(QString("Node #%1 silindi").arg(m_selectedNodeId));
+        statusBar()->showMessage(QString("Node #%1 silindi").arg(m_selectedNodeId), 2000);
         m_selectedNodeId = 0;
         if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
         if (m_fixturePanel) m_fixturePanel->Clear();
@@ -972,7 +981,7 @@ void MainWindow::OnDelete() {
     } else if (m_selectedEdgeId != 0) {
         auto cmd = std::make_unique<core::DeleteEdgeCommand>(network, m_selectedEdgeId);
         m_document->ExecuteCommand(std::move(cmd));
-        statusBar()->showMessage(QString("Kenar #%1 silindi").arg(m_selectedEdgeId));
+        statusBar()->showMessage(QString("Kenar #%1 silindi").arg(m_selectedEdgeId), 2000);
         m_selectedEdgeId = 0;
         m_document->SetModified(true);
         UpdateUI();
@@ -1118,7 +1127,7 @@ void MainWindow::OnRunHydraulics() {
     m_logList->addItem("  ANALİZ TAMAMLANDI ✅");
     m_logList->addItem("═══════════════════════════════════════");
 
-    statusBar()->showMessage("Hidrolik analiz tamamlandı!");
+    statusBar()->showMessage("Hidrolik analiz tamamlandı!", 3000);
 }
 
 // ============================================================
@@ -1190,7 +1199,7 @@ void MainWindow::OnAutoSizeDN() {
     m_logList->addItem(QString("✅ %1 boru boyutlandırıldı").arg(sized));
     m_document->SetModified(true);
     UpdateUI();
-    statusBar()->showMessage(QString("DN boyutlandırma tamamlandı: %1 boru güncellendi").arg(sized));
+    statusBar()->showMessage(QString("DN boyutlandırma tamamlandı: %1 boru güncellendi").arg(sized), 3000);
 }
 
 // ============================================================
@@ -1342,11 +1351,10 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 m_selectedCADEntityId = 0;
                 if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
-                m_vulkanWindow->GetRenderer()->InvalidateCADData();
                 m_document->SetModified(true);
-                RefreshTextOverlay();
+                InvalidateRenderer();
                 UpdateUI();
-                statusBar()->showMessage("CAD entity silindi");
+                statusBar()->showMessage("CAD entity silindi", 2000);
             }
             event->accept();
             return;
@@ -1359,7 +1367,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             m_selectedNodeId = 0;
             UpdateUI();
             ScheduleAutoHydro();
-            statusBar()->showMessage("Node silindi");
+            statusBar()->showMessage("Node silindi", 2000);
             event->accept();
             return;
         }
@@ -1369,6 +1377,15 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         if (m_currentToolMode == ToolMode::DrawPolyArea) {
             m_polyAreaPoints.clear();
             if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+        }
+        // PlaceFixture yön seçimi (2. tıklama) bekleniyorsa sadece 1. adıma dön
+        if (m_currentToolMode == ToolMode::PlaceFixture &&
+            m_drawState == DrawState::WaitingSecondPoint) {
+            m_drawState = DrawState::WaitingFirstPoint;
+            if (m_snapOverlay) m_snapOverlay->ClearRubberBand();
+            statusBar()->showMessage("Yön seçimi iptal edildi — Yerleştirme noktasını tıklayın", 2000);
+            event->accept();
+            return;
         }
         if (m_currentToolMode != ToolMode::Select) {
             m_currentToolMode = ToolMode::Select;
@@ -1452,7 +1469,7 @@ void MainWindow::OnExportReport() {
     }
 
     if (ok) {
-        statusBar()->showMessage(QString("Rapor kaydedildi: %1").arg(filePath));
+        statusBar()->showMessage(QString("Rapor kaydedildi: %1").arg(filePath), 3000);
     } else {
         QMessageBox::critical(this, "Hata", "Dosya yazılamadı!");
     }
@@ -2073,7 +2090,7 @@ void MainWindow::OnDeleteSpace(unsigned long long spaceId) {
         if (m_spacePanel) {
             m_spacePanel->RefreshList();
         }
-        statusBar()->showMessage("Mahal silindi");
+        statusBar()->showMessage("Mahal silindi", 2000);
     }
 }
 
@@ -2161,7 +2178,7 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                 m_selectedNodeId = 0;
                 UpdateUI();
                 ScheduleAutoHydro();
-                statusBar()->showMessage(QString("Node #%1 silindi").arg(nearNodeId));
+                statusBar()->showMessage(QString("Node #%1 silindi").arg(nearNodeId), 2000);
             });
             ctxMenu.addAction("Seçim Temizle", this, [this]() {
                 m_selectedNodeId = 0;
@@ -2182,9 +2199,8 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                     m_selectedCADEntityId = 0;
                     if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                         m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
-                    m_vulkanWindow->GetRenderer()->InvalidateCADData();
                     m_document->SetModified(true);
-                    RefreshTextOverlay();
+                    InvalidateRenderer();
                     UpdateUI();
                 }
             });
@@ -2693,10 +2709,8 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
     // CAD entity drag bırakma
     if (m_draggingCADEntity) {
         m_draggingCADEntity = false;
-        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-            m_vulkanWindow->GetRenderer()->InvalidateCADData();
         m_document->SetModified(true);
-        RefreshTextOverlay();
+        InvalidateRenderer();
         statusBar()->showMessage(QString("CAD entity #%1 taşındı").arg(m_selectedCADEntityId), 2000);
         return;
     }
@@ -2739,9 +2753,7 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
             break;
         }
         m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
-        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-            m_vulkanWindow->GetRenderer()->InvalidateCADData();
-        RefreshTextOverlay();
+        InvalidateRenderer();
         return;
     }
 
@@ -2794,6 +2806,21 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
     }
 
     m_snapOverlay->Update(screenPos, snap);
+
+    // Snap tipi belirlendiyse status bar koordinatını zenginleştir
+    if (snap.IsValid()) {
+        static const char* snapNames[] = {
+            "", "Endpoint", "Midpoint", "Center",
+            "Intersection", "Perpendicular", "Nearest", "Grid"
+        };
+        int idx = static_cast<int>(snap.type);
+        const char* name = (idx > 0 && idx <= 7) ? snapNames[idx] : "";
+        statusBar()->showMessage(
+            QString("x=%1  y=%2  [%3]")
+            .arg(snap.point.x, 0, 'f', 3)
+            .arg(snap.point.y, 0, 'f', 3)
+            .arg(name));
+    }
 
     // Rubber-band: ikinci nokta beklenen modlarda çizgi göster
     if (m_drawState == DrawState::WaitingSecondPoint &&
@@ -4076,7 +4103,7 @@ void MainWindow::OnRiserDiagram() {
         std::ofstream f(path.toStdString());
         if (f.is_open()) {
             f << svgContent;
-            statusBar()->showMessage(QString("SVG kaydedildi: %1").arg(path));
+            statusBar()->showMessage(QString("SVG kaydedildi: %1").arg(path), 3000);
         } else {
             QMessageBox::critical(&dlg, "Hata", "Dosya yazılamadi!");
         }
@@ -4112,7 +4139,7 @@ void MainWindow::OnRiserDiagram() {
         renderer.render(&painter, pageRect);
         painter.end();
 
-        statusBar()->showMessage(QString("PDF kaydedildi: %1").arg(path));
+        statusBar()->showMessage(QString("PDF kaydedildi: %1").arg(path), 3000);
     });
 
     // DXF kaydet — R12 format, LINE + TEXT entity'leri
@@ -4147,7 +4174,7 @@ void MainWindow::OnRiserDiagram() {
         }
 
         f << "0\nENDSEC\n0\nEOF\n";
-        statusBar()->showMessage(QString("DXF kaydedildi: %1").arg(path));
+        statusBar()->showMessage(QString("DXF kaydedildi: %1").arg(path), 3000);
     });
 
     if (m_logList)
@@ -4259,7 +4286,7 @@ void MainWindow::OnDNOverride() {
         solver.SolveDrainage();
 
         if (mep::XLSXWriter::ExportCalculationSheet(path.toStdString(), network)) {
-            statusBar()->showMessage(QString("Hesap foyu kaydedildi: %1").arg(path));
+            statusBar()->showMessage(QString("Hesap foyu kaydedildi: %1").arg(path), 3000);
             if (m_logList) m_logList->addItem(QString("Hesap foyu XLS: %1").arg(path));
         } else {
             QMessageBox::critical(&dlg, "Hata", "XLS dosyasi yazılamadi!");
@@ -5364,6 +5391,17 @@ void MainWindow::OnBirleskMod() {
         : "Birleşik Mod KAPALI";
     statusBar()->showMessage(msg);
     if (m_logList) m_logList->addItem(msg);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Renderer + text overlay yenile (tekrar eden 3-satır bloğun tek noktası)
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::InvalidateRenderer() {
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer() && m_document) {
+        m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+        m_vulkanWindow->GetRenderer()->InvalidateCADData();
+    }
+    RefreshTextOverlay();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

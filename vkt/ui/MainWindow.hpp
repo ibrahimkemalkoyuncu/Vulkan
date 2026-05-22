@@ -447,6 +447,8 @@ private:
 
     // Layer panelini document'taki layer listesiyle güncelle
     void RefreshLayerPanel();
+    // Renderer layer map + CAD dirty flag + text overlay tek çağrıyla yenile
+    void InvalidateRenderer();
 };
 
 } // namespace ui

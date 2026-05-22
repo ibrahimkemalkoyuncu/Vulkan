@@ -78,13 +78,21 @@ bool DWGReader::Read(const std::string& filepath) {
 
     auto start = std::chrono::high_resolution_clock::now();
     
-    // Allocate and initialize DWG data structure
+    // LibreDWG C API: Dwg_Data malloc + dwg_free eşleşmesi zorunlu (new/delete değil)
+    // RAII guard: exception veya erken return'da dwg_free garantili çalışır
+    struct DwgGuard {
+        Dwg_Data* ptr = nullptr;
+        bool released = false;
+        ~DwgGuard() { if (ptr && !released) dwg_free(ptr); }
+    } guard;
+
     Dwg_Data* dwg = static_cast<Dwg_Data*>(malloc(sizeof(Dwg_Data)));
     if (!dwg) {
         m_errorMessage = "Bellek ayırma hatası";
         return false;
     }
     memset(dwg, 0, sizeof(Dwg_Data));
+    guard.ptr = dwg;
     
     // Read DWG file
     int errorCode = dwg_read_file(filepath.c_str(), dwg);
@@ -104,19 +112,19 @@ bool DWGReader::Read(const std::string& filepath) {
         if (errorCode & 8192) errorMsg += " Bellek yetersiz.";
         
         m_errorMessage = errorMsg;
-        dwg_free(dwg);
+        // guard destructor dwg_free çağırır
         return false;
     }
-    
+
     // Log non-critical warnings
     if (errorCode != 0) {
         m_errorMessage = "Uyarı (kod: " + std::to_string(errorCode) + "): ";
         if (errorCode & 2) m_errorMessage += "Bazı desteklenmeyen özellikler atlandı. ";
         if (errorCode & 4) m_errorMessage += "Bazı bilinmeyen class'lar atlandı. ";
         if (errorCode & 64) m_errorMessage += "Bazı geçersiz değerler düzeltildi. ";
-        // Continue despite warnings
     }
-    
+
+    guard.released = true; // Ownership m_dwgData'ya geçiyor, Clear() dwg_free çağırır
     m_dwgData = dwg;
     
     // Get version

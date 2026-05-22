@@ -50,19 +50,30 @@ bool Document::Load(const std::string& path) {
     }
 }
 
+static constexpr size_t MAX_UNDO_STACK = 500;
+
+static void TrimUndoStack(std::vector<std::unique_ptr<Command>>& history, size_t& index) {
+    if (history.size() > MAX_UNDO_STACK) {
+        size_t excess = history.size() - MAX_UNDO_STACK;
+        history.erase(history.begin(), history.begin() + excess);
+        index = (index >= excess) ? index - excess : 0;
+    }
+}
+
 void Document::ExecuteCommand(std::unique_ptr<Command> cmd) {
     if (!cmd) return;
-    
+
     cmd->Execute();
-    
+
     // Redo history'yi temizle
     m_commandHistory.erase(
         m_commandHistory.begin() + m_commandIndex,
         m_commandHistory.end()
     );
-    
+
     m_commandHistory.push_back(std::move(cmd));
     m_commandIndex = m_commandHistory.size();
+    TrimUndoStack(m_commandHistory, m_commandIndex);
     m_modified = true;
 }
 
@@ -74,6 +85,7 @@ void Document::TrackExecuted(std::unique_ptr<Command> cmd) {
     );
     m_commandHistory.push_back(std::move(cmd));
     m_commandIndex = m_commandHistory.size();
+    TrimUndoStack(m_commandHistory, m_commandIndex);
     m_modified = true;
 }
 
