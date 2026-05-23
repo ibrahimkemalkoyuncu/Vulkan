@@ -111,13 +111,29 @@ SnapResult SnapManager::FindSnapPoint(const geom::Vec3& worldPos,
             FindPerpendicularSnaps(entity, worldPos, tolerance, candidates);
     }
 
-    // Intersection: pairwise check — only for lines/polyline edges (O(n²) but n is small)
+    // Intersection: pairwise check — önce tolerance bounding box ile filtrele (O(n²) → O(k²))
+    // Büyük DWG'lerde (15K+ entity) ham O(n²) UI freeze yapar; sadece cursor yakınındaki
+    // entity'leri çift kontrole sok. k tipik olarak < 20 olur.
     if (IsSnapEnabled(SnapType::Intersection)) {
-        for (size_t i = 0; i < entities.size(); ++i) {
-            if (!entities[i] || !entities[i]->IsVisible()) continue;
-            for (size_t j = i + 1; j < entities.size(); ++j) {
-                if (!entities[j] || !entities[j]->IsVisible()) continue;
-                FindIntersectionSnaps(entities[i], entities[j], worldPos, tolerance, candidates);
+        // Cursor etrafında tolerance*2 genişliğinde AABB filtresi
+        const double halfW = tolerance * 2.0;
+        BoundingBox cursorBB;
+        cursorBB.min = geom::Vec3(worldPos.x - halfW, worldPos.y - halfW, -1e9);
+        cursorBB.max = geom::Vec3(worldPos.x + halfW, worldPos.y + halfW,  1e9);
+
+        std::vector<const Entity*> nearby;
+        nearby.reserve(32);
+        for (const auto* e : entities) {
+            if (!e || !e->IsVisible()) continue;
+            auto et = e->GetType();
+            if (et != EntityType::Line && et != EntityType::Polyline) continue;
+            if (e->GetBounds().Intersects(cursorBB))
+                nearby.push_back(e);
+        }
+        // k² kontrol — k << n sayesinde pratik O(1)
+        for (size_t i = 0; i < nearby.size(); ++i) {
+            for (size_t j = i + 1; j < nearby.size(); ++j) {
+                FindIntersectionSnaps(nearby[i], nearby[j], worldPos, tolerance, candidates);
             }
         }
     }

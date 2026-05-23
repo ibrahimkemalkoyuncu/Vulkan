@@ -146,6 +146,7 @@ void MainWindow::SetDocument(core::Document* doc) {
         m_vulkanWindow->SetNetwork(&doc->GetNetwork());
     }
     RefreshLayerPanel();
+    RebuildCADEntityCache();
     UpdateUI();
 }
 
@@ -382,6 +383,19 @@ void MainWindow::CreateActions() {
     m_actZoomExtents = new QAction("Tümünü Göster", this);
     connect(m_actZoomExtents, &QAction::triggered, this, &MainWindow::OnZoomExtents);
 
+    m_actSnapIntersection = new QAction("Kesişim Snap (F3)", this);
+    m_actSnapIntersection->setShortcut(Qt::Key_F3);
+    m_actSnapIntersection->setCheckable(true);
+    m_actSnapIntersection->setChecked(true);
+    m_actSnapIntersection->setToolTip("Büyük DXF/DWG dosyalarında performans için Kesişim snap'i kapat (F3)");
+    connect(m_actSnapIntersection, &QAction::toggled, this, [this](bool on) {
+        if (on)
+            m_snapManager.EnableSnap(cad::SnapType::Intersection);
+        else
+            m_snapManager.DisableSnap(cad::SnapType::Intersection);
+        statusBar()->showMessage(on ? "Kesişim snap AÇIK" : "Kesişim snap KAPALI", 2000);
+    });
+
     // Analiz
     m_actRunHydraulics = new QAction("Hidrolik Analiz", this);
     m_actRunHydraulics->setShortcut(Qt::Key_F5);
@@ -477,6 +491,8 @@ void MainWindow::CreateMenus() {
     viewMenu->addAction(m_actZoomExtents);
     viewMenu->addSeparator();
     viewMenu->addAction(m_actLayerVisibility);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_actSnapIntersection);
 
     // Analiz
     auto* analyzeMenu = menuBar()->addMenu("&Analiz");
@@ -927,6 +943,7 @@ void MainWindow::OnImportDXF() {
             // Space + Layer paneli güncelle
             if (m_spacePanel) m_spacePanel->RefreshList();
             RefreshLayerPanel();
+            RebuildCADEntityCache();
 
             m_logList->clear();
             m_logList->addItem(QString("CAD dosyası import başarılı!"));
@@ -1093,12 +1110,19 @@ void MainWindow::OnZoomExtents() {
 void MainWindow::OnRunHydraulics() {
     if (!m_document) return;
 
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty() || network.GetNodeMap().empty()) {
+        QMessageBox::warning(this, "Hidrolik Analiz",
+            "Ağda boru veya armatür bulunamadı.\n"
+            "Önce boru çizin ve armatür ekleyin, ardından analizi tekrar çalıştırın.");
+        return;
+    }
+
     m_logList->clear();
     m_logList->addItem("═══════════════════════════════════════");
     m_logList->addItem("  FULL MEP ANALİZ BAŞLIYOR");
     m_logList->addItem("═══════════════════════════════════════");
 
-    auto& network = m_document->GetNetwork();
     mep::HydraulicSolver solver(network);
 
     // 1. Besleme analizi
@@ -1352,6 +1376,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
                 m_document->SetModified(true);
+                RebuildCADEntityCache();
                 InvalidateRenderer();
                 UpdateUI();
                 statusBar()->showMessage("CAD entity silindi", 2000);
@@ -2746,12 +2771,10 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
     if (m_draggingCADEntity && m_document && m_selectedCADEntityId != 0) {
         double ddx = worldX - m_cadDragAnchor.x;
         double ddy = worldY - m_cadDragAnchor.y;
-        // Entity'yi bul ve taşı (delta uygula)
-        for (const auto& ent : m_document->GetCADEntities()) {
-            if (!ent || ent->GetId() != m_selectedCADEntityId) continue;
-            ent->Move(geom::Vec3(ddx, ddy, 0));
-            break;
-        }
+        // Entity'yi bul ve taşı (O(1) cache lookup)
+        auto it = m_cadEntityCache.find(m_selectedCADEntityId);
+        if (it != m_cadEntityCache.end() && it->second)
+            it->second->Move(geom::Vec3(ddx, ddy, 0));
         m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
         InvalidateRenderer();
         return;
@@ -2793,17 +2816,12 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
     geom::Vec3 screenPt = vp.WorldToScreen({worldX, worldY, 0.0});
     QPoint screenPos(static_cast<int>(screenPt.x), static_cast<int>(screenPt.y));
 
-    // Snap hesabı (CAD entity varsa)
+    // Snap hesabı — cached flat pointer list (no per-frame allocation)
     cad::SnapResult snap;
-    if (m_document && !m_document->GetCADEntities().empty()) {
-        std::vector<cad::Entity*> entityPtrs;
-        entityPtrs.reserve(m_document->GetCADEntities().size());
-        for (const auto& e : m_document->GetCADEntities())
-            entityPtrs.push_back(e.get());
+    if (m_document && !m_snapEntityCache.empty())
         snap = m_snapManager.FindSnapPoint({worldX, worldY, 0.0},
-                                           entityPtrs,
+                                           m_snapEntityCache,
                                            vp.GetZoom());
-    }
 
     m_snapOverlay->Update(screenPos, snap);
 
@@ -5430,6 +5448,23 @@ void MainWindow::RefreshLayerPanel() {
         m_layerList->addItem(item);
     }
     m_layerList->blockSignals(false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAD entity pointer cache — O(1) drag lookup + snap vektörü
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::RebuildCADEntityCache() {
+    m_cadEntityCache.clear();
+    m_snapEntityCache.clear();
+    if (!m_document) return;
+    const auto& entities = m_document->GetCADEntities();
+    m_cadEntityCache.reserve(entities.size());
+    m_snapEntityCache.reserve(entities.size());
+    for (const auto& e : entities) {
+        if (!e) continue;
+        m_cadEntityCache[e->GetId()] = e.get();
+        m_snapEntityCache.push_back(e.get());
+    }
 }
 
 } // namespace ui

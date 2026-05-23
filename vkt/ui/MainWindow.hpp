@@ -16,6 +16,8 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <memory>
+#include <vector>
+#include <unordered_map>
 #include "core/Document.hpp"
 #include "mep/NetworkGraph.hpp"
 #include "core/FloorManager.hpp"
@@ -352,6 +354,7 @@ private:
     QAction* m_actPlanView = nullptr;
     QAction* m_actIsometricView = nullptr;
     QAction* m_actZoomExtents = nullptr;
+    QAction* m_actSnapIntersection = nullptr;
     QAction* m_actRunHydraulics = nullptr;
     QAction* m_actAutoSizeDN = nullptr;
     QAction* m_actGenerateSchedule = nullptr;
@@ -414,6 +417,10 @@ private:
     cad::EntityId m_selectedCADEntityId = 0;   // 0 = seçim yok
     bool          m_draggingCADEntity   = false;
     geom::Vec3    m_cadDragAnchor;             // Fare world konumu drag başında
+    // EntityId → raw pointer cache: O(1) drag arama (invalidate on import/delete)
+    std::unordered_map<cad::EntityId, cad::Entity*> m_cadEntityCache;
+    // Snap için flat entity pointer listesi (import/delete sonrası yenilenir)
+    std::vector<cad::Entity*> m_snapEntityCache;
     geom::Vec3    m_cadDragEntityOrigin;       // Entity BBox merkezi drag başında
     bool          m_isFullScreen        = false;
 
@@ -449,6 +456,8 @@ private:
     void RefreshLayerPanel();
     // Renderer layer map + CAD dirty flag + text overlay tek çağrıyla yenile
     void InvalidateRenderer();
+    // EntityId->ptr ve snap flat-list cache'lerini yenile (import/delete sonrası çağır)
+    void RebuildCADEntityCache();
 };
 
 } // namespace ui
