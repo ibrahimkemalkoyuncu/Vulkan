@@ -95,8 +95,10 @@ void VulkanWindow::resizeEvent(QResizeEvent* /*event*/) {
 void VulkanWindow::mousePressEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton) {
         m_isPanning = true;
+        m_panMoved = false;
         m_lastMousePos = event->pos();
-        setCursor(Qt::ClosedHandCursor);
+        // Cursor henüz hareket etmedi — "hazır" işareti
+        setCursor(Qt::OpenHandCursor);
         return;
     }
 
@@ -109,6 +111,7 @@ void VulkanWindow::mousePressEvent(QMouseEvent* event) {
 void VulkanWindow::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() == Qt::MiddleButton && m_isPanning) {
         m_isPanning = false;
+        m_panMoved  = false;
         setCursor(Qt::ArrowCursor);
         if (m_onViewportChange) m_onViewportChange();
         return;
@@ -124,9 +127,13 @@ void VulkanWindow::mouseMoveEvent(QMouseEvent* event) {
     if (m_isPanning) {
         double dx = event->pos().x() - m_lastMousePos.x();
         double dy = event->pos().y() - m_lastMousePos.y();
+        if (!m_panMoved && (std::abs(dx) > 2 || std::abs(dy) > 2)) {
+            // İlk gerçek hareket — "sürükleniyor" imleci
+            setCursor(Qt::ClosedHandCursor);
+            m_panMoved = true;
+        }
         m_viewport.Pan(dx, dy);
         m_lastMousePos = event->pos();
-        // Overlay label'larının pan sırasında geriden kalmaması için
         if (m_onViewportChange) m_onViewportChange();
         return;
     }
@@ -137,19 +144,41 @@ void VulkanWindow::mouseMoveEvent(QMouseEvent* event) {
     }
 }
 
+// Çift tık orta tuş → Zoom Extents (AutoCAD standart davranışı)
+void VulkanWindow::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() == Qt::MiddleButton) {
+        if (m_onZoomExtents) m_onZoomExtents();
+        return;
+    }
+    QWindow::mouseDoubleClickEvent(event);
+}
+
 /**
- * @brief Mouse tekerleği ile zoom — AutoCAD benzeri hassasiyet
+ * @brief Mouse tekerleği ile zoom/pan — AutoCAD benzeri hassasiyet
  *
- * angleDelta 120'ye bölünerek kademeli scroll desteği sağlanır.
- * Trackpad'ler ve yüksek çözünürlüklü fare tekerlekleri doğru çalışır.
+ * - Normal scroll  → imleç konumuna doğru zoom
+ * - Shift+scroll   → yatay pan (AutoCAD Shift+scroll eşdeğeri)
+ * - 120 birim = 1 standart notch; trackpad küçük delta gönderir
  */
 void VulkanWindow::wheelEvent(QWheelEvent* event) {
-    double delta = event->angleDelta().y();
-    // 120 birim = 1 standart scroll notch, trackpad'ler daha küçük delta gönderir
-    double scrollUnits = delta / 120.0;
-    // AutoCAD benzeri: her notch ~%15 zoom, kademeli
-    double factor = std::pow(1.15, scrollUnits);
+    const bool shiftHeld = (event->modifiers() & Qt::ShiftModifier) != 0;
 
+    if (shiftHeld) {
+        // Shift+scroll → yatay pan
+        double hDelta = event->angleDelta().x() != 0
+                        ? event->angleDelta().x()
+                        : event->angleDelta().y();
+        // Her notch (120 birim) ≈ ekran genişliğinin %5'i kadar pan
+        double panPx = (hDelta / 120.0) * width() * 0.05;
+        m_viewport.Pan(panPx, 0);
+        if (m_onViewportChange) m_onViewportChange();
+        return;
+    }
+
+    double delta = event->angleDelta().y();
+    double scrollUnits = delta / 120.0;
+    // Her notch ~%15 zoom — AutoCAD varsayılanı
+    double factor = std::pow(1.15, scrollUnits);
     QPointF pos = event->position();
     m_viewport.ZoomAt(factor, pos.x(), pos.y());
     if (m_onViewportChange) m_onViewportChange();

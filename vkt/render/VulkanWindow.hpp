@@ -71,6 +71,10 @@ public:
     using ViewportChangeCallback = std::function<void()>;
     void SetViewportChangeCallback(ViewportChangeCallback cb) { m_onViewportChange = std::move(cb); }
 
+    // Çift tık orta tuş → Zoom Extents callback (AutoCAD davranışı)
+    using SimpleCallback = std::function<void()>;
+    void SetZoomExtentsCallback(SimpleCallback cb) { m_onZoomExtents = std::move(cb); }
+
 signals:
     void FrameRendered();
 
@@ -80,6 +84,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 
@@ -96,14 +101,16 @@ private:
     bool m_initialized = false;
 
     // Pan state
-    bool m_isPanning = false;
+    bool   m_isPanning     = false;
+    bool   m_panMoved      = false;  // ilk hareket anında cursor'ı değiştirmek için
     QPoint m_lastMousePos;
 
     // Callbacks
-    MouseCallback m_onMousePress;
-    MouseCallback m_onMouseRelease;
-    MoveCallback m_onMouseMove;
+    MouseCallback         m_onMousePress;
+    MouseCallback         m_onMouseRelease;
+    MoveCallback          m_onMouseMove;
     ViewportChangeCallback m_onViewportChange;
+    SimpleCallback         m_onZoomExtents;   // çift tık orta tuş → Zoom Extents
 };
 
 } // namespace render

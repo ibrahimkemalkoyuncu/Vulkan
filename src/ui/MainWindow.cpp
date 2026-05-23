@@ -112,6 +112,8 @@ MainWindow::MainWindow(QWidget* parent)
             RefreshTextOverlay();
         }
     });
+    // Çift tık orta tuş → Zoom Extents (AutoCAD standart kısayolu)
+    m_vulkanWindow->SetZoomExtentsCallback([this]() { OnZoomExtents(); });
 
     CreateActions();
     CreateMenus();
@@ -135,6 +137,7 @@ MainWindow::~MainWindow() {
         m_vulkanWindow->SetMouseMoveCallback({});
         m_vulkanWindow->SetMouseReleaseCallback({});
         m_vulkanWindow->SetViewportChangeCallback({});
+        m_vulkanWindow->SetZoomExtentsCallback({});
     }
     // m_vulkanWindow: createWindowContainer ownership'i alıyor, Qt cleanup ile silinir
     // m_snapOverlay, m_autoHydroTimer: Qt parent-child ile silinir
