@@ -967,14 +967,16 @@ void MainWindow::OnExit() {
 void MainWindow::OnUndo() {
     if (m_document) {
         m_document->Undo();
+        RebuildCADEntityCache();
         UpdateUI();
-        ScheduleAutoHydro(); // MEP ağı değişmiş olabilir → DN yeniden hesapla
+        ScheduleAutoHydro();
     }
 }
 
 void MainWindow::OnRedo() {
     if (m_document) {
         m_document->Redo();
+        RebuildCADEntityCache();
         UpdateUI();
         ScheduleAutoHydro();
     }
@@ -2691,26 +2693,29 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                 m_selectedCADEntityId = pickedId;
                 if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(pickedId);
-                // Drag başlat
-                auto it = std::find_if(m_document->GetCADEntities().begin(),
-                                       m_document->GetCADEntities().end(),
-                    [pickedId](const std::unique_ptr<cad::Entity>& e) {
-                        return e && e->GetId() == pickedId;
-                    });
-                if (it != m_document->GetCADEntities().end()) {
-                    auto bb = (*it)->GetBounds();
+                // Drag başlat + katman vurgula
+                auto it = m_cadEntityCache.find(pickedId);
+                if (it != m_cadEntityCache.end() && it->second) {
+                    cad::Entity* ent = it->second;
+                    auto bb = ent->GetBounds();
                     m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
                     m_cadDragEntityOrigin = bb.GetCenter();
                     m_draggingCADEntity = true;
+                    // AutoCAD: seçili objenin katmanını panelde göster
+                    const std::string& layName = ent->GetLayerName();
+                    HighlightLayerInPanel(layName);
+                    statusBar()->showMessage(
+                        QString("Seçili: #%1  Katman: %2  — Sürükle veya Delete ile sil")
+                        .arg(pickedId)
+                        .arg(QString::fromStdString(layName)));
                 }
-                statusBar()->showMessage(QString("CAD entity seçildi: #%1 — Sürükle veya Delete ile sil")
-                    .arg(pickedId));
             } else {
-                // Hiç seçim yok
+                // Hiç seçim yok — vurguyu sıfırla
                 m_selectedCADEntityId = 0;
                 m_draggingCADEntity = false;
                 if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                HighlightLayerInPanel("");   // temizle
                 statusBar()->showMessage(QString("Konum: x=%1, y=%2")
                     .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
             }
@@ -5448,6 +5453,37 @@ void MainWindow::RefreshLayerPanel() {
         m_layerList->addItem(item);
     }
     m_layerList->blockSignals(false);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Seçili entity'nin katmanını panelde vurgula (AutoCAD layer dropdown eşdeğeri)
+// ─────────────────────────────────────────────────────────────────────────────
+void MainWindow::HighlightLayerInPanel(const std::string& layerName) {
+    if (!m_layerList) return;
+    const QString qName = QString::fromStdString(layerName);
+    static const QColor kActiveBg(60, 55, 20);
+    static const QColor kDefaultBg(30, 30, 30);
+    for (int i = 0; i < m_layerList->count(); ++i) {
+        auto* item = m_layerList->item(i);
+        if (!item) continue;
+        const bool isActive = (item->text() == qName);
+        // Sadece değişen item'ı güncelle — koşulsuz setFont/setBackground Qt repaint tetikler
+        QFont f = item->font();
+        if (f.bold() != isActive) {
+            f.setBold(isActive);
+            item->setFont(f);
+        }
+        const QColor needed = isActive ? kActiveBg : kDefaultBg;
+        if (item->background().color() != needed)
+            item->setBackground(needed);
+        if (isActive)
+            m_layerList->scrollToItem(item);
+    }
+    if (m_layerPanel) {
+        m_layerPanel->setWindowTitle(qName.isEmpty()
+            ? "Katmanlar"
+            : QString("Katmanlar  [%1]").arg(qName));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

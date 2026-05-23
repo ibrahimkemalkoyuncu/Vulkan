@@ -458,6 +458,8 @@ private:
     void InvalidateRenderer();
     // EntityId->ptr ve snap flat-list cache'lerini yenile (import/delete sonrası çağır)
     void RebuildCADEntityCache();
+    // Seçili entity'nin katmanını panelde vurgula; boş string seçimi sıfırlar
+    void HighlightLayerInPanel(const std::string& layerName);
 };
 
 } // namespace ui
