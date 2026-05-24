@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include "core/Document.hpp"
 #include "mep/NetworkGraph.hpp"
 #include "core/FloorManager.hpp"
@@ -414,15 +415,20 @@ private:
     geom::Vec3 m_dragStartPos;        // Drag öncesi node pozisyonu (undo için)
 
     // CAD entity seçimi ve sürükleme (Select modu)
-    cad::EntityId m_selectedCADEntityId = 0;   // 0 = seçim yok
+    cad::EntityId m_selectedCADEntityId = 0;   // tek tıklama seçimi
+    std::unordered_set<cad::EntityId> m_selectedCADEntityIds; // box seçimi (çoklu)
     bool          m_draggingCADEntity   = false;
-    geom::Vec3    m_cadDragAnchor;             // Fare world konumu drag başında
-    // EntityId → raw pointer cache: O(1) drag arama (invalidate on import/delete)
+    geom::Vec3    m_cadDragAnchor;
     std::unordered_map<cad::EntityId, cad::Entity*> m_cadEntityCache;
-    // Snap için flat entity pointer listesi (import/delete sonrası yenilenir)
     std::vector<cad::Entity*> m_snapEntityCache;
-    geom::Vec3    m_cadDragEntityOrigin;       // Entity BBox merkezi drag başında
-    bool          m_isFullScreen        = false;
+    geom::Vec3    m_cadDragEntityOrigin;
+
+    // AutoCAD sol/sağ seçim dikdörtgeni state
+    bool       m_selBoxActive    = false;
+    geom::Vec3 m_selBoxStartWorld;   // dünya koordinatı (sol tık basıldığı an)
+    QPoint     m_selBoxStartScreen;  // ekran koordinatı
+
+    bool          m_isFullScreen = false;
 
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;

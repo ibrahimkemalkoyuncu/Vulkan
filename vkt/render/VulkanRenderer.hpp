@@ -175,14 +175,25 @@ public:
         for (uint32_t id : ids) m_criticalPathEdges.insert(id);
     }
 
-    /** Seçili CAD entity ID — vertex buffer'da sarı highlight ile çizilir */
+    /** Tek entity highlight (single-click seçimi için backward compat) */
     void SetHighlightCADEntityId(cad::EntityId id) {
+        m_highlightCADEntityIds.clear();
+        if (id != 0) m_highlightCADEntityIds.insert(id);
         if (m_highlightCADEntityId != id) {
             m_highlightCADEntityId = id;
             m_cadDirty = true;
         }
     }
+    /** Box seçimi için çoklu highlight */
+    void SetHighlightCADEntityIds(const std::unordered_set<cad::EntityId>& ids) {
+        m_highlightCADEntityIds = ids;
+        m_highlightCADEntityId  = (ids.size() == 1) ? *ids.begin() : 0;
+        m_cadDirty = true;
+    }
     cad::EntityId GetHighlightCADEntityId() const { return m_highlightCADEntityId; }
+    const std::unordered_set<cad::EntityId>& GetHighlightCADEntityIds() const {
+        return m_highlightCADEntityIds;
+    }
 
     // ── GPU Clash Detection ───────────────────────────────────────────────────
 
@@ -326,8 +337,9 @@ private:
     // Kritik devre vurgulama: bu edge ID'leri farklı renkte çizilir
     std::unordered_set<uint32_t> m_criticalPathEdges;
 
-    // CAD entity seçim vurgulaması: bu ID sarı renkte çizilir
-    cad::EntityId m_highlightCADEntityId = 0;
+    // CAD entity seçim vurgulaması
+    cad::EntityId                          m_highlightCADEntityId  = 0;  // single-click
+    std::unordered_set<cad::EntityId>      m_highlightCADEntityIds;       // box-select
 
     // ── SSAO ─────────────────────────────────────────────────────────────────
     struct SSAOImage {

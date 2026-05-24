@@ -106,12 +106,11 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
         p.restore();
     }
 
-    // ── Rubber-band önizleme çizgisi ────────────────────────
+    // ── Rubber-band önizleme çizgisi (boru çizimi) ──────────
     if (m_rubberActive) {
         QPen rbPen(QColor(80, 200, 255, 200), 1.5f, Qt::DashLine);
         p.setPen(rbPen);
         p.drawLine(m_rubberFrom, m_rubberTo);
-        // Mesafe etiketi
         double dx = m_rubberTo.x() - m_rubberFrom.x();
         double dy = m_rubberTo.y() - m_rubberFrom.y();
         double pxLen = std::sqrt(dx*dx + dy*dy);
@@ -122,6 +121,30 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
             QPoint mid = (m_rubberFrom + m_rubberTo) / 2;
             p.drawText(mid.x() + 4, mid.y() - 4, QString("~%1px").arg((int)pxLen));
         }
+    }
+
+    // ── AutoCAD seçim dikdörtgeni ────────────────────────────
+    if (m_selBoxActive) {
+        QRect rect(m_selBoxFrom, m_selBoxTo);
+        if (m_selBoxCrossing) {
+            // Sağdan-sola (Crossing): yeşil kesikli çerçeve + %12 yeşil dolgu
+            p.setPen(QPen(QColor(80, 200, 80, 220), 1.5f, Qt::DashLine));
+            p.setBrush(QColor(60, 180, 60, 30));
+        } else {
+            // Soldan-sağa (Window): mavi düz çerçeve + %12 mavi dolgu
+            p.setPen(QPen(QColor(50, 130, 255, 220), 1.5f, Qt::SolidLine));
+            p.setBrush(QColor(40, 100, 220, 30));
+        }
+        p.drawRect(rect);
+        // Seçim tipi etiketi (sol üst köşe)
+        QFont sf("Consolas", 8);
+        sf.setBold(true);
+        p.setFont(sf);
+        p.setPen(m_selBoxCrossing ? QColor(80, 220, 80, 200) : QColor(80, 140, 255, 200));
+        p.setBrush(Qt::NoBrush);
+        int lx = std::min(m_selBoxFrom.x(), m_selBoxTo.x()) + 4;
+        int ly = std::min(m_selBoxFrom.y(), m_selBoxTo.y()) - 3;
+        p.drawText(lx, ly, m_selBoxCrossing ? "Kesişim" : "Pencere");
     }
 
     if (!m_visible) return;

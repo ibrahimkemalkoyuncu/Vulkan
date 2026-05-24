@@ -76,6 +76,19 @@ public:
     }
     void ClearRubberBand() { m_rubberActive = false; update(); }
 
+    /**
+     * @brief AutoCAD sol/sağ seçim dikdörtgeni
+     * @param crossing  true = sağdan-sola (yeşil kesikli), false = soldan-sağa (mavi düz)
+     */
+    void SetSelectionBox(QPoint from, QPoint to, bool crossing, bool active) {
+        m_selBoxFrom    = from;
+        m_selBoxTo      = to;
+        m_selBoxCrossing = crossing;
+        m_selBoxActive  = active;
+        update();
+    }
+    void ClearSelectionBox() { m_selBoxActive = false; update(); }
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
@@ -89,10 +102,16 @@ private:
     QColor         m_crosshairColor{80, 160, 255, 180};
     int            m_crosshairSize = 20;
 
-    // Rubber-band önizleme çizgisi
+    // Rubber-band önizleme çizgisi (boru çizimi)
     QPoint m_rubberFrom;
     QPoint m_rubberTo;
     bool   m_rubberActive = false;
+
+    // Seçim dikdörtgeni (AutoCAD pencere/kesişim seçimi)
+    QPoint m_selBoxFrom;
+    QPoint m_selBoxTo;
+    bool   m_selBoxCrossing = false;
+    bool   m_selBoxActive   = false;
 
     std::vector<TextLabel> m_textLabels;
     std::vector<QPoint>    m_openEndMarkers; ///< Açık uç node ekran pozisyonları

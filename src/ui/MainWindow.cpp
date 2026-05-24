@@ -1366,8 +1366,31 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         return;
     }
 
-    // Delete — seçili CAD entity veya MEP node sil
+    // Delete — seçili CAD entity(ler) veya MEP node sil
     if (event->key() == Qt::Key_Delete && m_document) {
+        // Çoklu box seçimi (önce kontrol et)
+        if (!m_selectedCADEntityIds.empty()) {
+            auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+                m_document->GetCADEntities());
+            size_t before = entities.size();
+            entities.erase(std::remove_if(entities.begin(), entities.end(),
+                [this](const std::unique_ptr<cad::Entity>& e) {
+                    return e && m_selectedCADEntityIds.count(e->GetId());
+                }), entities.end());
+            size_t deleted = before - entities.size();
+            m_selectedCADEntityIds.clear();
+            m_selectedCADEntityId = 0;
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+            m_document->SetModified(true);
+            RebuildCADEntityCache();
+            InvalidateRenderer();
+            UpdateUI();
+            statusBar()->showMessage(QString("%1 CAD entity silindi").arg(deleted), 2000);
+            event->accept();
+            return;
+        }
+        // Tek tıklama seçimi
         if (m_selectedCADEntityId != 0) {
             auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
                 m_document->GetCADEntities());
@@ -1404,6 +1427,23 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
 
     if (event->key() == Qt::Key_Escape) {
+        // Seçim kutusunu veya çoklu seçimi iptal et
+        if (m_selBoxActive) {
+            m_selBoxActive = false;
+            if (m_snapOverlay) m_snapOverlay->ClearSelectionBox();
+            event->accept();
+            return;
+        }
+        if (!m_selectedCADEntityIds.empty()) {
+            m_selectedCADEntityIds.clear();
+            m_selectedCADEntityId = 0;
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+            HighlightLayerInPanel("");
+            statusBar()->showMessage("Seçim temizlendi", 1500);
+            event->accept();
+            return;
+        }
         if (m_currentToolMode == ToolMode::DrawPolyArea) {
             m_polyAreaPoints.clear();
             if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
@@ -2713,14 +2753,24 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                         .arg(QString::fromStdString(layName)));
                 }
             } else {
-                // Hiç seçim yok — vurguyu sıfırla
+                // Hiç entity yok — seçim kutusunu başlat (AutoCAD davranışı)
                 m_selectedCADEntityId = 0;
+                m_selectedCADEntityIds.clear();
                 m_draggingCADEntity = false;
                 if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
-                HighlightLayerInPanel("");   // temizle
-                statusBar()->showMessage(QString("Konum: x=%1, y=%2")
-                    .arg(worldX, 0, 'f', 3).arg(worldY, 0, 'f', 3));
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+                HighlightLayerInPanel("");
+
+                // Seçim kutusu state'i başlat
+                m_selBoxActive = true;
+                m_selBoxStartWorld  = geom::Vec3(worldX, worldY, 0);
+                m_selBoxStartScreen = m_vulkanWindow
+                    ? QPoint(static_cast<int>(m_vulkanWindow->GetViewport()
+                        .WorldToScreen({worldX, worldY, 0}).x),
+                             static_cast<int>(m_vulkanWindow->GetViewport()
+                        .WorldToScreen({worldX, worldY, 0}).y))
+                    : QPoint(0, 0);
+                statusBar()->showMessage("Seçim kutusu — sağa: Pencere (tam içinde), sola: Kesişim (dokunan)");
             }
         }
         break;
@@ -2745,6 +2795,54 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
         m_document->SetModified(true);
         InvalidateRenderer();
         statusBar()->showMessage(QString("CAD entity #%1 taşındı").arg(m_selectedCADEntityId), 2000);
+        return;
+    }
+
+    // AutoCAD seçim kutusu tamamlama
+    if (m_selBoxActive && m_currentToolMode == ToolMode::Select) {
+        m_selBoxActive = false;
+        if (m_snapOverlay) m_snapOverlay->ClearSelectionBox();
+
+        // Dünya koordinatlarında seçim dikdörtgeni
+        double x0 = m_selBoxStartWorld.x, y0 = m_selBoxStartWorld.y;
+        double x1 = worldX,               y1 = worldY;
+        double rxMin = std::min(x0, x1), rxMax = std::max(x0, x1);
+        double ryMin = std::min(y0, y1), ryMax = std::max(y0, y1);
+
+        // Minimum boyut — tek tıklama değil gerçek sürükleme (5 world unit = ~5mm)
+        const double MIN_SEL_SIZE = 5.0;
+        if ((rxMax - rxMin) < MIN_SEL_SIZE || (ryMax - ryMin) < MIN_SEL_SIZE) return;
+
+        bool crossing = (worldX < m_selBoxStartWorld.x); // sola sürükleme = crossing
+
+        m_selectedCADEntityIds.clear();
+        for (const auto& ent : m_document->GetCADEntities()) {
+            if (!ent || !ent->IsVisible()) continue;
+            auto bb = ent->GetBounds();
+            if (crossing) {
+                // Kesişim seçimi: bounding box seçim rect ile kesişiyor mu?
+                bool noOverlap = (bb.max.x < rxMin || bb.min.x > rxMax ||
+                                  bb.max.y < ryMin || bb.min.y > ryMax);
+                if (!noOverlap) m_selectedCADEntityIds.insert(ent->GetId());
+            } else {
+                // Pencere seçimi: bounding box tamamen içinde mi?
+                if (bb.min.x >= rxMin && bb.max.x <= rxMax &&
+                    bb.min.y >= ryMin && bb.max.y <= ryMax)
+                    m_selectedCADEntityIds.insert(ent->GetId());
+            }
+        }
+
+        if (!m_selectedCADEntityIds.empty()) {
+            m_selectedCADEntityId = 0; // tek tıklama seçimini temizle
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
+            statusBar()->showMessage(
+                QString("%1 entity seçildi (%2) — Delete ile sil, ESC ile iptal")
+                .arg(m_selectedCADEntityIds.size())
+                .arg(crossing ? "Kesişim" : "Pencere"), 4000);
+        } else {
+            statusBar()->showMessage("Seçim kutusunda entity bulunamadı", 2000);
+        }
         return;
     }
 
@@ -2813,9 +2911,20 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
         m_snapOverlay->resize(m_vulkanContainer->size());
     }
 
-    // Çizim modunda değilse overlay'i gizle
+    // Select modu: seçim kutusu aktifse overlay'i güncelle, değilse gizle
     if (m_currentToolMode == ToolMode::Select) {
-        m_snapOverlay->Hide();
+        if (m_selBoxActive && m_vulkanWindow) {
+            const auto& vp2 = m_vulkanWindow->GetViewport();
+            geom::Vec3 curScr = vp2.WorldToScreen({worldX, worldY, 0.0});
+            QPoint curPt(static_cast<int>(curScr.x), static_cast<int>(curScr.y));
+            // Sağa sürükleme = Window (mavi), sola = Crossing (yeşil)
+            bool crossing = (curPt.x() < m_selBoxStartScreen.x());
+            m_snapOverlay->show();
+            m_snapOverlay->SetSelectionBox(m_selBoxStartScreen, curPt, crossing, true);
+        } else {
+            m_snapOverlay->ClearSelectionBox();
+            m_snapOverlay->Hide();
+        }
         return;
     }
 
