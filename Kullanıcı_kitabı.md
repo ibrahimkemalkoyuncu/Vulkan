@@ -32,6 +32,15 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 22. [DN Manuel Override — Hesap Föyü XLS](#dn-override)
 23. [Kolon Bağlantı Asistanı (KOLON)](#kolon-asistan)
 24. [PDF Pafta Düzeni (PAFTA)](#pafta)
+25. [Sıcak Su Modülü](#sicak-su)
+26. [Tesisatı Kabul Et](#tesisat-kabul)
+27. [Çıktı Dosyasının Hazırlanması](#cikti)
+28. [Pis Su Hesap Araçları](#pis-su-hesap)
+29. [Özel Hesap Araçları](#ozel-hesap)
+30. [Fare Kullanımı — AutoCAD Uyumlu](#fare-kullanimi)
+31. [Seçim Araçları — Pencere / Kesişim](#secim-araclari)
+32. [Snap Sistemi — Gelişmiş](#snap-sistemi)
+33. [Katman Yöneticisi](#katman-yoneticisi)
 
 ---
 
@@ -1424,6 +1433,180 @@ Dosya → Proje Klasörünü Aç
 > **Kritik Not:** VKT'de "patlat" (explode) komutu yoktur çünkü gerekmez —  
 > tüm geometri her zaman düzenlenebilir haldedir. FineSANI'de patlatma yalnızca  
 > bir kez yapılabildiği ve geri alınamaz olduğu için büyük bir risk faktörüdür.
+
+---
+
+---
+
+## Bölüm 30 — Fare Kullanımı — AutoCAD Uyumlu {#fare-kullanimi}
+
+VKT fare davranışı AutoCAD klavuzlarıyla örtüşür. Daha önce AutoCAD veya FineSANI kullanan teknikerlerin alışkanlıkları doğrudan çalışır.
+
+### Temel Fare Eylemleri
+
+| Eylem | Sonuç |
+|-------|-------|
+| **Sol tık** | Komut sırasında nokta girişi / seçim modunda entity seç |
+| **Sol tık + sürükle** (boş alan) | Seçim kutusu çiz (bkz. Bölüm 33) |
+| **Sağ tık** | Bağlamsal menü aç |
+| **Orta tuş basılı + sürükle** | Pan (ekranı kaydır) — imleç el/yumruk |
+| **Orta tuşa çift tıkla** | **Zoom Extents** — tüm çizim ekrana sığar |
+| **Tekerlek yukarı** | Zoom In — imleç merkezli |
+| **Tekerlek aşağı** | Zoom Out — imleç merkezli |
+| **Shift + Tekerlek** | Yatay kaydırma |
+
+### Pan İmleci Davranışı
+
+- Orta tuşa **basılır**: imleç açık el (`⭯`) olur.
+- 2 piksel hareket edilince: imleç kapalı yumruk (`✊`) olur — gerçekten pan yapıldığını gösterir.
+- Tuş bırakılınca: imleç normale döner.
+
+> **Not:** AutoCAD'de Spacebar veya Enter ile komut tekrarlama VKT'de desteklenmez; komut tekrarlama için CommandBar'a tekrar yazın veya menüden seçin.
+
+### Sağ Tık Bağlamsal Menüsü
+
+Sağ tıklama konumuna ve aktif moda göre farklı seçenekler sunar:
+
+| Durum | Menü İçeriği |
+|-------|-------------|
+| Aktif çizim komutu | İptal Et |
+| MEP node seçili | Node Sil · Özellikler |
+| CAD entity seçili | Entity Sil · Seçimi Kaldır |
+| Boş alan | Zoom Extents · Boru Çiz · Geri Al · Yinele |
+
+---
+
+## Bölüm 31 — Seçim Araçları — Pencere / Kesişim {#secim-araclari}
+
+VKT, AutoCAD'in Window (Pencere) ve Crossing (Kesişim) seçim yöntemlerini eksiksiz destekler.
+
+### Seçim Kutusu Başlatma
+
+Seçim modunda (`ESC` ile tüm komutlar iptal edilmeli) **boş alana sol tıklayıp sürükleyin**.
+
+### Window Seçimi (Soldan Sağa)
+
+- Fareyi **soldan sağa** sürükleyin.
+- **Mavi düz çerçeve** + açık mavi dolgu belirir.
+- Kutu içine **tam olarak giren** entity'ler seçilir.
+- Etiket: **"Pencere"** (sol üst köşe)
+
+```
+Kullanım: Yalnızca belirli bir oda veya bölgede çalışmak istediğinizde.
+Örnek: Mutfak lavabosunu çizimden izole etmek için sadece o alanı box-seç.
+```
+
+### Crossing Seçimi (Sağdan Sola)
+
+- Fareyi **sağdan sola** sürükleyin.
+- **Yeşil kesikli çerçeve** + açık yeşil dolgu belirir.
+- Kutu ile **kesişen tüm** entity'ler seçilir (tam içinde olmasa da).
+- Etiket: **"Kesişim"** (sol üst köşe)
+
+```
+Kullanım: Bir duvarı geçen boru segmentlerini toplu silmek istediğinizde.
+Örnek: Yeniden çizilecek bir boru güzergahını crossing ile seçip Delete.
+```
+
+### Seçim Sonrası İşlemler
+
+| Tuş / Eylem | Sonuç |
+|-------------|-------|
+| **Delete** | Seçili tüm entity'leri sil (undo'lanabilir) |
+| **ESC** | Aktif seçim kutusunu iptal et; sonra tekrar ESC → seçimi temizle |
+| Başka entity'ye sol tık | Seçimi temizler, yeni entity'yi seçer |
+
+### Çoklu MEP Node Seçimi
+
+MEP node'ları (armatür, kavşak) da Crossing seçimi ile toplu silinebilir:
+
+```
+Sağdan sola seçim kutusu çiz → Delete → CompositeCommand ile tek Undo
+```
+
+---
+
+## Bölüm 32 — Snap Sistemi — Gelişmiş {#snap-sistemi}
+
+### Snap Öncelik Sırası
+
+Birden fazla snap noktası aynı anda etkili olabilir. VKT aşağıdaki öncelik sırasına göre en uygun olanı seçer:
+
+| Öncelik | Snap Tipi | Sembol | Renk |
+|---------|----------|--------|------|
+| 1 (en yüksek) | **Endpoint** — uç nokta | Kare □ | Sarı |
+| 2 | **Center** — daire/yay merkezi | Daire ○ + artı | Cyan |
+| 3 | **Intersection** — çizgi kesişimi | × | Magenta |
+| 4 | **Midpoint** — orta nokta | Üçgen △ | Yeşil |
+| 5 | **Perpendicular** — dik açı | ⌐ | Mavi |
+| 6 | **Nearest** — en yakın nokta | Elmas ◇ | Açık mavi |
+| 7 (en düşük) | **Grid** — ızgara noktası | Artı + nokta | Beyaz |
+
+### Snap Toggle — F3
+
+**F3** tuşu Kesişim (Intersection) snap'ini açıp kapatır.
+
+- Büyük DXF projelerde (15.000+ entity) kesişim snap, AABB ön filtresi sayesinde otomatik olarak yalnızca imleç civarındaki entity'leri kontrol eder — yavaşlama olmaz.
+- Snap toleransı zoom seviyesine göre otomatik ayarlanır.
+
+### Snap Görsel Göstergeler
+
+Snap noktası yakalanınca:
+1. Sembol (üstteki tabloya göre) snap noktasında çizer.
+2. Crosshair ortasında küçük bir boşluk açılır (snap aktif olduğunu gösterir).
+3. Sağ üst köşede etiket (UÇ / ORTA / MERKEZ / KESİŞİM / DİK / YAKIN / GRİD) belirir.
+
+### Snap ile Boru Çizimi
+
+```
+1. PIPE komutunu başlat
+2. Fare ile ucuna yaklaş → sarı kare (Endpoint snap)
+3. Sol tık → boru başlangıcı tam uca sabitlendi
+4. İkinci noktaya yürü → rubber-band önizleme
+5. Sol tık → boru segmenti tamamlandı
+```
+
+> **İpucu:** Snap sembolü görünmeden tıklamayın — boru boşlukta kalır ve açık uç (kırmızı halka) uyarısı verir.
+
+---
+
+## Bölüm 33 — Katman Yöneticisi {#katman-yoneticisi}
+
+### Katman Paneli
+
+Ana pencerenin sağında **"Katmanlar"** dock paneli bulunur. DXF/DWG dosyasındaki tüm katmanlar burada listelenir.
+
+### Seçimle Otomatik Vurgulama
+
+Bir CAD entity'si seçildiğinde (sol tık ile):
+- Entity'nin ait olduğu katman panelde **kalın + altın sarısı arka planla** vurgulanır.
+- Panel başlığı **"Katmanlar — [katman adı]"** olarak güncellenir.
+- Liste, vurgulanan satıra kaydırılır.
+
+Bu davranış AutoCAD'in "Properties → Layer" kutusunun anlık güncellenmesiyle aynı amacı taşır — hangi katmanda çalıştığınızı her an görürsünüz.
+
+### Katman Görünürlüğü
+
+MEP sistemleri (Temiz Su / Sıcak Su / Pis Su) katman bazlı kapatılabilir:
+
+```
+Görünüm → Katman Görünürlüğü   (Ctrl+Shift+L)
+Komut: KATMAN
+```
+
+| Seçenek | Tipik Kullanım |
+|---------|---------------|
+| ☑ Temiz Su | Temiz su çizimi + hidrolik analiz |
+| ☑ Sıcak Su | Sıcak su devresini ayrı kontrol et |
+| ☑ Pis Su | Drenaj sistemi çizimi |
+
+Kapalı sistemlerin boru çizgileri ve DN etiketleri gizlenir — AutoHydro hâlâ tüm sistemi hesaplar.
+
+### Katman Renklerini DXF'den Alma
+
+DXF import sırasında her katmanın rengi orijinal dosyadan alınır. Katman rengi değiştirmek için DXF dosyasını kaynak programında (AutoCAD, LibreCAD) düzenleyin ve yeniden import edin.
+
+> **Not:** VKT'de şu an için katman renk düzenleme dialog'u yoktur. Bu özellik gelecek sürümlerde planlanmaktadır.
 
 ---
 
