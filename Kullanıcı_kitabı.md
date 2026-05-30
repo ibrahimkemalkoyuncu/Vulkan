@@ -834,7 +834,7 @@ Tablo sütunları: **Devre No / Tip / Malzeme / DN / L (m) / Q (L/s) / v (m/s) /
 
 ---
 
-## Bölüm 22e — Word/HTML Rapor {#word-rapor}
+## Bölüm 22e — Word RTF Rapor {#word-rapor}
 
 FineSANI'nin "Word Dosyası Oluştur" özelliğine karşılık gelir.
 
@@ -849,7 +849,7 @@ Oluşturulan rapor içeriği:
 3. **Kritik Devre ve Hidrofor** — toplam kayıp + gerekli pompa yüksekliği
 4. **Armatür Listesi** — tip, LU, debi
 
-Dosya `.htm` formatında kaydedilir — **Microsoft Word** ve tüm tarayıcılar açar. `rapor/` klasörüne otomatik yol önerisi gelir.
+Dosya **`.rtf`** (Rich Text Format) olarak kaydedilir — **Microsoft Word** ve WordPad doğrudan açar, harici kütüphane gerekmez. Türkçe karakterler RTF `\uXXXX?` escape ile tam korunur. `rapor/` klasörüne otomatik yol önerisi gelir.
 
 ---
 
@@ -882,6 +882,15 @@ Komut: PAFTA  veya  PRINT
 | Firma | Mühendislik bürosu adı |
 | Çizen | Baş harfler |
 | Tarih | Otomatik — bugünün tarihi |
+| **Firma Logosu** | **PNG / JPG / BMP / SVG — opsiyonel** |
+
+**Firma Logosu Yükleme:**
+
+1. "Yükle..." butonuna tıklayın.
+2. Logo dosyasını seçin (PNG/JPG/BMP/SVG).
+3. 120×40 px önizleme alanda logo görünür.
+4. PDF çıktısında başlık bloğunun firma alanında logo render edilir.
+5. Logoyu kaldırmak için "Temizle" butonuna tıklayın.
 
 **Çıktı:**
 - **PDF Kaydet** → standart A3/A4 PDF; `rapor/` klasörüne önerilen yol
@@ -1006,7 +1015,7 @@ Hatalar varsa, iletişim kutusunda listelenir — düzeltin ve tekrar `KABUL`.
 23. RISER    → kolon şeması önizle, PDF/SVG kaydet
 24. DN-OVERRIDE → gerekirse manuel DN düzelt, XLS hesap föyü
 25. BOM      → keşif listesi (metraj + bağlantı)
-26. WORD     → Word/HTML rapor oluştur (tarayıcı veya Word ile açılır)
+26. WORD     → Word RTF rapor oluştur (Word / WordPad doğrudan açar)
 27. Analiz → Rapor Dışa Aktar → rapor/ klasörüne
 ```
 
@@ -1225,7 +1234,7 @@ Rapor içeriği:
 - Kritik devre özeti
 - Armatür / keşif listesi
 
-Rapor **`rapor/`** klasörüne `.htm` uzantısıyla kaydedilir — Word ve tüm tarayıcılar açar.
+Rapor **`rapor/`** klasörüne `.rtf` uzantısıyla kaydedilir — Word ve WordPad doğrudan açar.
 
 > **Not:** VKT'de proje klasörü `ProjectManager` ile yönetilir. Proje kök klasörünü ayarlarsanız (`Dosya → Proje Kök Klasörü Ayarla`) rapor otomatik doğru yola kaydedilir.
 

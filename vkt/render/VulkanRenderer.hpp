@@ -36,6 +36,9 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
+#include <mutex>
+#include <future>
+#include <atomic>
 
 namespace vkt {
 namespace render {
@@ -126,6 +129,9 @@ public:
     void RenderCADEntities(const std::vector<std::unique_ptr<cad::Entity>>& entities);
     void InvalidateCADData()     { m_cadDirty     = true; }
     void InvalidateNetworkData() { m_networkDirty = true; }
+
+    // Async CAD build tamamlanana kadar bekle (entity silinmeden önce çağrılmalı)
+    void WaitForCADBuild();
 
     // Gizmo
     Gizmo&       GetGizmo()               { return m_gizmo; }
@@ -320,6 +326,18 @@ private:
     bool m_cadDirty     = true;
     bool m_networkDirty = true;
     bool m_gridDirty    = true;
+
+    // Async CAD vertex build — CPU ağır iş arka planda, GPU upload render thread'de
+    std::mutex              m_cadStagingMutex;
+    std::future<void>       m_cadBuildFuture;
+    std::atomic<bool>       m_cadBuildReady{false};
+    std::vector<geom::Vertex> m_stagingVerts;
+    std::vector<geom::Vertex> m_stagingFatVerts;
+    std::vector<geom::Vertex> m_stagingHatchVerts;
+
+    void UploadCADBuffers(const std::vector<geom::Vertex>& verts,
+                          const std::vector<geom::Vertex>& fatVerts,
+                          const std::vector<geom::Vertex>& hatchVerts);
 
     // Cihaz limitleri — linewidth için
     float m_deviceMaxLineWidth = 1.0f;

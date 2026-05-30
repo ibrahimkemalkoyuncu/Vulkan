@@ -21,6 +21,25 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <vector>
+
+// Minimal base64 encode — SVG <image> data URI için
+static std::string Base64Encode(const std::vector<unsigned char>& data) {
+    static const char* kAlpha =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((data.size() + 2) / 3) * 4);
+    for (size_t i = 0; i < data.size(); i += 3) {
+        unsigned b0 = data[i];
+        unsigned b1 = (i + 1 < data.size()) ? data[i + 1] : 0u;
+        unsigned b2 = (i + 2 < data.size()) ? data[i + 2] : 0u;
+        out += kAlpha[(b0 >> 2) & 0x3F];
+        out += kAlpha[((b0 & 3) << 4) | (b1 >> 4)];
+        out += (i + 1 < data.size()) ? kAlpha[((b1 & 0xF) << 2) | (b2 >> 6)] : '=';
+        out += (i + 2 < data.size()) ? kAlpha[b2 & 0x3F] : '=';
+    }
+    return out;
+}
 
 namespace vkt {
 namespace ui {
@@ -355,6 +374,38 @@ void PrintLayout::WriteSVGTitleBlock(std::ostream& out,
     field(col1X,  tbY+hw, "STANDART",  m_titleBlock.standard);
     field(col2X,  tbY,    "PAFTA NO",  m_titleBlock.drawingNumber + " / Rev:" + m_titleBlock.revision);
     field(col2X,  tbY+hw, "ÖLÇEK / TARİH", m_titleBlock.scale + "  " + m_titleBlock.date);
+
+    // Firma logosu — varsa FİRMA hücresinin sağ yarısında <image> olarak göm
+    if (!m_titleBlock.logoPath.empty()) {
+        std::ifstream logoFile(m_titleBlock.logoPath, std::ios::binary);
+        if (logoFile) {
+            std::vector<unsigned char> logoBytes(
+                (std::istreambuf_iterator<char>(logoFile)),
+                std::istreambuf_iterator<char>());
+            if (!logoBytes.empty()) {
+                // MIME type uzantıdan
+                std::string mime = "image/png";
+                const auto& p = m_titleBlock.logoPath;
+                if (p.size() > 4) {
+                    std::string ext = p.substr(p.size() - 4);
+                    for (auto& c : ext) c = static_cast<char>(::tolower(c));
+                    if (ext == ".jpg" || ext == "jpeg") mime = "image/jpeg";
+                    else if (ext == ".bmp")             mime = "image/bmp";
+                    else if (ext == ".svg")             mime = "image/svg+xml";
+                }
+                std::string b64 = Base64Encode(logoBytes);
+                // Logo: FİRMA hücresinin sağ yarısı, dikey ortalanmış
+                double imgX = col1X + TB_COL2 * 0.52;
+                double imgW = TB_COL2 * 0.46;
+                double imgH = hw * 0.8;
+                double imgY = tbY + (hw - imgH) / 2.0;
+                out << "<image x=\"" << imgX << "\" y=\"" << imgY << "\""
+                    << " width=\"" << imgW << "\" height=\"" << imgH << "\""
+                    << " preserveAspectRatio=\"xMidYMid meet\""
+                    << " href=\"data:" << mime << ";base64," << b64 << "\"/>\n";
+            }
+        }
+    }
 }
 
 void PrintLayout::WriteSVGViewport(std::ostream& out,

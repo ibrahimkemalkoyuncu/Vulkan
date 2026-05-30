@@ -216,6 +216,19 @@ void PrintLayoutDialog::SetInitialTitleBlock(const TitleBlock& tb) {
     if (m_edtDrawnBy)      m_edtDrawnBy->setText(QString::fromStdString(tb.drawnBy));
     if (m_edtDate && !tb.date.empty())
         m_edtDate->setText(QString::fromStdString(tb.date));
+
+    // Logo restore: daha önce kaydedilmiş bir logo varsa yeniden yükle
+    if (!tb.logoPath.empty() && m_lblLogoPreview && m_btnClearLogo) {
+        QPixmap px(QString::fromStdString(tb.logoPath));
+        if (!px.isNull()) {
+            m_logoPixmap = px;
+            m_logoPath   = QString::fromStdString(tb.logoPath);
+            m_lblLogoPreview->setPixmap(
+                px.scaled(m_lblLogoPreview->size(),
+                           Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            m_btnClearLogo->setEnabled(true);
+        }
+    }
 }
 
 void PrintLayoutDialog::OnPageSizeChanged(int /*index*/) {

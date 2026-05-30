@@ -5651,6 +5651,8 @@ void MainWindow::HighlightLayerInPanel(const std::string& layerName) {
 // CAD entity pointer cache — O(1) drag lookup + snap vektörü
 // ─────────────────────────────────────────────────────────────────────────────
 void MainWindow::RebuildCADEntityCache() {
+    // Entity vektörü değişmeden önce async CAD build'i tamamlat
+    if (m_vulkanWindow) m_vulkanWindow->WaitForCADBuild();
     m_cadEntityCache.clear();
     m_snapEntityCache.clear();
     if (!m_document) return;

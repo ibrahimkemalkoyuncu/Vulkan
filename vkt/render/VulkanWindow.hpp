@@ -63,6 +63,9 @@ public:
     /// MEP ağı değişince network vertex buffer'ı yeniden oluştur
     void InvalidateNetworkData() { m_renderer.InvalidateNetworkData(); }
 
+    /// Async CAD build bitmeden entity silme/undo gibi işlemlere izin verme
+    void WaitForCADBuild() { m_renderer.WaitForCADBuild(); }
+
     /// Mouse callback'leri (DrawTool/SelectionManager bağlantısı için)
     using MouseCallback = std::function<void(double worldX, double worldY, Qt::MouseButton button)>;
     using MoveCallback = std::function<void(double worldX, double worldY)>;

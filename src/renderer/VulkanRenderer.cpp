@@ -1722,13 +1722,38 @@ void VulkanRenderer::RenderCADEntities(const std::vector<std::unique_ptr<cad::En
         return;
     }
 
+    // Tamamlanmış async build varsa GPU'ya yükle
+    if (m_cadBuildReady.load()) {
+        m_cadBuildReady = false;
+        if (m_cadBuildFuture.valid()) m_cadBuildFuture.get(); // istisnaları yakala
+        std::lock_guard<std::mutex> lk(m_cadStagingMutex);
+        UploadCADBuffers(m_stagingVerts, m_stagingFatVerts, m_stagingHatchVerts);
+        LogCAD("[RenderCADEntities] Async build tamamlandi, " + std::to_string(m_cadLineVertexCount) + " vertex yuklendi");
+    }
+
     if (m_cadDirty) {
-        LogCAD("[RenderCADEntities] m_cadDirty=true, updating vertex data for "
-               + std::to_string(entities.size()) + " entities");
-        UpdateCADVertexData(entities);
         m_cadDirty = false;
-        LogCAD("[RenderCADEntities] After update: vertexCount=" + std::to_string(m_cadLineVertexCount)
-               + " buffer=" + std::string(m_cadVertexBuffer ? "valid" : "NULL"));
+        const bool launchAsync = (entities.size() > 2000);
+
+        if (launchAsync) {
+            // Önceki build bitmemişse atla — dirty flag zaten temizlendi, bir sonraki frame'de tekrar denenecek
+            bool prevRunning = m_cadBuildFuture.valid() &&
+                m_cadBuildFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready;
+            if (prevRunning) {
+                m_cadDirty = true; // bir sonraki frame'e ertele
+            } else {
+                if (m_cadBuildFuture.valid()) m_cadBuildFuture.get(); // öncekini temizle
+                LogCAD("[RenderCADEntities] Async build baslatiliyor: " + std::to_string(entities.size()) + " entity");
+                m_cadBuildFuture = std::async(std::launch::async,
+                    [this, &entities]() { UpdateCADVertexData(entities); });
+            }
+        } else {
+            // Kücük proje: senkron (anında)
+            LogCAD("[RenderCADEntities] Senkron build: " + std::to_string(entities.size()) + " entity");
+            UpdateCADVertexData(entities);
+            LogCAD("[RenderCADEntities] After update: vertexCount=" + std::to_string(m_cadLineVertexCount)
+                   + " buffer=" + std::string(m_cadVertexBuffer ? "valid" : "NULL"));
+        }
     }
 
     VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
@@ -2272,6 +2297,27 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
     LogCAD("[UpdateCAD] Vertex bounds: (" + std::to_string(minX) + "," + std::to_string(minY)
            + ") -> (" + std::to_string(maxX) + "," + std::to_string(maxY) + ")");
 
+    // Async modunda: staging vektörlerine yaz, GPU upload render thread'inde yapılacak
+    if (m_cadBuildFuture.valid()) {
+        std::lock_guard<std::mutex> lk(m_cadStagingMutex);
+        m_stagingVerts     = std::move(vertices);
+        m_stagingFatVerts  = std::move(fatVertices);
+        m_stagingHatchVerts = std::move(hatchVertices);
+        m_cadBuildReady = true;
+        return;
+    }
+
+    // Senkron mod: doğrudan GPU upload
+    UploadCADBuffers(vertices, fatVertices, hatchVertices);
+}
+
+void VulkanRenderer::WaitForCADBuild() {
+    if (m_cadBuildFuture.valid()) m_cadBuildFuture.wait();
+}
+
+void VulkanRenderer::UploadCADBuffers(const std::vector<geom::Vertex>& vertices,
+                                      const std::vector<geom::Vertex>& fatVertices,
+                                      const std::vector<geom::Vertex>& hatchVertices) {
     m_cadLineVertexCount = static_cast<uint32_t>(vertices.size());
     if (m_cadLineVertexCount == 0) return;
 
