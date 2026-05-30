@@ -11,6 +11,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QLabel>
+#include <QPixmap>
 #include "ui/PrintLayout.hpp"
 
 namespace vkt {
@@ -64,11 +65,21 @@ private:
     QComboBox* m_cmbScale     = nullptr;
     QCheckBox* m_chkAutoScale = nullptr;
 
+    // Firma logosu
+    QLabel*      m_lblLogoPreview = nullptr;
+    QPushButton* m_btnLoadLogo    = nullptr;
+    QPushButton* m_btnClearLogo   = nullptr;
+    QPixmap      m_logoPixmap;
+    QString      m_logoPath;
+
     // Durum etiketi
     QLabel* m_lblStatus = nullptr;
 
     QPushButton* m_btnPDF = nullptr;
     QPushButton* m_btnSVG = nullptr;
+
+    void OnLoadLogo();
+    void OnClearLogo();
 };
 
 } // namespace ui

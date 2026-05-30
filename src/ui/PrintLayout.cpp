@@ -14,6 +14,7 @@
 #include <QRectF>
 #include <QString>
 #include <QColor>
+#include <QPixmap>
 
 #include <fstream>
 #include <sstream>
@@ -168,6 +169,23 @@ bool PrintLayout::ExportToPDF(const std::string& filePath) const {
     // Orta blok
     drawField(col1X, tbY,  TB_COL2, hw, "FİRMA",     m_titleBlock.company);
     drawField(col1X, midY, TB_COL2, hw, "STANDART",  m_titleBlock.standard);
+
+    // Firma logosu — varsa FİRMA alanının sağ üst köşesine
+    if (!m_titleBlock.logoPath.empty()) {
+        QPixmap logo(QString::fromStdString(m_titleBlock.logoPath));
+        if (!logo.isNull()) {
+            double logoX = col1X + TB_COL2 * 0.5;
+            double logoW = TB_COL2 * 0.48;
+            double logoH = hw * 0.85;
+            QPixmap scaled = logo.scaled(
+                static_cast<int>(toPixels(logoW)),
+                static_cast<int>(toPixels(logoH)),
+                Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            double cx = toPixels(logoX + (logoW - scaled.width()  / printer.resolution() * 25.4) / 2.0);
+            double cy = toPixels(tbY   + (hw    - scaled.height() / printer.resolution() * 25.4) / 2.0);
+            painter.drawPixmap(static_cast<int>(cx), static_cast<int>(cy), scaled);
+        }
+    }
 
     // Sağ blok
     drawField(col2X, tbY,      TB_COL1, hw*0.5, "PAFTA NO",   m_titleBlock.drawingNumber);

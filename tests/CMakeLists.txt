@@ -32,6 +32,7 @@ set(TEST_SOURCES
     test_persistence.cpp
     test_dxf_import.cpp
     test_dwg_colors.cpp
+    test_export.cpp
 )
 
 # Test executable
@@ -79,7 +80,14 @@ target_sources(vkt_tests PRIVATE
 # CTest entegrasyonu
 include(CTest)
 include(Catch)
+set(MINGW_PATH "C:/Qt/Tools/mingw1310_64/bin")
+set(VCPKG_PATH "C:/vcpkg/installed/x64-windows/bin")
+set_property(TARGET vkt_tests PROPERTY
+    VS_DEBUGGER_ENVIRONMENT "PATH=${MINGW_PATH}\;${VCPKG_PATH}\;C:/Windows/System32\;C:/Windows")
+
 catch_discover_tests(vkt_tests
     DISCOVERY_MODE PRE_TEST
-    PROPERTIES ENVIRONMENT "PATH=C:/Qt/Tools/mingw1310_64/bin\;C:/vcpkg/installed/x64-windows/bin\;C:/Windows/System32\;C:/Windows"
+    DISCOVERY_EXTRA_ARGS "--allow-running-no-tests"
+    PROPERTIES ENVIRONMENT "PATH=${MINGW_PATH}\;${VCPKG_PATH}\;C:/Windows/System32\;C:/Windows"
+    DL_PATHS "${MINGW_PATH}" "${VCPKG_PATH}"
 )

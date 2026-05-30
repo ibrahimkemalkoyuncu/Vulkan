@@ -42,6 +42,7 @@ struct TitleBlock {
     std::string scale;          ///< Ölçek (ör. "1:50")
     std::string company;        ///< Firma adı
     std::string standard = "TS EN 806-3 / EN 12056-2";
+    std::string logoPath;       ///< Firma logosu dosya yolu (PNG/JPEG/SVG) — boşsa logo yok
 };
 
 /**

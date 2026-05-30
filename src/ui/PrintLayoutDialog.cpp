@@ -15,6 +15,9 @@
 #include <QDate>
 #include <QDir>
 #include <QString>
+#include <QPixmap>
+#include <QImageReader>
+#include <QFileInfo>
 
 namespace vkt {
 namespace ui {
@@ -85,6 +88,25 @@ void PrintLayoutDialog::BuildUI() {
     fTB->addRow("Çizen:",           m_edtDrawnBy);
     fTB->addRow("Tarih:",           m_edtDate);
 
+    // Logo satırı
+    auto* logoRow = new QHBoxLayout();
+    m_lblLogoPreview = new QLabel("Logo yüklenmedi");
+    m_lblLogoPreview->setFixedSize(120, 40);
+    m_lblLogoPreview->setAlignment(Qt::AlignCenter);
+    m_lblLogoPreview->setStyleSheet(
+        "QLabel { border:1px solid #aaa; background:#f8f8f8; color:#888; font-size:10px; }");
+    m_btnLoadLogo  = new QPushButton("Yükle...");
+    m_btnClearLogo = new QPushButton("Temizle");
+    m_btnClearLogo->setEnabled(false);
+    logoRow->addWidget(m_lblLogoPreview);
+    logoRow->addWidget(m_btnLoadLogo);
+    logoRow->addWidget(m_btnClearLogo);
+    logoRow->addStretch();
+    fTB->addRow("Firma Logosu:", logoRow);
+
+    connect(m_btnLoadLogo,  &QPushButton::clicked, this, &PrintLayoutDialog::OnLoadLogo);
+    connect(m_btnClearLogo, &QPushButton::clicked, this, &PrintLayoutDialog::OnClearLogo);
+
     mainLayout->addWidget(grpTB);
 
     // ── Durum ────────────────────────────────────────────────
@@ -119,14 +141,44 @@ TitleBlock PrintLayoutDialog::ReadTitleBlock() const {
     tb.drawnBy       = m_edtDrawnBy->text().toStdString();
     tb.date          = m_edtDate->text().toStdString();
     tb.standard      = "TS EN 806-3 / EN 12056-2";
+    tb.logoPath      = m_logoPath.toStdString();
 
-    // Ölçek
     if (m_chkAutoScale->isChecked()) {
         tb.scale = "Otomatik";
     } else {
         tb.scale = m_cmbScale->currentText().toStdString();
     }
     return tb;
+}
+
+void PrintLayoutDialog::OnLoadLogo() {
+    QString path = QFileDialog::getOpenFileName(
+        this, "Firma Logosu Seç", QString(),
+        "Resim Dosyaları (*.png *.jpg *.jpeg *.bmp *.svg);;Tüm Dosyalar (*)");
+    if (path.isEmpty()) return;
+
+    QPixmap px(path);
+    if (px.isNull()) {
+        QMessageBox::warning(this, "Logo Yüklenemedi",
+            "Dosya okunamadı veya desteklenmeyen format:\n" + path);
+        return;
+    }
+
+    m_logoPixmap = px;
+    m_logoPath   = path;
+    m_lblLogoPreview->setPixmap(
+        px.scaled(m_lblLogoPreview->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    m_btnClearLogo->setEnabled(true);
+    m_lblStatus->setText("Logo yüklendi: " + QFileInfo(path).fileName());
+}
+
+void PrintLayoutDialog::OnClearLogo() {
+    m_logoPixmap = QPixmap();
+    m_logoPath.clear();
+    m_lblLogoPreview->setPixmap(QPixmap());
+    m_lblLogoPreview->setText("Logo yüklenmedi");
+    m_btnClearLogo->setEnabled(false);
+    m_lblStatus->setText("Logo temizlendi.");
 }
 
 PrintLayout PrintLayoutDialog::GetConfiguredLayout() const {
