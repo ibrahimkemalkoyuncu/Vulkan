@@ -189,20 +189,22 @@ bool PrintLayout::ExportToPDF(const std::string& filePath) const {
     drawField(col1X, tbY,  TB_COL2, hw, "FİRMA",     m_titleBlock.company);
     drawField(col1X, midY, TB_COL2, hw, "STANDART",  m_titleBlock.standard);
 
-    // Firma logosu — varsa FİRMA alanının sağ üst köşesine
+    // Firma logosu — FİRMA hücresinin sağ yarısına, 1mm iç boşlukla ortalanmış
     if (!m_titleBlock.logoPath.empty()) {
         QPixmap logo(QString::fromStdString(m_titleBlock.logoPath));
         if (!logo.isNull()) {
-            double logoX = col1X + TB_COL2 * 0.5;
-            double logoW = TB_COL2 * 0.48;
-            double logoH = hw * 0.85;
-            QPixmap scaled = logo.scaled(
-                static_cast<int>(toPixels(logoW)),
-                static_cast<int>(toPixels(logoH)),
-                Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            double cx = toPixels(logoX + (logoW - scaled.width()  / printer.resolution() * 25.4) / 2.0);
-            double cy = toPixels(tbY   + (hw    - scaled.height() / printer.resolution() * 25.4) / 2.0);
-            painter.drawPixmap(static_cast<int>(cx), static_cast<int>(cy), scaled);
+            const double kPad = 1.0; // mm iç boşluk
+            QRectF cell(toPixels(col1X + TB_COL2 * 0.5 + kPad),
+                        toPixels(tbY + kPad),
+                        toPixels(TB_COL2 * 0.5 - 2 * kPad),
+                        toPixels(hw - 2 * kPad));
+            // Aspect-ratio koruyan ölçek, hücre içinde ortala
+            QSizeF fit = QSizeF(logo.width(), logo.height())
+                             .scaled(cell.size(), Qt::KeepAspectRatio);
+            QRectF dest(cell.x() + (cell.width()  - fit.width())  / 2.0,
+                        cell.y() + (cell.height() - fit.height()) / 2.0,
+                        fit.width(), fit.height());
+            painter.drawPixmap(dest.toRect(), logo);
         }
     }
 

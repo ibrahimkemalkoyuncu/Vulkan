@@ -642,13 +642,17 @@ void DWGReader::ExpandXref(const std::string& xrefPath,
 
     // Load the external file with a separate reader
     DWGReader sub;
-    sub.m_filePath = resolved;
-    sub.m_layerFilter = m_layerFilter;
-    sub.m_visitedXrefs = m_visitedXrefs; // döngüsel ref setini devret
+    sub.m_filePath        = resolved;
+    sub.m_layerFilter     = m_layerFilter;
+    sub.m_visitedXrefs    = m_visitedXrefs;    // döngüsel ref korumasını devret
+    sub.m_xrefSearchPaths = m_xrefSearchPaths; // nested xref arama dizinlerini devret
     if (!sub.Read(resolved)) {
         std::cout << "[DWGReader] xref load failed: " << resolved << std::endl;
         return;
     }
+    // Nested xref'lerden bulunamayan dosyaları üst okuyucuya aktar
+    for (const auto& missing : sub.m_missingXrefs)
+        m_missingXrefs.push_back(missing);
 
     // Take entities from sub-reader and apply transform chain
     auto subEnts = sub.TakeEntities();

@@ -89,3 +89,41 @@ TEST_CASE("DWG color distribution after fix", "[dwg][color]") {
     REQUIRE(entities.size() > 0);
     REQUIRE(whiteLayerCount < (int)layers.size()); // en az bir renkli layer olmalı
 }
+
+// ── Xref API ve nested chain propagasyon testleri ──────────────────────────
+
+TEST_CASE("DWGReader xref search paths API", "[dwg][xref]") {
+    DWGReader reader;
+
+    // Başlangıçta boş
+    CHECK(reader.GetMissingXrefs().empty());
+
+    // Search path ekle
+    reader.AddXrefSearchPath("C:/test/path1");
+    reader.AddXrefSearchPath("C:/test/path2");
+
+    // Temizle
+    reader.ClearXrefSearchPaths();
+
+    // Tekrar ekle — crash olmamalı
+    reader.AddXrefSearchPath("C:/another/path");
+    CHECK(reader.GetMissingXrefs().empty()); // henüz Read() yapılmadı
+}
+
+TEST_CASE("DWGReader missing xrefs starts empty", "[dwg][xref]") {
+    DWGReader reader;
+    // Read() çağrılmadan missing xrefs boş olmalı
+    REQUIRE(reader.GetMissingXrefs().empty());
+}
+
+TEST_CASE("DWGReader multiple search paths dont crash on nonexistent file", "[dwg][xref]") {
+    DWGReader reader;
+    reader.AddXrefSearchPath("C:/totally/nonexistent/path");
+    reader.AddXrefSearchPath("D:/another/nonexistent");
+
+    // Var olmayan dosyayı okuma denemesi — false dönmeli, crash olmamalı
+    bool ok = reader.Read("C:/nonexistent_file_abc123.dwg");
+    CHECK(!ok);
+    // GetMissingXrefs() boş olmalı (xref arama aşamasına ulaşılmadı)
+    CHECK(reader.GetMissingXrefs().empty());
+}

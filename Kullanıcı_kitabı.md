@@ -41,6 +41,7 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 31. [Seçim Araçları — Pencere / Kesişim](#secim-araclari)
 32. [Snap Sistemi — Gelişmiş](#snap-sistemi)
 33. [Katman Yöneticisi](#katman-yoneticisi)
+34. [Firma Logosu & Pafta Export](#logo-pafta)
 
 ---
 
@@ -1616,6 +1617,105 @@ Kapalı sistemlerin boru çizgileri ve DN etiketleri gizlenir — AutoHydro hâl
 DXF import sırasında her katmanın rengi orijinal dosyadan alınır. Katman rengi değiştirmek için DXF dosyasını kaynak programında (AutoCAD, LibreCAD) düzenleyin ve yeniden import edin.
 
 > **Not:** VKT'de şu an için katman renk düzenleme dialog'u yoktur. Bu özellik gelecek sürümlerde planlanmaktadır.
+
+---
+
+---
+
+## Bölüm 34 — Firma Logosu & Pafta Export {#logo-pafta}
+
+Bu bölüm, mühendislik bürolarının pafta çıktılarına logo eklemesini ve VKT'nin PDF/SVG export özelliklerini kapsamlı şekilde açıklar.
+
+---
+
+### Firma Logosu Yükleme
+
+Logo, ISO 7200 başlık bloğunun **FİRMA** hücresine gömülür. PDF ve SVG çıktılarının her ikisinde de görünür.
+
+```
+Analiz → Pafta Düzenle ve Yaz...   (Ctrl+P)
+```
+
+Açılan diyalogda Başlık Bloğu bölümünde:
+
+| Adım | İşlem |
+|------|-------|
+| 1 | **"Yükle..."** butonuna tıkla |
+| 2 | PNG / JPG / BMP / SVG dosyasını seç |
+| 3 | 120×40 piksel önizleme alanda logo görünür |
+| 4 | **PDF Kaydet** veya **SVG Kaydet** ile çıktı al |
+| 5 | Logoyu kaldırmak için **"Temizle"** butonu |
+
+**Desteklenen formatlar:**
+
+| Format | PDF | SVG | Notlar |
+|--------|-----|-----|--------|
+| PNG | ✅ | ✅ | Şeffaf arka plan desteklenir |
+| JPG / JPEG | ✅ | ✅ | Beyaz arka plan önerilir |
+| BMP | ✅ | ✅ | |
+| SVG | ✅ | ✅ | SVG'de base64 olarak gömülür |
+
+---
+
+### PDF Çıktısında Logo Konumu
+
+Logo, **FİRMA** hücresinin sağ yarısına 1 mm iç boşlukla yerleştirilir. Aspect ratio (en/boy oranı) otomatik korunur; logo hücreye sığacak şekilde ölçeklenir ve ortalanır.
+
+```
+┌──────────────────────┬──────────────┬────────────┐
+│     PROJE ADI        │  FİRMA adı   │  LOGO      │
+│     ————————————     │  ──────────  │  [Resim]   │
+│     PAFTA ADI        │  STANDART    │  ölçek/tar │
+└──────────────────────┴──────────────┴────────────┘
+```
+
+> **İpucu:** Logo dosyası taşınırsa bir sonraki açılışta VKT logoyu otomatik olarak yeniden yükler (`SetInitialTitleBlock` logo restore). Logo dosyası silinmişse hücre boş kalır.
+
+---
+
+### SVG Çıktısında Logo
+
+SVG formatında logo, dosya içine **Base64 olarak gömülür** — ayrı bir logo dosyasına gerek kalmaz. Gönderilen SVG dosyası bağımsız çalışır.
+
+```html
+<!-- SVG içindeki logo örneği -->
+<image x="..." y="..." width="..." height="..."
+       preserveAspectRatio="xMidYMid meet"
+       href="data:image/png;base64,iVBORw0KGgo..."/>
+```
+
+---
+
+### Pafta Export Karşılaştırması
+
+| Özellik | PDF | SVG |
+|---------|-----|-----|
+| Format | İkili (baskı kalitesi) | Vektörel XML |
+| Kağıt boyutu | A3 / A4 Yatay/Dikey | Aynı |
+| Ölçek | Otomatik veya 1:20 → 1:500 | Aynı |
+| Logo | QPainter ile render | Base64 gömülü |
+| Açılış | Adobe Acrobat, tarayıcı | Tarayıcı, Inkscape, CAD |
+| Düzenleme | — | SVG editöründe düzenlenebilir |
+| Önerilen | Baskı / Onay | Web paylaşımı / Teknik sunum |
+
+---
+
+### Pafta Çıktı İş Akışı — Özet
+
+```
+1. KABUL        → tesisatı onayla + numaralandır
+2. HYDRAULICS   → DN etiketleri güncelle
+3. BASKI        → hangi etiketler görünsün seç
+4. PAFTA        → diyalog aç (Ctrl+P)
+5.   Kağıt: A3 Yatay
+6.   Ölçek: Otomatik veya 1:50
+7.   Başlık bloğunu doldur (proje adı, pafta no, çizen)
+8.   Logo: Yükle... → firma logosu seç
+9.   PDF Kaydet → rapor/ klasörüne
+10. RISER       → kolon şeması PDF (A3 Yatay) ayrıca kaydet
+```
+
+> **FineSANI farkı:** FineSANI'de pafta antetine logo eklemek mümkün değildir (statik şablon). VKT her projede farklı logo ve başlık bloğu kullanabilir.
 
 ---
 
