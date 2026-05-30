@@ -1,73 +1,138 @@
-# VKT - Mekanik Tesisat Draw
+# VKT — Mekanik Tesisat Draw
 
-**Vulkan Tabanlı Profesyonel Sıhhi Tesisat CAD Yazılımı**
+**Vulkan + Qt6 tabanlı profesyonel MEP (Su Tesisatı & Drenaj) CAD yazılımı**
 
-## 🎯 Proje Hedefi
-FINE SANI'yi geçen, mühendislik hesapları ile donatılmış, modern bir MEP (Tesisat) CAD yazılımı.
+Türkiye/AB standartlarına uygun tesisat tasarımı, hidrolik hesap ve pafta üretimi.  
+Hedef: 4M FINE SANI'yi her açıdan geride bırakmak.
 
-## 🏗️ Mimari
+---
 
-### **Çekirdek Teknolojiler**
-- **Vulkan**: Yüksek performanslı 3D rendering
-- **Qt6**: Modern UI framework
-- **C++17**: Gelişmiş dil özellikleri
+## Özellikler
 
-### **Modüller**
-1. **vkt::core** - Temel CAD altyapısı (Document, Command Pattern)
-2. **vkt::geom** - Geometrik işlemler (B-Rep, 3D Math)
-3. **vkt::mep** - Tesisat mühendisliği (Hidrolik hesap, veritabanı)
-4. **vkt::render** - Vulkan rendering motoru
-5. **vkt::ui** - Kullanıcı arayüzü
+### CAD Motoru
+- DXF import (ASCII, tüm entity türleri, `$INSUNITS` birim dönüşümü)
+- DWG import (LibreDWG; INSERT/MINSERT genişletme, xref zincirleri, Spline/Ellipse tessellation)
+- DXF export (R2000 tam proje + kat bazlı)
+- Snap sistemi: Endpoint › Center › Intersection › Midpoint › Perpendicular › Nearest › Grid (F3 toggle)
+- AutoCAD uyumlu seçim: Window (soldan sağa, mavi) / Crossing (sağdan sola, yeşil)
+- Entity sürükleme, Delete, Undo/Redo (Command Pattern, sınırsız geçmiş)
+- Katman yöneticisi (seçimle otomatik vurgulama)
+- Boyutlandırma (Dimension), Metin (Text/MText, word-wrap), Hatch entity
 
-## 📐 Mühendislik Özellikleri
+### MEP Mühendislik Motoru
+- Temiz su (TS EN 806-3): LU→debi, Darcy-Weisbach, Haaland, kritik devre, pompa boyutlandırma
+- Pis su (EN 12056-2): DU toplama, Manning, h/d doluluk (%50 sınır)
+- Sıcak su: şofben/kazan, ayrı renk kodlu devre
+- Yağmur suyu (EN 12056-3): çatı alanı × yüzey katsayısı × yoğunluk
+- DIN 1988-300 alternatif norm; norm karşılaştırma tablosu
+- Gerçek zamanlı AutoHydro (600 ms debounce, boru/armatür değişince otomatik hesap)
+- Kritik devre 3D vurgulama (turuncu)
 
-### **Hidrolik Analiz**
-- ✅ Darcy-Weisbach / Haaland (Besleme hatları)
-- ✅ EN 12056 (Atık su / Drenaj)
-- ✅ Zeta faktörü (Lokal kayıplar)
-- ✅ Kritik devre analizi (Pompa yüksekliği)
+### Hesap Araçları
+- Foseptik / Kapalı Çukur (TS 822 + EN 12566-1)
+- Emdirme Çukuru, Pis Su Çukuru, Pis Su Pompası (DIN EN 12050-1)
+- Membranlı Genleşme Tankı (EN 12828)
+- Hidrofor boyutlandırma
+- Norm Karşılaştırma (EN 806-3 vs DIN 1988-300)
+- Hesap Kararı — "Neden Bu Çap?" analizi
 
-### **Mimari Entegrasyon**
-- ✅ DXF import
-- ✅ B-Rep tabanlı mahal (space) tespiti
-- ✅ Alan hesabı ve yük dağılımı
+### Çizim Araçları
+- Boru çizim tool (state machine, rubber-band önizleme, zincir çizim)
+- Armatür yerleştirme (2-tıklama: konum + yön)
+- BAGLA — armatürü ana hatta dal boru + T-kavşak ile bağla (toplu seçim)
+- Tesisat Kopyalama (KOPYA-KAT): katlar arası, kolonlar otomatik hariç
+- Kolon Bağlantı Asistanı (KOLON): dikey boru, Z farkından otomatik uzunluk
+- Tesisatı Kabul Et (KABUL): açık uç / kaynak kontrolü + P-/SK-/PS- numaralandırma
+- DN Manuel Override + Baskı İçeriği seçici
 
-### **Standartlar**
-- TS EN 806-3 (İçme suyu tesisatı)
-- EN 12056 (Atık su tesisatı)
+### Görselleştirme
+- Vulkan GPU render: G-Buffer + SSAO + PBR (GGX Cook-Torrance, Reinhard tone mapping)
+- Plan (2D) / İzometrik / Perspektif görünüm
+- 3D transform gizmo (Translate + Rotate, Quaternion)
+- GPU Clash Detection (compute shader, SSBO, atomic counter)
+- Renk kodlu boru tipleri: soğuk su (mavi/cyan), sıcak su (kırmızı/turuncu), pis su (kahverengi)
 
-## 🚀 Kurulum
+### Raporlama & Çıktı
+- Kolon Şeması / Riser Diyagramı (SVG + PDF A3 + DXF R12)
+- Keşif Listesi / BOM (DN × malzeme × metraj)
+- Hesap Föyü XLS (boru ID / Q / v / ΔH / DN)
+- Word RTF Rapor (native RTF, Unicode escape, Türkçe tam destek)
+- Pis Su Hesap Föyü (DN / DU / Q / eğim / h/d, kırmızı uyarı)
+- PDF Pafta (A3/A4, ISO 7200 başlık bloğu, firma logosu, ölçek)
+- SVG Pafta (base64 gömülü logo)
+
+### Proje Yönetimi
+- ProjectManager (CC Klasörü eşdeğeri): mimari/ cikti/ rapor/ alt dizinleri
+- FloorManager: çok katlı, kot/yükseklik tanımı, 3D hizalama kontrolü
+- NewProjectDialog: proje adı, norm, bina tipi
+
+---
+
+## Standartlar
+
+| Standart | Kapsam |
+|----------|--------|
+| TS EN 806-3 | Su temini — LU, debi, Darcy-Weisbach |
+| EN 12056-2 | Drenaj — DU, Manning, h/d |
+| EN 12056-3 | Yağmur suyu — Q hesabı |
+| DIN 1988-300 | Alman normu — simultanite faktörü |
+| EN 12828 | Genleşme tankı |
+| DIN EN 12050-1 | Pis su pompası |
+| TS 822 + EN 12566-1 | Foseptik / kapalı çukur |
+
+---
+
+## Tech Stack
+
+| Katman | Teknoloji |
+|--------|-----------|
+| Grafik | Vulkan 1.3 |
+| UI | Qt 6.10 (Core, Widgets, Gui, PrintSupport, Svg) |
+| Build | CMake 3.20+ + Ninja |
+| Paket | vcpkg (LibreDWG) |
+| Serialization | nlohmann/json |
+| Test | Catch2 v3 — 118/118 geçiyor |
+| Shader | GLSL → SPIR-V (glslc) |
+
+---
+
+## Build
 
 ```bash
-# 1. Gereksinimler
-# - Vulkan SDK
-# - Qt6
-# - CMake 3.20+
+# Gereksinimler: Vulkan SDK, Qt 6.10, CMake 3.20+, MSVC 2022 veya MinGW 13
 
-# 2. Build
-mkdir build && cd build
-cmake ..
-cmake --build . --config Release
+# Debug (MinGW — Qt Creator)
+cmake --preset default   # veya Qt Creator ile aç
+cmake --build --preset default-build
+
+# Release
+cmake --preset release
+cmake --build --preset release-build
+
+# Testler
+ctest --output-on-failure -V
 ```
 
-## 📊 Özellik Durumu
+---
 
-| Özellik | Durum |
-|---------|-------|
-| B-Rep Space Detection | ✅ 100% |
-| Supply Network Analysis | ✅ 100% |
-| Drainage Solver (EN 12056) | ✅ 100% |
-| Critical Path (Pump Head) | ✅ 100% |
-| 3D Visualization | ✅ 100% |
-| Plan/Isometric View | ✅ 100% |
+## Dizin Yapısı
 
-## 🔮 Gelecek Özellikler
+```
+vulkan/
+├── src/                  # Implementasyon (.cpp)
+│   ├── cad/              # DXFReader, DWGReader, Entity'ler, SnapManager
+│   ├── core/             # Document, CommandManager, ProjectManager
+│   ├── mep/              # HydraulicSolver, NetworkGraph, Database, RiserDiagram
+│   ├── renderer/         # VulkanRenderer, VulkanWindow
+│   └── ui/               # MainWindow, PrintLayout, tüm dialog'lar
+├── vkt/                  # Public header'lar (.hpp)
+├── shaders/              # GLSL — vertex/fragment/compute
+├── tests/                # Catch2 birim testleri (118 test)
+└── third_party/          # nlohmann/json
+```
 
-- [ ] Akıllı yakalama (Smart Snap)
-- [ ] Çok katlı bina desteği (Riser Management)
-- [ ] Çarpışma kontrolü (Clash Detection)
-- [ ] Otomatik raporlama (Schedule Export)
+---
 
-## 📝 Lisans
+## Lisans
 
-Proprietary - Telif Hakkı © 2026
+© 2026 İbrahim Kemal Koyuncu — Tüm hakları saklıdır.
