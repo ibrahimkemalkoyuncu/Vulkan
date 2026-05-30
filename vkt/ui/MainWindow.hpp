@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <memory>
 #include <vector>
+#include <array>
 #include <unordered_map>
 #include <unordered_set>
 #include "core/Document.hpp"
@@ -427,6 +428,24 @@ private:
     bool       m_selBoxActive    = false;
     geom::Vec3 m_selBoxStartWorld;   // dünya koordinatı (sol tık basıldığı an)
     QPoint     m_selBoxStartScreen;  // ekran koordinatı
+
+    // Grip editing (AutoCAD grip noktaları)
+    struct GripPoint {
+        cad::EntityId entityId;
+        int           index;      // 0=start, 1=mid, 2=end (Line); 0=center (Circle)
+        geom::Vec3    worldPos;
+        QPoint        screenPos;
+    };
+    std::vector<GripPoint> m_grips;
+    bool                   m_gripDragging = false;
+    int                    m_activeGrip   = -1;  // sürüklenen grip indeksi
+    int                    m_hotGrip      = -1;  // hover'daki grip (kırmızı)
+    geom::Vec3             m_gripDragStart;       // drag başladığındaki dünya pos
+    std::array<geom::Vec3, 3> m_gripEntityOrig;   // orijinal entity vertex'leri (undo için)
+
+    void ComputeGrips();
+    void ClearGrips();
+    void UpdateGripScreen();  // dünya → ekran dönüşümünü güncelle
 
     bool          m_isFullScreen = false;
 

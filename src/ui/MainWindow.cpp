@@ -23,7 +23,11 @@
 #include "core/Application.hpp"
 #include "core/Commands.hpp"
 #include "cad/Text.hpp"
+#include "cad/Line.hpp"
+#include "cad/Circle.hpp"
+#include "cad/Arc.hpp"
 #include "cad/DXFWriter.hpp"
+#include <QGuiApplication>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QMessageBox>
@@ -990,6 +994,28 @@ void MainWindow::OnDelete() {
 
     auto& network = m_document->GetNetwork();
 
+    // Çoklu CAD entity seçimi varsa tümünü sil
+    if (!m_selectedCADEntityIds.empty()) {
+        auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+            m_document->GetCADEntities());
+        size_t before = entities.size();
+        entities.erase(std::remove_if(entities.begin(), entities.end(),
+            [this](const std::unique_ptr<cad::Entity>& e) {
+                return e && m_selectedCADEntityIds.count(e->GetId());
+            }), entities.end());
+        int deleted = static_cast<int>(before - entities.size());
+        m_selectedCADEntityIds.clear();
+        m_selectedCADEntityId = 0;
+        ClearGrips();
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+        RebuildCADEntityCache();
+        m_document->SetModified(true);
+        UpdateUI();
+        statusBar()->showMessage(QString("%1 entity silindi").arg(deleted), 2000);
+        return;
+    }
+
     if (m_selectedNodeId != 0) {
         auto cmd = std::make_unique<core::DeleteNodeCommand>(network, m_selectedNodeId);
         m_document->ExecuteCommand(std::move(cmd));
@@ -1008,6 +1034,22 @@ void MainWindow::OnDelete() {
         m_document->SetModified(true);
         UpdateUI();
         ScheduleAutoHydro();
+    } else if (m_selectedCADEntityId != 0) {
+        // Tek seçili CAD entity
+        auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+            m_document->GetCADEntities());
+        cad::EntityId eid = m_selectedCADEntityId;
+        entities.erase(std::remove_if(entities.begin(), entities.end(),
+            [eid](const std::unique_ptr<cad::Entity>& e){ return e && e->GetId() == eid; }),
+            entities.end());
+        m_selectedCADEntityId = 0;
+        ClearGrips();
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+        RebuildCADEntityCache();
+        m_document->SetModified(true);
+        UpdateUI();
+        statusBar()->showMessage(QString("Entity #%1 silindi").arg(eid), 2000);
     } else {
         statusBar()->showMessage("Silme: önce bir öğe seçin (Select modu)");
     }
@@ -1016,6 +1058,8 @@ void MainWindow::OnDelete() {
 void MainWindow::OnDrawPipe() {
     m_currentToolMode = ToolMode::DrawPipe;
     m_drawState = DrawState::WaitingFirstPoint;
+    ClearGrips();
+    if (m_snapOverlay) m_snapOverlay->SetPickBoxVisible(false);
     statusBar()->showMessage("Boru cizimi: Ilk noktayi tiklayin");
 }
 
@@ -1049,7 +1093,10 @@ void MainWindow::OnSelectMode() {
     m_currentToolMode  = ToolMode::Select;
     m_drawState        = DrawState::Idle;
     m_firstNodeInGraph = false;
-    if (m_snapOverlay) { m_snapOverlay->ClearRubberBand(); m_snapOverlay->Hide(); }
+    if (m_snapOverlay) {
+        m_snapOverlay->ClearRubberBand();
+        m_snapOverlay->SetPickBoxVisible(true);  // Select modunda pick box göster
+    }
     statusBar()->showMessage("Seçim modu");
 }
 
@@ -1380,6 +1427,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             size_t deleted = before - entities.size();
             m_selectedCADEntityIds.clear();
             m_selectedCADEntityId = 0;
+            ClearGrips();
             if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                 m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
             m_document->SetModified(true);
@@ -1427,6 +1475,26 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
 
     if (event->key() == Qt::Key_Escape) {
+        // Grip drag iptal
+        if (m_gripDragging) {
+            m_gripDragging = false;
+            m_activeGrip   = -1;
+            // Orijinal vertex'lere geri dön
+            if (m_activeGrip >= 0 && m_activeGrip < static_cast<int>(m_grips.size())) {
+                auto it = m_cadEntityCache.find(m_grips[m_activeGrip].entityId);
+                if (it != m_cadEntityCache.end() && it->second &&
+                    it->second->GetType() == cad::EntityType::Line) {
+                    auto* ln = static_cast<cad::Line*>(it->second);
+                    ln->SetStart(m_gripEntityOrig[0]);
+                    ln->SetEnd  (m_gripEntityOrig[2]);
+                    InvalidateRenderer();
+                }
+            }
+            ClearGrips();
+            statusBar()->showMessage("Grip iptal edildi", 1500);
+            event->accept();
+            return;
+        }
         // Seçim kutusunu veya çoklu seçimi iptal et
         if (m_selBoxActive) {
             m_selBoxActive = false;
@@ -1434,7 +1502,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             event->accept();
             return;
         }
-        if (!m_selectedCADEntityIds.empty()) {
+        if (!m_selectedCADEntityIds.empty() || m_selectedCADEntityId != 0) {
+            ClearGrips();
             m_selectedCADEntityIds.clear();
             m_selectedCADEntityId = 0;
             if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
@@ -2643,6 +2712,38 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     }
     case ToolMode::Select:
     default: {
+        // ── Grip pick: var olan grip'e tıklandı mı? ─────────────────────
+        if (!m_grips.empty() && m_vulkanWindow) {
+            const int GRIP_PX = 8; // pick yarıçapı (piksel)
+            const auto& vp0 = m_vulkanWindow->GetViewport();
+            auto screenCur = vp0.WorldToScreen({worldX, worldY, 0});
+            QPoint scr(static_cast<int>(screenCur.x), static_cast<int>(screenCur.y));
+            for (int gi = 0; gi < static_cast<int>(m_grips.size()); ++gi) {
+                QPoint delta = scr - m_grips[gi].screenPos;
+                if (std::abs(delta.x()) <= GRIP_PX && std::abs(delta.y()) <= GRIP_PX) {
+                    // Grip drag başlat
+                    m_gripDragging  = true;
+                    m_activeGrip    = gi;
+                    m_hotGrip       = gi;
+                    m_gripDragStart = {worldX, worldY, 0};
+                    // Orijinal entity vertex'lerini sakla (undo için)
+                    auto it = m_cadEntityCache.find(m_grips[gi].entityId);
+                    if (it != m_cadEntityCache.end() && it->second) {
+                        cad::Entity* e = it->second;
+                        if (e->GetType() == cad::EntityType::Line) {
+                            const auto* ln = static_cast<const cad::Line*>(e);
+                            m_gripEntityOrig[0] = ln->GetStart();
+                            m_gripEntityOrig[2] = ln->GetEnd();
+                            m_gripEntityOrig[1]  = {(m_gripEntityOrig[0].x + m_gripEntityOrig[2].x) / 2,
+                                                    (m_gripEntityOrig[0].y + m_gripEntityOrig[2].y) / 2, 0};
+                        }
+                    }
+                    statusBar()->showMessage("Grip sürükleniyor — ESC ile iptal");
+                    return;
+                }
+            }
+        }
+
         const double NODE_SNAP = 10.0; // world unit
         const double EDGE_SNAP = 5.0;
 
@@ -2733,24 +2834,45 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             }
 
             if (pickedId != 0) {
-                m_selectedCADEntityId = pickedId;
-                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(pickedId);
-                // Drag başlat + katman vurgula
-                auto it = m_cadEntityCache.find(pickedId);
-                if (it != m_cadEntityCache.end() && it->second) {
-                    cad::Entity* ent = it->second;
-                    auto bb = ent->GetBounds();
-                    m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
-                    m_cadDragEntityOrigin = bb.GetCenter();
-                    m_draggingCADEntity = true;
-                    // AutoCAD: seçili objenin katmanını panelde göster
-                    const std::string& layName = ent->GetLayerName();
-                    HighlightLayerInPanel(layName);
+                bool shiftHeld = (QGuiApplication::keyboardModifiers() & Qt::ShiftModifier);
+
+                if (shiftHeld) {
+                    // Shift+click: çoklu seçime ekle/çıkar
+                    if (m_selectedCADEntityIds.count(pickedId)) {
+                        m_selectedCADEntityIds.erase(pickedId);
+                    } else {
+                        if (m_selectedCADEntityId != 0)
+                            m_selectedCADEntityIds.insert(m_selectedCADEntityId);
+                        m_selectedCADEntityIds.insert(pickedId);
+                        m_selectedCADEntityId = pickedId;
+                    }
+                    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                        m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
                     statusBar()->showMessage(
-                        QString("Seçili: #%1  Katman: %2  — Sürükle veya Delete ile sil")
-                        .arg(pickedId)
-                        .arg(QString::fromStdString(layName)));
+                        QString("%1 entity seçili — Delete ile sil, ESC ile iptal")
+                        .arg(m_selectedCADEntityIds.size()));
+                    ComputeGrips();
+                } else {
+                    // Normal tık: önceki seçimi temizle, yeni seçim
+                    m_selectedCADEntityIds.clear();
+                    m_selectedCADEntityId = pickedId;
+                    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                        m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(pickedId);
+                    // Drag başlat + katman vurgula
+                    auto it = m_cadEntityCache.find(pickedId);
+                    if (it != m_cadEntityCache.end() && it->second) {
+                        cad::Entity* ent = it->second;
+                        auto bb = ent->GetBounds();
+                        m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
+                        m_cadDragEntityOrigin = bb.GetCenter();
+                        m_draggingCADEntity = true;
+                        const std::string& layName = ent->GetLayerName();
+                        HighlightLayerInPanel(layName);
+                        statusBar()->showMessage(
+                            QString("Seçili: #%1  Katman: %2  — Sürükle / Grip / Delete")
+                            .arg(pickedId).arg(QString::fromStdString(layName)));
+                    }
+                    ComputeGrips();
                 }
             } else {
                 // Hiç entity yok — seçim kutusunu başlat (AutoCAD davranışı)
@@ -2788,6 +2910,18 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
 
 void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButton btn) {
     if (btn != Qt::LeftButton || !m_document) return;
+
+    // ── Grip drag commit ─────────────────────────────────────────────────
+    if (m_gripDragging) {
+        m_gripDragging = false;
+        m_activeGrip   = -1;
+        m_hotGrip      = -1;
+        m_document->SetModified(true);
+        InvalidateRenderer();
+        ComputeGrips(); // grip pozisyonlarını güncelle
+        statusBar()->showMessage("Grip düzenleme tamamlandı", 2000);
+        return;
+    }
 
     // CAD entity drag bırakma
     if (m_draggingCADEntity) {
@@ -2873,6 +3007,57 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
 }
 
 void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    // ── Grip drag ────────────────────────────────────────────────────────
+    if (m_gripDragging && m_activeGrip >= 0 && m_activeGrip < static_cast<int>(m_grips.size())) {
+        auto& gp = m_grips[m_activeGrip];
+        auto it = m_cadEntityCache.find(gp.entityId);
+        if (it != m_cadEntityCache.end() && it->second) {
+            cad::Entity* e = it->second;
+            if (e->GetType() == cad::EntityType::Line) {
+                auto* ln = static_cast<cad::Line*>(e);
+                geom::Vec3 snapped{worldX, worldY, gp.worldPos.z};
+                if (gp.index == 0) {          // start
+                    ln->SetStart(snapped);
+                } else if (gp.index == 2) {   // end
+                    ln->SetEnd(snapped);
+                } else {                       // midpoint → translate
+                    double dx = worldX - gp.worldPos.x;
+                    double dy = worldY - gp.worldPos.y;
+                    ln->SetStart({m_gripEntityOrig[0].x + dx, m_gripEntityOrig[0].y + dy, m_gripEntityOrig[0].z});
+                    ln->SetEnd  ({m_gripEntityOrig[2].x + dx, m_gripEntityOrig[2].y + dy, m_gripEntityOrig[2].z});
+                }
+                gp.worldPos = snapped;
+            }
+        }
+        UpdateGripScreen();
+        if (m_snapOverlay) {
+            std::vector<QPoint> pts;
+            for (const auto& g : m_grips) pts.push_back(g.screenPos);
+            m_snapOverlay->SetGrips(pts, m_activeGrip);
+        }
+        InvalidateRenderer();
+        return;
+    }
+
+    // ── Grip hover: imleç bir grip'in üzerinde mi? ───────────────────────
+    if (!m_grips.empty() && m_vulkanWindow && !m_gripDragging) {
+        const int GRIP_PX = 8;
+        const auto& vp0 = m_vulkanWindow->GetViewport();
+        auto sc = vp0.WorldToScreen({worldX, worldY, 0});
+        QPoint scr(static_cast<int>(sc.x), static_cast<int>(sc.y));
+        int newHot = -1;
+        for (int gi = 0; gi < static_cast<int>(m_grips.size()); ++gi) {
+            QPoint d = scr - m_grips[gi].screenPos;
+            if (std::abs(d.x()) <= GRIP_PX && std::abs(d.y()) <= GRIP_PX) { newHot = gi; break; }
+        }
+        if (newHot != m_hotGrip) {
+            m_hotGrip = newHot;
+            std::vector<QPoint> pts;
+            for (const auto& g : m_grips) pts.push_back(g.screenPos);
+            if (m_snapOverlay) m_snapOverlay->SetGrips(pts, m_hotGrip);
+        }
+    }
+
     // CAD entity drag
     if (m_draggingCADEntity && m_document && m_selectedCADEntityId != 0) {
         double ddx = worldX - m_cadDragAnchor.x;
@@ -5650,6 +5835,89 @@ void MainWindow::HighlightLayerInPanel(const std::string& layerName) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CAD entity pointer cache — O(1) drag lookup + snap vektörü
 // ─────────────────────────────────────────────────────────────────────────────
+// ============================================================
+//  GRIP EDITING — ComputeGrips / ClearGrips / UpdateGripScreen
+// ============================================================
+void MainWindow::ComputeGrips() {
+    m_grips.clear();
+    if (!m_vulkanWindow || !m_document) return;
+
+    auto addGrip = [&](cad::EntityId id, int idx, const geom::Vec3& wp) {
+        GripPoint gp;
+        gp.entityId = id;
+        gp.index    = idx;
+        gp.worldPos = wp;
+        gp.screenPos = QPoint(0, 0); // UpdateGripScreen ile doldurulacak
+        m_grips.push_back(gp);
+    };
+
+    // Tüm seçili entity'lerin grip'lerini hesapla
+    auto processEntity = [&](cad::EntityId eid) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) return;
+        cad::Entity* e = it->second;
+
+        switch (e->GetType()) {
+            case cad::EntityType::Line: {
+                const auto* ln = static_cast<const cad::Line*>(e);
+                auto s = ln->GetStart(), en = ln->GetEnd();
+                addGrip(eid, 0, s);
+                addGrip(eid, 1, geom::Vec3((s.x+en.x)/2, (s.y+en.y)/2, (s.z+en.z)/2));
+                addGrip(eid, 2, en);
+                break;
+            }
+            case cad::EntityType::Circle: {
+                const auto* cr = static_cast<const cad::Circle*>(e);
+                addGrip(eid, 0, cr->GetCenter());
+                break;
+            }
+            case cad::EntityType::Arc: {
+                const auto* ar = static_cast<const cad::Arc*>(e);
+                auto c = ar->GetCenter();
+                double r = ar->GetRadius();
+                double sa = ar->GetStartAngle() * M_PI / 180.0;
+                double ea = ar->GetEndAngle()   * M_PI / 180.0;
+                double ma = (sa + ea) / 2.0;
+                addGrip(eid, 0, {c.x + r*std::cos(sa), c.y + r*std::sin(sa), c.z});
+                addGrip(eid, 1, {c.x + r*std::cos(ma), c.y + r*std::sin(ma), c.z});
+                addGrip(eid, 2, {c.x + r*std::cos(ea), c.y + r*std::sin(ea), c.z});
+                break;
+            }
+            default: break;
+        }
+    };
+
+    if (m_selectedCADEntityId != 0)
+        processEntity(m_selectedCADEntityId);
+    for (auto eid : m_selectedCADEntityIds)
+        processEntity(eid);
+
+    UpdateGripScreen();
+    if (m_snapOverlay) {
+        std::vector<QPoint> pts;
+        pts.reserve(m_grips.size());
+        for (const auto& g : m_grips) pts.push_back(g.screenPos);
+        m_snapOverlay->SetGrips(pts, m_hotGrip);
+    }
+}
+
+void MainWindow::ClearGrips() {
+    m_grips.clear();
+    m_gripDragging = false;
+    m_activeGrip   = -1;
+    m_hotGrip      = -1;
+    if (m_snapOverlay) m_snapOverlay->ClearGrips();
+}
+
+void MainWindow::UpdateGripScreen() {
+    if (!m_vulkanWindow) return;
+    const auto& vp = m_vulkanWindow->GetViewport();
+    for (auto& g : m_grips) {
+        auto s = vp.WorldToScreen(g.worldPos);
+        g.screenPos = QPoint(static_cast<int>(s.x), static_cast<int>(s.y));
+    }
+}
+
 void MainWindow::RebuildCADEntityCache() {
     // Entity vektörü değişmeden önce async CAD build'i tamamlat
     if (m_vulkanWindow) m_vulkanWindow->WaitForCADBuild();

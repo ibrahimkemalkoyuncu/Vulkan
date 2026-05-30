@@ -147,12 +147,34 @@ void SnapOverlay::paintEvent(QPaintEvent* /*event*/) {
         p.drawText(lx, ly, m_selBoxCrossing ? "Kesişim" : "Pencere");
     }
 
+    // ── Grip noktaları ─────────────────────────────────────────────────────
+    if (!m_gripPoints.empty()) {
+        for (int i = 0; i < static_cast<int>(m_gripPoints.size()); ++i) {
+            const QPoint& gp = m_gripPoints[i];
+            bool isHot = (i == m_hotGrip);
+            QColor fill  = isHot ? QColor(255, 60, 60, 230) : QColor(30, 100, 220, 200);
+            QColor brd   = isHot ? QColor(200, 20, 20, 255) : QColor(10,  60, 160, 255);
+            constexpr int GS = 4; // yarı genişlik → 8×8 px kare
+            p.setPen(QPen(brd, 1.0));
+            p.setBrush(fill);
+            p.drawRect(gp.x() - GS, gp.y() - GS, GS * 2, GS * 2);
+        }
+    }
+
     if (!m_visible) return;
 
     const int   cx    = m_screenPos.x();
     const int   cy    = m_screenPos.y();
     const int   hs    = m_crosshairSize;         // half-size
     const QColor snapCol = SnapColor(m_snapResult.type);
+
+    // ── Pick box (Select modunda imleç etrafı) ───────────────────────────
+    if (m_pickBoxVisible && !m_snapResult.IsValid()) {
+        constexpr int PB = 4; // pick box yarı genişlik = 8×8 px
+        p.setPen(QPen(QColor(180, 180, 180, 160), 1.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(cx - PB, cy - PB, PB * 2, PB * 2);
+    }
 
     // ── Crosshair ──────────────────────────────────────────
     {

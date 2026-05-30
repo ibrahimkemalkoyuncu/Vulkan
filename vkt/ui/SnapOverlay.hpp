@@ -89,6 +89,17 @@ public:
     }
     void ClearSelectionBox() { m_selBoxActive = false; update(); }
 
+    // ── Pick box (select modunda imleç etrafındaki küçük kare) ──────────────
+    void SetPickBoxVisible(bool on) { m_pickBoxVisible = on; update(); }
+
+    // ── Grip editing (AutoCAD grip noktaları) ───────────────────────────────
+    void SetGrips(const std::vector<QPoint>& pts, int hotIdx = -1) {
+        m_gripPoints = pts;
+        m_hotGrip    = hotIdx;
+        update();
+    }
+    void ClearGrips() { m_gripPoints.clear(); m_hotGrip = -1; update(); }
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
@@ -112,6 +123,13 @@ private:
     QPoint m_selBoxTo;
     bool   m_selBoxCrossing = false;
     bool   m_selBoxActive   = false;
+
+    // Pick box (select modu imleç göstergesi)
+    bool   m_pickBoxVisible = false;
+
+    // Grip noktaları
+    std::vector<QPoint> m_gripPoints;
+    int                 m_hotGrip = -1;  // -1: yok, >=0: seçili (kırmızı)
 
     std::vector<TextLabel> m_textLabels;
     std::vector<QPoint>    m_openEndMarkers; ///< Açık uç node ekran pozisyonları
