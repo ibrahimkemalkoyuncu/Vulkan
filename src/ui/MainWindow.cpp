@@ -3159,6 +3159,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
 void MainWindow::RefreshTextOverlay() {
     if (!m_snapOverlay || !m_document || !m_vulkanWindow) return;
 
+    m_vulkanWindow->InvalidateNetworkData(); // MEP ağı değişmiş olabilir — vertex buffer yenile
+
     const cad::Viewport& vp = m_vulkanWindow->GetViewport();
     const auto& layerMap    = m_document->GetLayers();
 

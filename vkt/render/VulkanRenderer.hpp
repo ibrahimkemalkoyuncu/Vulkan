@@ -124,7 +124,8 @@ public:
 
     // CAD entity rendering
     void RenderCADEntities(const std::vector<std::unique_ptr<cad::Entity>>& entities);
-    void InvalidateCADData() { m_cadDirty = true; }
+    void InvalidateCADData()     { m_cadDirty     = true; }
+    void InvalidateNetworkData() { m_networkDirty = true; }
 
     // Gizmo
     Gizmo&       GetGizmo()               { return m_gizmo; }
@@ -167,12 +168,14 @@ public:
         m_showTemizSu = showTemizSu;
         m_showSicakSu = showSicakSu;
         m_showPisSu   = showPisSu;
+        m_networkDirty = true;
     }
 
     /** Kritik devre vurgulama — verilen edge ID'leri turuncu/kırmızı render edilir */
     void SetCriticalPathEdges(const std::vector<uint32_t>& ids) {
         m_criticalPathEdges.clear();
         for (uint32_t id : ids) m_criticalPathEdges.insert(id);
+        m_networkDirty = true;
     }
 
     /** Tek entity highlight (single-click seçimi için backward compat) */
@@ -314,8 +317,9 @@ private:
     VkDeviceMemory m_hatchVertexMemory = VK_NULL_HANDLE;
     uint32_t m_hatchVertexCount = 0;
 
-    bool m_cadDirty  = true;
-    bool m_gridDirty = true;
+    bool m_cadDirty     = true;
+    bool m_networkDirty = true;
+    bool m_gridDirty    = true;
 
     // Cihaz limitleri — linewidth için
     float m_deviceMaxLineWidth = 1.0f;

@@ -60,6 +60,9 @@ public:
         if (m_initialized) m_renderer.InvalidateCADData();
     }
 
+    /// MEP ağı değişince network vertex buffer'ı yeniden oluştur
+    void InvalidateNetworkData() { m_renderer.InvalidateNetworkData(); }
+
     /// Mouse callback'leri (DrawTool/SelectionManager bağlantısı için)
     using MouseCallback = std::function<void(double worldX, double worldY, Qt::MouseButton button)>;
     using MoveCallback = std::function<void(double worldX, double worldY)>;

@@ -368,7 +368,8 @@ void VulkanRenderer::Render(const mep::NetworkGraph& network) {
 
     const bool useSSAO = m_ssaoInitialized && m_viewMode != ViewMode::Plan;
 
-    UpdateNetworkVertexData(network);
+    if (m_networkDirty)
+        UpdateNetworkVertexData(network);
 
     if (useSSAO) {
         DrawGridGBuffer(cmd);
@@ -1664,6 +1665,8 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
     if (m_lineVertexCount > 0) memcpy(dest, lineVertices.data(), sizeof(geom::Vertex) * m_lineVertexCount);
     if (m_triangleVertexCount > 0) memcpy(dest + m_lineVertexCount, triVertices.data(), sizeof(geom::Vertex) * m_triangleVertexCount);
     vkUnmapMemory(m_device, m_vertexMemory);
+
+    m_networkDirty = false;
 }
 
 void VulkanRenderer::DrawGrid(VkCommandBuffer cmd) {

@@ -827,4 +827,416 @@ Sonuçlar anlık olarak güncellenir; tahliye sıklığı da otomatik hesaplanı
 
 ---
 
+---
+
+## 31. İnteraktif Örnek — 3 Katlı Konut Projesi
+
+Bu bölüm, VKT'de sıfırdan tamamlanmış bir 3 katlı konut tesisat projesinin adım adım yürütülmesini gösterir. Her adımda kullanılacak komut ve menü yolu belirtilmektedir. Kendi projenizde adımları sırayla izleyebilirsiniz.
+
+### Proje Tanımı
+
+| Alan | Değer |
+|------|-------|
+| Bina tipi | 3 katlı konut (Zemin + 1. Kat + 2. Kat) |
+| Her katta | 2 daire — 1 banyo (Lavabo + WC + Duş) + 1 mutfak (Evye) |
+| Toplam armatür | 8 adet/kat × 3 kat = 24 armatür |
+| Su kaynağı | Zemin katta tek şebeke girişi |
+| Sıcak su | Her katta 1 kombi (3 adet) — ayrı sıcak su devresi |
+| Drenaj | Pis su + zemin kat sofben tahliyesi |
+| Standart | EN 806-3 (temiz su) · EN 12056-2 (drenaj) |
+
+---
+
+### ADIM 1 — Yeni Proje Oluşturma
+
+```
+Dosya → Yeni Proje...   (Ctrl+Shift+N)
+```
+
+Proje oluşturma penceresinde doldurun:
+- **Proje Adı:** `3Katli_Konut_Ornegi`
+- **Bina Tipi:** Konut
+- **Hesap Normu:** EN 806-3
+
+"Tamam" → VKT `[KökDizin]/3Katli_Konut_Ornegi/` klasörünü oluşturur.
+
+---
+
+### ADIM 2 — Devre Parametrelerini Ayarlama
+
+```
+DEVRE   veya   Analiz → Devre Secenekleri   (Ctrl+Shift+D)
+```
+
+| Parametre | Değer |
+|-----------|-------|
+| Bina Tipi | Konut |
+| Ana Boru Cinsi | PPR (polipropilen) |
+| İkincil Boru Cinsi | PPR |
+| Pürüzlülük | 0.0070 mm (PPR) |
+| Maks. Su Hızı | 2.0 m/s |
+| Hesap Normu | EN 806-3 |
+
+"Tamam" — ayarlar tüm hesaplara uygulandı.
+
+---
+
+### ADIM 3 — Mimari Altlıkları Yükleme
+
+```
+Mimari → Mimari Belirle...   (Ctrl+M)
+```
+
+**Global Referans Noktası:** Yapının A-1 kolon köşesi → `X: 5000  Y: 3000`
+(Tüm kat DXF dosyalarında bu nokta aynı koordinatta olmalıdır.)
+
+**Kat tablosunu doldurun:**
+
+| Kat No | Kot (m) | İsim | Dosya |
+|--------|---------|------|-------|
+| 1 | 0.00 | Zemin Kat | `mimari/zemin_kat.dxf` |
+| 2 | 3.00 | 1. Kat | `mimari/kat_1.dxf` |
+| 3 | 6.00 | 2. Kat | `mimari/kat_2.dxf` |
+
+"Tamam" → her kat için DXFImportDialog açılır → import edin.
+
+> **DXF yoksa:** Boş proje üzerinde çizim yapılabilir — kat tanımı yapılır ama DXF dosyası eklenmez. ADIM 3'ü atlayın.
+
+**3D Hizalama Kontrolü:**
+
+```
+Mimari → 3D Hizalama Kontrolü...   (Ctrl+Shift+H)
+```
+
+Tablo açılır: 3 kat, 3 farklı kot (0.00 / 3.00 / 6.00 m), çakışma yok → yeşil durum.
+
+---
+
+### ADIM 4 — Şebeke Giriş Noktasını (Kaynak) Yerleştirme
+
+Zemin katta su giriş noktasına sayaç armatür konumuna tıklayın:
+
+```
+SOURCE   veya   Çizim → Kaynak Ekle
+```
+
+- Zemin kat bodrum duvarına yakın bir noktayı tıklayın → mavi kaynak node eklenir.
+- Overlay'de **"Kaynak"** etiketi görünür.
+
+> **Kural:** Bir binada yalnızca **tek kaynak** olmalıdır. VKT bunu `KABUL` adımında denetler.
+
+---
+
+### ADIM 5 — Zemin Katta Armatür Yerleştirme
+
+**Banyo 1 (Daire A):** Banyoya girin, ST Cihazları panelini kullanın.
+
+```
+ST Cihazları Paneli (sağ taraf) → çift tıkla → yerleştir
+```
+
+Her armatür için 2-tıklama: **1. tık = konum, 2. tık = yön.**
+
+| Armatür | Komut | LU |
+|---------|-------|-----|
+| Lavabo | ST Panel → Lavabo | 1.0 |
+| WC | ST Panel → WC | 2.0 |
+| Duş | ST Panel → Duş | 1.5 |
+
+**Mutfak 1 (Daire A):**
+
+| Armatür | Komut | LU |
+|---------|-------|-----|
+| Evye | ST Panel → Evye | 1.5 |
+
+**Aynısını Daire B için tekrarlayın** → zemin katta toplam 8 armatür.
+
+**Sofben (Sıcak Su Kaynağı):**
+
+```
+SOFBEN   veya   Çizim → Sıcak Su Kaynağı Yerleştir
+```
+
+Kaynak tipi: **Kombi** seçin → kırmızı HotSource node eklenir.
+
+---
+
+### ADIM 6 — Zemin Katta Soğuk Su Boruları
+
+```
+PIPE   veya   Çizim → Temiz Su Borusu Çiz
+```
+
+**Ana hat:** Kaynaktan başlayarak tüm armatürlere dağıtım:
+
+```
+SOURCE → (yatay ana) → Daire A koridoru → T-kavşak → Lavabo
+                                         → T-kavşak → WC
+                                         → T-kavşak → Duş
+                                         → T-kavşak → Evye
+                   → (devam) → Daire B → aynı dağıtım
+```
+
+**Snap kullanımı:** Her armatür node'una yaklaşınca sarı kare (Endpoint snap) belirsin → tıklayın.
+
+**Armatürleri Ana Hatta Bağlama:**
+
+```
+BAGLA   veya   Ctrl+B
+```
+
+1. Armatür node'larını toplu seçin (sağdan sola Crossing seçimi).
+2. Ana boru hattını tıklayın → VKT her armatür için dal boru + T-kavşak otomatik ekler.
+
+---
+
+### ADIM 7 — Zemin Katta Sıcak Su Boruları
+
+```
+SICAK-SU   veya   Çizim → Sıcak Su Borusu
+```
+
+Boruların kırmızıya döndüğünü doğrulayın. Kombiden:
+
+```
+Kombi → (kırmızı yatay hat) → Lavabo (sıcak giriş)
+                              → Duş   (sıcak giriş)
+                              → Evye  (sıcak giriş)
+```
+
+> **WC'ye sıcak su bağlanmaz** — EN 806-3 standardı.
+
+---
+
+### ADIM 8 — Zemin Katı Üst Katlara Kopyalama
+
+```
+KOPYA-KAT   veya   Çizim → Tesisat Kopyala
+```
+
+- **Kaynak kat:** Zemin Kat (Z ≈ 0.00 m)
+- **Hedef kat:** 1. Kat (Z = 3.00 m)
+
+"Tamam" → Zemin kattaki tüm yatay borular ve armatürler Z=3.00'a kopyalanır. Kolonlar (dikey borular) **otomatik hariç tutulur.**
+
+**Aynısını 2. Kat için tekrarlayın** (Hedef: Z = 6.00 m).
+
+Şimdi 3 katta 24 armatür + 24 armatürün boru bağlantısı hazır.
+
+---
+
+### ADIM 9 — Kolon Boruları (Katlar Arası Dikey Borular)
+
+```
+KOLON   veya   Ctrl+Shift+K
+```
+
+Zemin kattaki ana boru hattının bir kavşağından:
+
+1. **Kaynak node seçin** (zemin kattaki T-kavşak).
+2. **Hedef kat:** 1. Kat.
+3. VKT, aynı XY konumunda hedef katta node bulur; yoksa Junction oluşturur.
+4. Z farkından boru uzunluğu otomatik = 3.00 m.
+
+**Aynısını şu bağlantılar için tekrarlayın:**
+- Zemin → 1. Kat (soğuk su ana hat)
+- 1. Kat → 2. Kat (soğuk su ana hat)
+- Zemin → 1. Kat (sıcak su hattı — kombi 1. katta da olacak)
+- 1. Kat → 2. Kat (sıcak su hattı)
+
+> **İpucu:** 1. ve 2. katta da birer Kombi (SOFBEN) ekleyin — her kat bağımsız sıcak su kaynağı.
+
+---
+
+### ADIM 10 — Gerçek Zamanlı Hidrolik Kontrolü
+
+Boru eklendikçe VKT **600 ms sonra otomatik** hesap yapar (AutoHydro):
+
+- Overlay'de DN etiketleri belirir: DN15, DN20, DN25 vb.
+- Kaynak yakınındaki ana hat → büyük çap (DN32 veya DN40)
+- Son armatüre giden dal → küçük çap (DN15)
+
+**Açık uç uyarılarını kontrol edin:** Kırmızı halkalar varsa snap ile düzgün bağlantı yapılmamış — bağlanmamış noktayı düzeltin.
+
+---
+
+### ADIM 11 — Pis Su Sistemi
+
+```
+PIS-SU   veya   Çizim → Pis Su Borusu Çiz
+```
+
+Zemin katta:
+
+```
+WC  → (kahverengi DN110) → Rögar
+Duş → (kahverengi DN50) → Rögar
+Lavabo → (kahverengi DN40) → Rögar
+Evye → (kahverengi DN50) → Rögar
+```
+
+```
+ROGAR   veya   Çizim → Rögar
+```
+
+Banyonun zemin döşemesindeki rögar konumuna tıklayın.
+
+**KOPYA-KAT ile pis su sistemi de kopyalayın** (1. ve 2. kat için).
+
+**Dikey pis su kolonları:**
+
+```
+KOLON   → WC çıkışını bir alt kata bağla (DN110 kolon)
+```
+
+**Ana Tahliye Noktası:**
+
+```
+BOSALTMA   veya   Çizim → Ana Tahliye Noktasını İşaretle
+```
+
+VKT en alttaki Drain node'u turuncu `[ANA TAHLİYE]` etiketi ile işaretler.
+
+---
+
+### ADIM 12 — Tesisatı Kabul Ettirme
+
+```
+KABUL   veya   Ctrl+Enter
+```
+
+VKT kontrol listesi:
+- ✓ En az 1 kaynak (Source) mevcut
+- ✓ Tüm armatürler bağlı (kırmızı halka kalmadı)
+- ✓ En az 1 boru
+
+Hata yoksa otomatik numaralandırma:
+- `P-001...` → Soğuk su boruları
+- `SK-001...` → Sıcak su boruları
+- `PS-001...` → Pis su boruları
+
+---
+
+### ADIM 13 — Hidrolik Analiz ve Doğrulama
+
+**Tam analiz çalıştır:**
+
+```
+HYDRAULICS   veya   Analiz → Hidrolik Hesap Yap
+```
+
+**Basınç kaybı tablosu:**
+
+```
+BASINC   veya   Analiz → Parcalarin Basinc Kaybi
+```
+
+Kritik devre sarı vurguyla belirgin. EN 806-3'e göre son armatürde min 0.10 bar basınç kalmalı.
+
+**Hidrofor gereksinimi:**
+
+```
+HIDROFOR   veya   Analiz → Hidrofor Boyutlandirma
+```
+
+Örnek çıktı (3 katlı konut, 24 armatür):
+```
+Toplam dinamik yük: 18.4 m
+Şebeke bağlantı bası.: 4.0 bar
+Kritik hat kayıp: 3.8 m
+Bina yüksekliği: 9.5 m
+Gerekli pompa yükü: 8.3 m → Pompa GEREKSİZ (şebeke basıncı yeterli)
+```
+
+**Pis su hesabı:**
+
+```
+PIS-HESAP   veya   Analiz → Pis Su Hesap Foyu
+```
+
+h/d < %50 olduğunu doğrulayın. Kırmızı satır yoksa boyutlandırma doğru.
+
+---
+
+### ADIM 14 — Norm Karşılaştırması (Opsiyonel)
+
+EN 806-3 ile DIN 1988-300 arasındaki farkı görmek için:
+
+```
+NORM-KARSILASTIR   veya   Analiz → Norm Karsilastirma
+```
+
+Örnek: DIN 1988-300, simultanite faktörü nedeniyle bazı hatlarda DN15 yerine DN20 önerebilir. Sarı satırlar = DIN'in büyük önerdiği çaplar.
+
+---
+
+### ADIM 15 — Çıktı Üretme
+
+**Kolon Şeması:**
+
+```
+RISER   (Ctrl+R)
+```
+
+→ SVG / PDF / DXF olarak export edin. DXF dosyası `rapor/` klasörüne kaydedilir.
+
+**Keşif Listesi:**
+
+```
+BOM   (Ctrl+K)
+```
+
+DN gruplarına göre PPR boru metrajı + T-parça + dirsek sayımı.
+
+**Hesap Föyü (XLS):**
+
+```
+DN-OVERRIDE   veya   Analiz → DN Manuel Override
+```
+
+→ "XLS Kaydet" ile Excel'e aktarın.
+
+**Word Raporu:**
+
+```
+WORD   veya   Analiz → Word RTF Rapor
+```
+
+→ `rapor/3Katli_Konut_Ornegi_hesap_foyu.rtf` dosyasına yazar. Word veya WordPad açar.
+
+**PDF Pafta:**
+
+```
+PAFTA   (Ctrl+P)
+```
+
+A3 yatay, ölçek 1:50 → ISO başlık bloğu otomatik doldurulur.
+
+---
+
+### Proje Özeti — 3 Katlı Konut
+
+| Kalem | Değer |
+|-------|-------|
+| Toplam armatür | 24 adet (8/kat × 3 kat) |
+| Soğuk su ana hat | DN32 → DN25 → DN20 → DN15 |
+| Sıcak su hattı | DN20 → DN15 |
+| Pis su kolon | DN110 (WC) + DN75 (genel) |
+| Hesap normu | EN 806-3 |
+| Şebeke basıncı | 4 bar → hidrofor GEREKMEZ |
+| Riser PDF | A3 yatay, SVG + DXF |
+| Rapor | .rtf (Word) + .xlsx (hesap föyü) |
+
+### Sık Yapılan Hatalar ve Çözümleri
+
+| Hata | Belirtisi | Çözüm |
+|------|-----------|-------|
+| Snap kullanılmadan boru bağlandı | Kırmızı açık uç halkası | ESC → boru sil → snap ile yeniden çiz |
+| Kolon yanlış katta bitti | DN hesabı mantıksız | KOLON komutunu doğru kaynak/hedef kat ile tekrar çalıştır |
+| Kaynak 2 kez eklendi | KABUL "çoklu kaynak" hatası | Extra SOURCE node sil |
+| Armatür bağlanmadı | LU 0 görünüyor | BAGLA komutu ile ana hata bağla |
+| h/d > %50 pis suda | PIS-HESAP kırmızı satır | Eğimi artır (DEVRE) veya DN büyüt (DN-OVERRIDE) |
+
+---
+
 *VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*
