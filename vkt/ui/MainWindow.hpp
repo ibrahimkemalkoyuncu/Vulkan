@@ -248,6 +248,9 @@ private slots:
     // Düzenleme komutları
     void OnSelectAll();
     void OnMirror();
+    void OnOffset();
+    void OnCopy();
+    void OnPaste();
 
     // Property değişiklikleri
     void OnPropertiesUpdated();
@@ -469,6 +472,10 @@ private:
     // Ortho modu (F8) — boru çizerken yatay/dikey kısıt
     bool                       m_orthoMode      = false;
     std::optional<geom::Vec3>  m_drawFirstPoint; // boru çiziminin ilk noktası
+
+    // Copy/Paste clipboard
+    std::vector<std::unique_ptr<cad::Entity>> m_clipboard;
+    geom::Vec3                                m_clipboardCenter{};
 
     // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
     bool       m_measureMode       = false;

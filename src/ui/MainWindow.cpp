@@ -483,6 +483,20 @@ void MainWindow::CreateMenus() {
         auto* actMirror = editMenu->addAction("Ayna (Mirror)...");
         actMirror->setShortcut(Qt::Key_M | Qt::NoModifier);
         connect(actMirror, &QAction::triggered, this, &MainWindow::OnMirror);
+
+        auto* actOffset = editMenu->addAction("Offset (Paralel Kopya)...");
+        actOffset->setShortcut(Qt::Key_O | Qt::NoModifier);
+        connect(actOffset, &QAction::triggered, this, &MainWindow::OnOffset);
+
+        editMenu->addSeparator();
+
+        auto* actCopy  = editMenu->addAction("Kopyala");
+        actCopy->setShortcut(QKeySequence::Copy);
+        connect(actCopy, &QAction::triggered, this, &MainWindow::OnCopy);
+
+        auto* actPaste = editMenu->addAction("Yapıştır...");
+        actPaste->setShortcut(QKeySequence::Paste);
+        connect(actPaste, &QAction::triggered, this, &MainWindow::OnPaste);
     }
 
     // Çizim
@@ -1102,6 +1116,139 @@ void MainWindow::OnMirror() {
     InvalidateRenderer();
     ComputeGrips();
     statusBar()->showMessage(QString("%1 entity yansıtıldı").arg(ids.size()), 2000);
+}
+
+// ============================================================
+//  OFFSET — paralel kopya  (#8)
+// ============================================================
+void MainWindow::OnOffset() {
+    if (!m_document) return;
+
+    // Seçili entity kontrolü
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+
+    if (ids.empty()) {
+        statusBar()->showMessage("Önce entity seçin, sonra OFFSET komutunu çalıştırın", 2000);
+        return;
+    }
+
+    bool ok;
+    double dist = QInputDialog::getDouble(this, "Offset — Paralel Kopya",
+        "Offset mesafesi (mm):", 100.0, 0.1, 100000.0, 1, &ok);
+    if (!ok) return;
+
+    QStringList yonler = {"Sağa / Yukarıya", "Sola / Aşağıya", "Her iki yöne"};
+    QString yon = QInputDialog::getItem(this, "Offset Yönü", "Yön:", yonler, 0, false, &ok);
+    if (!ok) return;
+    int yonIdx = yonler.indexOf(yon);
+
+    auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+        m_document->GetCADEntities());
+
+    std::vector<std::unique_ptr<cad::Entity>> newEnts;
+
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        cad::Entity* e = it->second;
+
+        auto makeOffset = [&](double d) {
+            auto clone = e->Clone();
+            if (!clone) return;
+            if (e->GetType() == cad::EntityType::Line) {
+                const auto* ln = static_cast<const cad::Line*>(e);
+                auto* c = static_cast<cad::Line*>(clone.get());
+                geom::Vec3 s = ln->GetStart(), en = ln->GetEnd();
+                double dx = en.x - s.x, dy = en.y - s.y;
+                double len = std::sqrt(dx*dx + dy*dy);
+                if (len < 1e-9) return;
+                double nx = -dy/len * d, ny = dx/len * d;
+                c->SetStart({s.x + nx,  s.y + ny,  s.z});
+                c->SetEnd  ({en.x + nx, en.y + ny, en.z});
+            } else {
+                clone->Move(geom::Vec3(d, 0, 0)); // diğer entity'ler için basit öteleme
+            }
+            newEnts.push_back(std::move(clone));
+        };
+
+        if (yonIdx == 0 || yonIdx == 2) makeOffset( dist);
+        if (yonIdx == 1 || yonIdx == 2) makeOffset(-dist);
+    }
+
+    for (auto& ne : newEnts)
+        entities.push_back(std::move(ne));
+
+    m_document->SetModified(true);
+    RebuildCADEntityCache();
+    InvalidateRenderer();
+    statusBar()->showMessage(
+        QString("%1 entity offset edildi (%2 mm)").arg(ids.size() * (yonIdx == 2 ? 2 : 1)).arg(dist), 2000);
+}
+
+// ============================================================
+//  COPY/PASTE  (#9)
+// ============================================================
+void MainWindow::OnCopy() {
+    if (!m_document) return;
+    m_clipboard.clear();
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+    if (ids.empty()) { statusBar()->showMessage("Kopyalanacak entity seçin", 2000); return; }
+
+    // BBox merkezi — paste sırasında ortalama
+    double cx = 0, cy = 0; int cnt = 0;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it != m_cadEntityCache.end() && it->second) {
+            auto c = it->second->GetBounds().GetCenter();
+            cx += c.x; cy += c.y; ++cnt;
+        }
+    }
+    if (cnt) { cx /= cnt; cy /= cnt; }
+    m_clipboardCenter = {cx, cy, 0};
+
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it != m_cadEntityCache.end() && it->second) {
+            auto clone = it->second->Clone();
+            if (clone) m_clipboard.push_back(std::move(clone));
+        }
+    }
+    statusBar()->showMessage(QString("%1 entity kopyalandı — Ctrl+V ile yapıştır").arg(m_clipboard.size()), 2000);
+}
+
+void MainWindow::OnPaste() {
+    if (!m_document || m_clipboard.empty()) {
+        statusBar()->showMessage("Panoda entity yok — önce Ctrl+C ile kopyalayın", 2000); return;
+    }
+
+    bool ok;
+    double ox = QInputDialog::getDouble(this, "Yapıştır — Offset X",
+        "X öteleme (mm, 0=aynı konum):", 50.0, -1e6, 1e6, 0, &ok);
+    if (!ok) return;
+    double oy = QInputDialog::getDouble(this, "Yapıştır — Offset Y",
+        "Y öteleme (mm, 0=aynı konum):", 50.0, -1e6, 1e6, 0, &ok);
+    if (!ok) return;
+
+    auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
+        m_document->GetCADEntities());
+
+    m_selectedCADEntityIds.clear();
+    for (const auto& src : m_clipboard) {
+        auto clone = src->Clone();
+        if (!clone) continue;
+        clone->Move(geom::Vec3(ox, oy, 0));
+        m_selectedCADEntityIds.insert(clone->GetId());
+        entities.push_back(std::move(clone));
+    }
+    m_document->SetModified(true);
+    RebuildCADEntityCache();
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
+    InvalidateRenderer();
+    statusBar()->showMessage(
+        QString("%1 entity yapıştırıldı (+%2, +%3 mm)").arg(m_clipboard.size()).arg(ox).arg(oy), 2000);
 }
 
 void MainWindow::OnDelete() {
@@ -3532,6 +3679,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnSelectAll();
     } else if (c == "MIRROR" || c == "AYNA" || c == "YANSI") {
         OnMirror();
+    } else if (c == "OFFSET" || c == "PARALEL" || c == "OFSET") {
+        OnOffset();
+    } else if (c == "COPY" || c == "KOPYALA" || c == "CP") {
+        OnCopy();
+    } else if (c == "PASTE" || c == "YAPISTIR") {
+        OnPaste();
     } else if (c == "ORTHO" || c == "F8") {
         m_orthoMode = !m_orthoMode;
         statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
