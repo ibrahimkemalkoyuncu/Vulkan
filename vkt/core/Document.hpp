@@ -14,6 +14,7 @@
 #include "mep/NetworkGraph.hpp"
 #include "cad/Entity.hpp"
 #include "cad/Layer.hpp"
+#include "cad/Block.hpp"
 #include "geom/Math.hpp"
 #include "Command.hpp"
 #include "core/FloorManager.hpp"
@@ -72,6 +73,10 @@ public:
     FloorManager& GetFloorManager() { return m_floorManager; }
     const FloorManager& GetFloorManager() const { return m_floorManager; }
 
+    // Blok kaydı (DXF/DWG BLOCK section, sembol kütüphanesi)
+    cad::BlockRegistry& GetBlockRegistry()             { return m_blockRegistry; }
+    const cad::BlockRegistry& GetBlockRegistry() const { return m_blockRegistry; }
+
 private:
     std::string m_filePath;
     std::string m_title = "Untitled";
@@ -80,6 +85,7 @@ private:
     mep::NetworkGraph m_network;
     std::vector<std::unique_ptr<cad::Entity>> m_cadEntities;
     std::unordered_map<std::string, cad::Layer> m_layers;
+    cad::BlockRegistry m_blockRegistry;   ///< DXF/DWG BLOCK section + sembol kütüphanesi
     FloorManager m_floorManager;
     geom::Vec3 m_worldOffset;  ///< Normalizasyon sonrası orijinal centroid offset
 

@@ -1028,7 +1028,90 @@ void MainWindow::OnImportDXF() {
 
             // Auto zoom to fit imported drawing
             OnZoomExtents();
+
+            // Fixture oto-tanıma: Text entity anahtar kelimelerinden MEP node öner
+            ScanForFixtureBlocks();
         }
+    }
+}
+
+// ============================================================
+//  Fixture oto-tanıma — DWG blok/metin tarama  (#18)
+// ============================================================
+void MainWindow::ScanForFixtureBlocks() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+
+    // Anahtar kelime → fixture tipi eşlemesi (Türkçe + İngilizce)
+    static const std::vector<std::pair<std::string, std::string>> kKeywords = {
+        {"LAVABO",    "Lavabo"}, {"WASHBASIN",  "Lavabo"}, {"SINK",    "Lavabo"},
+        {"WC",        "WC"},     {"KLOZET",     "WC"},     {"TOILET",  "WC"},
+        {"DUS",       "Dus"},    {"DUŞAKABIN",  "Dus"},    {"SHOWER",  "Dus"},
+        {"KUVET",     "Kuvet"},  {"BATHTUB",    "Kuvet"},  {"BANYO",   "Kuvet"},
+        {"EVYE",      "Evye"},   {"KITCHEN",    "Evye"},   {"MUTFAK",  "Evye"},
+        {"PISUAR",    "Pisuar"}, {"URINAL",     "Pisuar"},
+        {"BULAŞIK",   "Bulaşık Makinesi"}, {"DISHWASHER", "Bulaşık Makinesi"},
+        {"CAMASIR",   "Çamaşır Makinesi"}, {"WASHING",    "Çamaşır Makinesi"},
+    };
+
+    int detected = 0;
+    const auto& entities = m_document->GetCADEntities();
+
+    for (const auto& e : entities) {
+        if (!e) continue;
+        if (e->GetType() != cad::EntityType::Text &&
+            e->GetType() != cad::EntityType::MText &&
+            e->GetType() != cad::EntityType::Insert) continue;
+
+        std::string textContent;
+        geom::Vec3  position;
+
+        if (e->GetType() == cad::EntityType::Text ||
+            e->GetType() == cad::EntityType::MText) {
+            const auto* txt = static_cast<const cad::Text*>(e.get());
+            textContent = txt->GetText();
+            position    = txt->GetEffectiveInsertPoint();
+        }
+
+        if (textContent.empty()) continue;
+
+        // Büyük harfe çevir (ASCII hızlı yaklaşım)
+        std::string upper = textContent;
+        for (auto& c : upper) c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
+
+        for (const auto& [kw, fixtureType] : kKeywords) {
+            if (upper.find(kw) != std::string::npos) {
+                // Bu konumda zaten node var mı? (5m tolerans)
+                bool alreadyExists = false;
+                for (const auto& [nid, nd] : network.GetNodeMap()) {
+                    double dx = nd.position.x - position.x;
+                    double dy = nd.position.y - position.y;
+                    if (dx*dx + dy*dy < 5000.0*5000.0) { alreadyExists = true; break; }
+                }
+                if (alreadyExists) break;
+
+                mep::Node node;
+                node.type        = mep::NodeType::Fixture;
+                node.fixtureType = fixtureType;
+                node.position    = {position.x, position.y, position.z};
+                node.loadUnit    = mep::Database::Instance()
+                                       .GetFixture(fixtureType).loadUnit;
+                auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+                m_document->ExecuteCommand(std::move(cmd));
+                ++detected;
+                break; // her text için tek fixture
+            }
+        }
+    }
+
+    if (detected > 0) {
+        statusBar()->showMessage(
+            QString("Fixture oto-tanıma: %1 cihaz bulundu ve MEP ağına eklendi (Ctrl+Z ile geri alınabilir)")
+                .arg(detected), 5000);
+        if (m_logList) m_logList->addItem(
+            QString("Fixture oto-tanıma: %1 cihaz eklendi (lavabo, WC, duş, vb.)").arg(detected));
+        RefreshTextOverlay();
+        ScheduleAutoHydro();
     }
 }
 

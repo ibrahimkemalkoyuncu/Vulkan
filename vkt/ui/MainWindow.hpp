@@ -253,6 +253,7 @@ private slots:
     void OnCopy();
     void OnPaste();
     void OnTrim();
+    void ScanForFixtureBlocks(); // DWG import sonrası oto-fixture tanıma
 
     // Property değişiklikleri
     void OnPropertiesUpdated();

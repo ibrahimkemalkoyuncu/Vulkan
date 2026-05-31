@@ -238,3 +238,57 @@ if(BUILD_TESTING)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ── Kurulum + CPack / NSIS Installer ──────────────────────────────────────────
+include(GNUInstallDirs)
+
+install(TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Shaderları da kur (varsa)
+if(EXISTS "${CMAKE_BINARY_DIR}/bin/shaders")
+    install(DIRECTORY "${CMAKE_BINARY_DIR}/bin/shaders/"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/shaders"
+        FILES_MATCHING PATTERN "*.spv"
+    )
+endif()
+
+# Qt DLL'lerini windeployqt ile paketle (sadece Windows Release)
+if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    find_program(WINDEPLOYQT windeployqt
+        HINTS "${Qt6_DIR}/../../../bin" "$ENV{Qt6_DIR}/bin")
+    if(WINDEPLOYQT)
+        install(CODE "
+            execute_process(COMMAND
+                \"${WINDEPLOYQT}\"
+                --release --no-translations
+                \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/MekanikTesisatDraw.exe\"
+            )
+        ")
+    endif()
+endif()
+
+# CPack — NSIS installer (Windows)
+set(CPACK_PACKAGE_NAME              "VKT Mekanik Tesisat Draw")
+set(CPACK_PACKAGE_VENDOR            "Ibrahim Kemal Koyuncu")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Vulkan + Qt6 tabanlı profesyonel MEP CAD yazılımı")
+set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION_MAJOR     "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR     "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH     "${PROJECT_VERSION_PATCH}")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "VKT")
+set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_SOURCE_DIR}/LICENSE" )
+
+# NSIS ayarları
+set(CPACK_GENERATOR                 "NSIS")
+set(CPACK_NSIS_DISPLAY_NAME         "VKT Mekanik Tesisat Draw v${PROJECT_VERSION}")
+set(CPACK_NSIS_PACKAGE_NAME         "VKT")
+set(CPACK_NSIS_INSTALL_ROOT         "$PROGRAMFILES64")
+set(CPACK_NSIS_CREATE_ICONS_EXTRA
+    "CreateShortcut '$SMPROGRAMS\\VKT\\VKT.lnk' '$INSTDIR\\bin\\MekanikTesisatDraw.exe'")
+set(CPACK_NSIS_DELETE_ICONS_EXTRA
+    "Delete '$SMPROGRAMS\\VKT\\VKT.lnk'")
+
+include(CPack)
