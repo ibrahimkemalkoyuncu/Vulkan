@@ -980,6 +980,16 @@ void MainWindow::OnImportDXF() {
                 LogCAD("[MainWindow] " + std::to_string(layers.size()) + " layers stored in Document");
             }
 
+            // Blok tanımlarını Document'a aktar (DXF BLOCK section)
+            {
+                auto blockReg = dialog.TakeBlockRegistry();
+                if (blockReg.Size() > 0 && m_document) {
+                    m_document->GetBlockRegistry() = std::move(blockReg);
+                    LogCAD("[MainWindow] " + std::to_string(m_document->GetBlockRegistry().Size())
+                           + " blok tanımı Document'a aktarıldı");
+                }
+            }
+
             // CAD entity'leri Document'a kaydet (ownership transfer)
             auto ownedEntities = dialog.TakeEntities();
             LogCAD("[MainWindow] TakeEntities returned: " + std::to_string(ownedEntities.size())

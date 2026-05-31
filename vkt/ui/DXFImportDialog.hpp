@@ -58,6 +58,11 @@ public:
     std::vector<std::unique_ptr<cad::Entity>> TakeEntities();
 
     /**
+     * @brief Blok tanımlarını BlockRegistry olarak devret (DXF BLOCK section)
+     */
+    cad::BlockRegistry TakeBlockRegistry();
+
+    /**
      * @brief Import başarılı mı?
      */
     bool WasSuccessful() const { return m_importSuccess; }

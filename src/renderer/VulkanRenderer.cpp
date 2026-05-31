@@ -12,6 +12,7 @@
 #include "cad/Polyline.hpp"
 #include "cad/Dimension.hpp"
 #include "cad/Hatch.hpp"
+#include "cad/Block.hpp"
 #include <iostream>
 #include <string>
 #include <stdexcept>
@@ -2190,6 +2191,18 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
                     addVertex(v1.x, v1.y, v1.z);
                 }
             }
+            break;
+        }
+        case cad::EntityType::Insert: {
+            // Insert entity: blok referansı — insert noktasına küçük çarpı marker çiz
+            const auto* ins = static_cast<const cad::Insert*>(entity.get());
+            const auto& pt = ins->GetInsertPt();
+            const double sz = 100.0; // 100mm marker boyutu
+            // Çapraz çizgiler (×)
+            addVertex(pt.x - sz, pt.y - sz, pt.z);
+            addVertex(pt.x + sz, pt.y + sz, pt.z);
+            addVertex(pt.x + sz, pt.y - sz, pt.z);
+            addVertex(pt.x - sz, pt.y + sz, pt.z);
             break;
         }
         case cad::EntityType::Dimension: {

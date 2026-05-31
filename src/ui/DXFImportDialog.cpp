@@ -569,6 +569,13 @@ std::vector<std::unique_ptr<cad::Entity>> DXFImportDialog::TakeEntities() {
     return {};
 }
 
+cad::BlockRegistry DXFImportDialog::TakeBlockRegistry() {
+    if (m_fileType == FileType::DXF && m_dxfReader) {
+        return m_dxfReader->TakeBlockRegistry();
+    }
+    return {};
+}
+
 std::vector<cad::SpaceCandidate> DXFImportDialog::GetAcceptedSpaces() const {
     std::vector<cad::SpaceCandidate> accepted;
     

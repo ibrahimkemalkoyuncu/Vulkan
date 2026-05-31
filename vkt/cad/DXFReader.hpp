@@ -52,6 +52,7 @@
 #include "cad/Entity.hpp"
 #include "cad/Layer.hpp"
 #include "cad/LayerManager.hpp"
+#include "cad/Block.hpp"
 #include <string>
 #include <vector>
 #include <memory>
@@ -173,6 +174,19 @@ public:
      * @brief Entity sahipliğini devret (move semantics)
      */
     std::vector<std::unique_ptr<Entity>> TakeEntities() { return std::move(m_entities); }
+
+    /// Blok tanımlarını BlockRegistry olarak al (ownership transfer)
+    cad::BlockRegistry TakeBlockRegistry() {
+        cad::BlockRegistry reg;
+        for (auto& [name, ents] : m_blocks) {
+            cad::BlockDef def;
+            def.name     = name;
+            def.entities = std::move(ents);
+            reg.AddBlock(std::move(def));
+        }
+        m_blocks.clear();
+        return reg;
+    }
 
     /**
      * @brief Entity sayısı
