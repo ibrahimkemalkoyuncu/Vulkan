@@ -35,6 +35,7 @@ struct PipeData {
     std::string material;       ///< Malzeme
     double roughness_mm = 0.0015; ///< Pürüzlülük (mm)
     std::vector<double> availableDiameters_mm; ///< Standart çaplar
+    double unitPrice_TL = 0.0; ///< Birim fiyat (TL/m) — DN20 referans
 };
 
 /**

@@ -37,33 +37,39 @@ void Database::InitializeFixtures() {
 
 void Database::InitializePipes() {
     // Boru malzemeleri ve pürüzlülük değerleri
+    // Birim fiyatlar TL/m — DN20 referans (2026 yaklaşık piyasa değerleri)
     PipeData pvc;
     pvc.material = "PVC";
     pvc.roughness_mm = 0.0015;
+    pvc.unitPrice_TL = 45.0;  // ~45 TL/m DN20
     pvc.availableDiameters_mm = {16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160, 200};
     m_pipes["PVC"] = pvc;
 
     PipeData pp;
     pp.material = "PP";
     pp.roughness_mm = 0.0015;
+    pp.unitPrice_TL = 55.0;   // PPR biraz daha pahalı
     pp.availableDiameters_mm = {16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160, 200};
     m_pipes["PP"] = pp;
 
-    PipeData pe;
-    pe.material = "PE";
-    pe.roughness_mm = 0.0015;
-    pe.availableDiameters_mm = {16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160, 200};
-    m_pipes["PE"] = pe;
+    PipeData ppe;  // variable renamed from 'pe' to avoid shadowing
+    ppe.material = "PE";
+    ppe.roughness_mm = 0.0015;
+    ppe.unitPrice_TL = 60.0;
+    ppe.availableDiameters_mm = {16, 20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160, 200};
+    m_pipes["PE"] = ppe;
 
     PipeData copper;
     copper.material = "Bakır";
     copper.roughness_mm = 0.0015;
+    copper.unitPrice_TL = 220.0; // Bakır çok daha pahalı
     copper.availableDiameters_mm = {12, 15, 18, 22, 28, 35, 42, 54, 76, 108};
     m_pipes["Bakır"] = copper;
 
     PipeData steel;
     steel.material = "Çelik";
     steel.roughness_mm = 0.045;
+    steel.unitPrice_TL = 95.0;
     steel.availableDiameters_mm = {15, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150, 200};
     m_pipes["Çelik"] = steel;
 }

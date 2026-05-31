@@ -252,6 +252,7 @@ private slots:
     void OnOffset();
     void OnCopy();
     void OnPaste();
+    void OnTrim();
 
     // Property değişiklikleri
     void OnPropertiesUpdated();

@@ -497,6 +497,11 @@ void MainWindow::CreateMenus() {
         auto* actPaste = editMenu->addAction("Yapıştır...");
         actPaste->setShortcut(QKeySequence::Paste);
         connect(actPaste, &QAction::triggered, this, &MainWindow::OnPaste);
+
+        editMenu->addSeparator();
+        auto* actTrim  = editMenu->addAction("Trim (Kısalt)...");
+        actTrim->setShortcut(Qt::Key_T | Qt::NoModifier);
+        connect(actTrim, &QAction::triggered, this, &MainWindow::OnTrim);
     }
 
     // Çizim
@@ -1052,6 +1057,102 @@ void MainWindow::OnRedo() {
 // ============================================================
 //  SELECT ALL (Ctrl+A)  — #6
 // ============================================================
+// ============================================================
+//  TRIM komutu  (#16) — iki çizginin kesişimine kısalt
+// ============================================================
+void MainWindow::OnTrim() {
+    if (!m_document) return;
+
+    // Adım 1: Sınır entity seç (tek tıkla)
+    bool ok;
+    QString info = "TRIM: Önce sınır çizgiyi seçin (entity ID girin).\n"
+                   "Seçim kutusu ile seçili entity ID'yi kullanın veya ID yazın.";
+
+    // Seçili entity'yi sınır olarak kullan
+    cad::EntityId boundId = m_selectedCADEntityId;
+    if (m_selectedCADEntityIds.size() == 1) boundId = *m_selectedCADEntityIds.begin();
+
+    if (boundId == 0) {
+        QMessageBox::information(this, "TRIM",
+            "Önce sınır olarak kullanılacak entity'yi seçin (tek tıklama),\n"
+            "sonra TRIM komutunu çalıştırın.");
+        return;
+    }
+
+    auto boundIt = m_cadEntityCache.find(boundId);
+    if (boundIt == m_cadEntityCache.end() || !boundIt->second ||
+        boundIt->second->GetType() != cad::EntityType::Line) {
+        QMessageBox::information(this, "TRIM", "Sınır entity bir Line olmalıdır.");
+        return;
+    }
+    const auto* boundLine = static_cast<const cad::Line*>(boundIt->second);
+
+    // Adım 2: Kısaltılacak entity ID gir
+    int trimId = QInputDialog::getInt(this, "TRIM — Kısaltılacak Entity",
+        QString("Sınır: Entity #%1 (Line)\nKısaltılacak entity ID:").arg(boundId),
+        0, 1, INT_MAX, 1, &ok);
+    if (!ok || trimId == 0) return;
+
+    auto trimIt = m_cadEntityCache.find(static_cast<cad::EntityId>(trimId));
+    if (trimIt == m_cadEntityCache.end() || !trimIt->second ||
+        trimIt->second->GetType() != cad::EntityType::Line) {
+        QMessageBox::warning(this, "TRIM", "Kısaltılacak entity bir Line olmalıdır ve var olmalıdır.");
+        return;
+    }
+    auto* trimLine = static_cast<cad::Line*>(trimIt->second);
+
+    // Line-Line kesişim noktasını hesapla (2D)
+    geom::Vec3 p1 = boundLine->GetStart(), p2 = boundLine->GetEnd();
+    geom::Vec3 p3 = trimLine->GetStart(),  p4 = trimLine->GetEnd();
+
+    double d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+    double d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+    double denom = d1x * d2y - d1y * d2x;
+    if (std::abs(denom) < 1e-10) {
+        QMessageBox::information(this, "TRIM", "Çizgiler paralel — kesişim yok.");
+        return;
+    }
+    double t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+    double s = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / denom;
+
+    if (s < 0.0 || s > 1.0) {
+        QMessageBox::information(this, "TRIM", "Kesişim nokta uzantıda — trim uygulanamaz.");
+        return;
+    }
+
+    geom::Vec3 ix{p3.x + s * d2x, p3.y + s * d2y, p3.z};
+
+    // Kısaltma: hangi tarafı kes? (sınıra göre başlangıca mı yoksa sona mı yakın?)
+    QStringList sides = {"Başlangıç tarafını kes (intersection'dan sona doğru kalsın)",
+                         "Son tarafını kes (başlangıçtan intersection'a doğru kalsın)"};
+    QString side = QInputDialog::getItem(this, "TRIM — Taraf Seçimi",
+        QString("Kesişim: (%.1f, %.1f)\nHangi taraf kesilsin?").arg(ix.x).arg(ix.y),
+        sides, 0, false, &ok);
+    if (!ok) return;
+
+    // Revert + command ile undo stack
+    geom::Vec3 origStart = trimLine->GetStart();
+    geom::Vec3 origEnd   = trimLine->GetEnd();
+
+    if (sides.indexOf(side) == 0) {
+        // Başlangıç kesilir → start = intersection
+        trimLine->SetStart(origStart); // revert
+        auto cmd = std::make_unique<core::GripEditLineCommand>(trimLine, 0, origStart, ix);
+        m_document->ExecuteCommand(std::move(cmd));
+    } else {
+        // Son kesilir → end = intersection
+        trimLine->SetEnd(origEnd); // revert
+        auto cmd = std::make_unique<core::GripEditLineCommand>(trimLine, 2, origEnd, ix);
+        m_document->ExecuteCommand(std::move(cmd));
+    }
+
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(
+        QString("TRIM uygulandı — Entity #%1 kesişim noktasına kısaltıldı (Ctrl+Z ile geri alınabilir)").arg(trimId), 3000);
+}
+
 void MainWindow::OnSelectAll() {
     if (!m_document) return;
     m_selectedCADEntityIds.clear();
@@ -3734,6 +3835,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnCopy();
     } else if (c == "PASTE" || c == "YAPISTIR") {
         OnPaste();
+    } else if (c == "TRIM" || c == "KISALT" || c == "TR") {
+        OnTrim();
     } else if (c == "ORTHO" || c == "F8") {
         m_orthoMode = !m_orthoMode;
         statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
@@ -4790,18 +4893,44 @@ void MainWindow::OnBOM() {
     // Rapor olustur
     QString msg;
     msg += "<h3>Kesif Listesi / Malzeme Dokumu (BOM)</h3>";
-    msg += "<b>Boru Metrajlari:</b><br>";
-    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
-    msg += "<tr><th>DN (mm)</th><th>Toplam Boy (m)</th><th>Parca</th></tr>";
+    // Maliyet tahmini — malzeme bazlı birim fiyat
+    auto& db = mep::Database::Instance();
+    std::string mainMat = m_devreParams.mainPipeMat.toStdString();
+    double unitPrice = db.GetPipe(mainMat).unitPrice_TL;
+    // Çap katsayısı: DN'e göre fiyat orantılı artış (DN20=1x, DN25=1.3x, DN32=1.7x, vb.)
+    auto dnPriceFactor = [](int dn) -> double {
+        if (dn <= 16) return 0.8;
+        if (dn <= 20) return 1.0;
+        if (dn <= 25) return 1.3;
+        if (dn <= 32) return 1.7;
+        if (dn <= 40) return 2.3;
+        if (dn <= 50) return 3.0;
+        if (dn <= 63) return 4.0;
+        if (dn <= 75) return 5.5;
+        if (dn <= 90) return 7.0;
+        return 10.0;
+    };
 
-    double totalLength = 0.0;
+    msg += "<b>Boru Metrajlari ve Maliyet Tahmini:</b><br>";
+    msg += QString("<small>Malzeme: %1 — Birim fiyat (DN20): %2 TL/m</small><br>")
+               .arg(QString::fromStdString(mainMat)).arg(unitPrice, 0, 'f', 0);
+    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
+    msg += "<tr><th>DN (mm)</th><th>Uzunluk (m)</th><th>Parca</th><th>Birim Fiyat (TL/m)</th><th>Tutar (TL)</th></tr>";
+
+    double totalLength = 0.0, totalCost = 0.0;
     for (const auto& [dn, len] : pipeLength_m) {
-        msg += QString("<tr><td>DN%1</td><td>%2</td><td>%3</td></tr>")
-                   .arg(dn).arg(len, 0, 'f', 2).arg(pipeCount[dn]);
+        double price  = unitPrice * dnPriceFactor(dn);
+        double cost   = len * price;
+        totalCost    += cost;
+        msg += QString("<tr><td>DN%1</td><td>%2</td><td>%3</td><td>%4</td><td><b>%5</b></td></tr>")
+                   .arg(dn).arg(len, 0, 'f', 2).arg(pipeCount[dn])
+                   .arg(price, 0, 'f', 0).arg(cost, 0, 'f', 0);
         totalLength += len;
     }
-    msg += QString("<tr><td><b>TOPLAM</b></td><td><b>%1 m</b></td><td><b>%2 adet</b></td></tr>")
-               .arg(totalLength, 0, 'f', 2).arg((int)network.GetEdgeCount());
+    msg += QString("<tr style='background:#e8f4e8'><td><b>TOPLAM</b></td><td><b>%1 m</b></td>"
+                   "<td><b>%2</b></td><td>—</td><td><b>%3 TL</b></td></tr>")
+               .arg(totalLength, 0, 'f', 2).arg((int)network.GetEdgeCount())
+               .arg(totalCost, 0, 'f', 0);
     msg += "</table><br>";
 
     msg += "<b>Baglanti Elemanlari (tahmini):</b><br>";
