@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 #include <array>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include "core/Document.hpp"
@@ -240,6 +241,14 @@ private slots:
     void OnCommandEntered(const QString& cmd);
     void OnCommandEscape();
 
+    // Yardım menüsü
+    void OnAbout();
+    void OnHelp();
+
+    // Düzenleme komutları
+    void OnSelectAll();
+    void OnMirror();
+
     // Property değişiklikleri
     void OnPropertiesUpdated();
     void OnDiameterChanged(const QString& text);
@@ -456,6 +465,10 @@ private:
     core::FloorManager m_floorManager;
     int      m_activeFloorIndex = 0;   ///< Aktif kat (çizim z'si = floor.elevation_m)
     QComboBox* m_floorSelector  = nullptr; ///< Toolbar'daki kat seçici
+
+    // Ortho modu (F8) — boru çizerken yatay/dikey kısıt
+    bool                       m_orthoMode      = false;
+    std::optional<geom::Vec3>  m_drawFirstPoint; // boru çiziminin ilk noktası
 
     // Mesafe ölçüm modu (UZAKLIK/DISTANCE komutu)
     bool       m_measureMode       = false;

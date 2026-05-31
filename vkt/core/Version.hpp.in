@@ -1,0 +1,14 @@
+#pragma once
+
+namespace vkt {
+
+constexpr int   VKT_VERSION_MAJOR = @PROJECT_VERSION_MAJOR@;
+constexpr int   VKT_VERSION_MINOR = @PROJECT_VERSION_MINOR@;
+constexpr int   VKT_VERSION_PATCH = @PROJECT_VERSION_PATCH@;
+
+constexpr const char* VKT_VERSION_STRING = "@PROJECT_VERSION@";
+constexpr const char* VKT_APP_NAME       = "VKT — Mekanik Tesisat Draw";
+constexpr const char* VKT_COPYRIGHT      = "© 2026 İbrahim Kemal Koyuncu";
+constexpr const char* VKT_STANDARDS      = "TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300";
+
+} // namespace vkt

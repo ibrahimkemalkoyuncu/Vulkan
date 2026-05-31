@@ -27,7 +27,10 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/DXFWriter.hpp"
+#include "core/Version.hpp"
 #include <QGuiApplication>
+#include <QRegularExpression>
+#include <filesystem>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QMessageBox>
@@ -39,6 +42,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QInputDialog>
+#include <QColorDialog>
 #include <QSettings>
 #include <QDesktopServices>
 #include <QUrl>
@@ -470,6 +474,16 @@ void MainWindow::CreateMenus() {
     editMenu->addAction(m_actRedo);
     editMenu->addSeparator();
     editMenu->addAction(m_actDelete);
+    editMenu->addSeparator();
+    {
+        auto* actSelectAll = editMenu->addAction("Tümünü Seç");
+        actSelectAll->setShortcut(QKeySequence::SelectAll);
+        connect(actSelectAll, &QAction::triggered, this, &MainWindow::OnSelectAll);
+
+        auto* actMirror = editMenu->addAction("Ayna (Mirror)...");
+        actMirror->setShortcut(Qt::Key_M | Qt::NoModifier);
+        connect(actMirror, &QAction::triggered, this, &MainWindow::OnMirror);
+    }
 
     // Çizim
     auto* drawMenu = menuBar()->addMenu("Çi&zim");
@@ -547,6 +561,13 @@ void MainWindow::CreateMenus() {
     mimariMenu->addAction(m_actMimariBelirle);
     mimariMenu->addSeparator();
     mimariMenu->addAction(m_actFloorAlignment);
+
+    auto* helpMenu = menuBar()->addMenu("&Yardım");
+    auto* actHelp  = helpMenu->addAction("Kullanıcı Kılavuzu (F1)");
+    actHelp->setShortcut(QKeySequence::HelpContents);
+    auto* actAbout = helpMenu->addAction("Hakkında...");
+    connect(actHelp,  &QAction::triggered, this, &MainWindow::OnHelp);
+    connect(actAbout, &QAction::triggered, this, &MainWindow::OnAbout);
 }
 
 void MainWindow::CreateToolbars() {
@@ -713,6 +734,31 @@ void MainWindow::CreateDockPanels() {
             bool visible = (item->checkState() == Qt::Checked);
             it->second.SetVisible(visible);
             InvalidateRenderer();
+        });
+
+    // Çift tıklama → katman rengi düzenleme (#5)
+    connect(m_layerList, &QListWidget::itemDoubleClicked, this,
+        [this](QListWidgetItem* item) {
+            if (!m_document) return;
+            QString layName = item->text();
+            auto& layers = m_document->GetLayersMutable();
+            auto it = layers.find(layName.toStdString());
+            if (it == layers.end()) return;
+            auto& lay = it->second;
+            QColor cur(lay.GetColor().r, lay.GetColor().g, lay.GetColor().b);
+            QColor chosen = QColorDialog::getColor(cur, this,
+                QString("Katman Rengi: %1").arg(layName));
+            if (!chosen.isValid()) return;
+            cad::Color nc{static_cast<uint8_t>(chosen.red()),
+                          static_cast<uint8_t>(chosen.green()),
+                          static_cast<uint8_t>(chosen.blue())};
+            lay.SetColor(nc);
+            // Layer haritasını renderer'a aktar
+            if (m_vulkanWindow)
+                m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+            RefreshLayerPanel();
+            InvalidateRenderer();
+            statusBar()->showMessage(QString("'%1' katman rengi değiştirildi").arg(layName), 2000);
         });
 
     connect(btnLayerAll, &QPushButton::clicked, this, [this]() {
@@ -989,6 +1035,75 @@ void MainWindow::OnRedo() {
     }
 }
 
+// ============================================================
+//  SELECT ALL (Ctrl+A)  — #6
+// ============================================================
+void MainWindow::OnSelectAll() {
+    if (!m_document) return;
+    m_selectedCADEntityIds.clear();
+    m_selectedCADEntityId = 0;
+    for (const auto& e : m_document->GetCADEntities()) {
+        if (e && e->IsVisible()) m_selectedCADEntityIds.insert(e->GetId());
+    }
+    if (!m_selectedCADEntityIds.empty()) {
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
+        ComputeGrips();
+        statusBar()->showMessage(QString("%1 entity seçildi (Tümü)").arg(m_selectedCADEntityIds.size()), 2000);
+    }
+}
+
+// ============================================================
+//  MIRROR (AYNA)  — #7
+// ============================================================
+void MainWindow::OnMirror() {
+    if (!m_document) return;
+    if (m_selectedCADEntityIds.empty() && m_selectedCADEntityId == 0) {
+        statusBar()->showMessage("Önce entity seçin, sonra MIRROR komutunu çalıştırın", 2000);
+        return;
+    }
+
+    // Yansıma ekseni: yatay mı, dikey mi?
+    QStringList eksenler = {"Yatay eksen (X ekseni boyunca)", "Dikey eksen (Y ekseni boyunca)",
+                            "Seçimin merkezi etrafında (180° döndür)"};
+    bool ok;
+    QString secim = QInputDialog::getItem(this, "Mirror — Ayna", "Yansıma ekseni:", eksenler, 0, false, &ok);
+    if (!ok) return;
+
+    // Seçili entity'leri topla
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+
+    // Seçimin BBox merkezi
+    double cx = 0, cy = 0;
+    int cnt = 0;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        auto bb = it->second->GetBounds();
+        auto c  = bb.GetCenter();
+        cx += c.x; cy += c.y; ++cnt;
+    }
+    if (cnt > 0) { cx /= cnt; cy /= cnt; }
+
+    int eksNo = eksenler.indexOf(secim);
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        cad::Entity* e = it->second;
+        if (eksNo == 0)      // yatay: Y koordinatları ters
+            e->Mirror({cx - 1, cy, 0}, {cx + 1, cy, 0});
+        else if (eksNo == 1) // dikey: X koordinatları ters
+            e->Mirror({cx, cy - 1, 0}, {cx, cy + 1, 0});
+        else                 // 180° döndür (her ikisi de)
+            e->Rotate(180.0);
+    }
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(QString("%1 entity yansıtıldı").arg(ids.size()), 2000);
+}
+
 void MainWindow::OnDelete() {
     if (!m_document) return;
 
@@ -1087,6 +1202,63 @@ void MainWindow::OnDrawJunction() {
     m_currentToolMode = ToolMode::PlaceJunction;
     m_drawState = DrawState::WaitingFirstPoint;
     statusBar()->showMessage("Baglanti noktasi: Noktayi tiklayin");
+}
+
+// ============================================================
+//  ABOUT & HELP
+// ============================================================
+void MainWindow::OnAbout() {
+    QMessageBox::about(this, "Hakkında — VKT",
+        QString("<h2>%1</h2>"
+                "<p><b>Sürüm:</b> %2</p>"
+                "<p>Vulkan + Qt6 tabanlı profesyonel MEP CAD yazılımı.<br>"
+                "4M FINE SANI'nin ötesinde: açık mimari, GPU render, tam standart uyumu.</p>"
+                "<p><b>Standartlar:</b> %3</p>"
+                "<p>%4</p>")
+            .arg(vkt::VKT_APP_NAME)
+            .arg(vkt::VKT_VERSION_STRING)
+            .arg(vkt::VKT_STANDARDS)
+            .arg(vkt::VKT_COPYRIGHT));
+}
+
+void MainWindow::OnHelp() {
+    // Kullanıcı_kitabı.md dosyasını QTextBrowser'da aç
+    QString kitapPath = QString::fromStdString(
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path()
+            .append("Kullan\xc4\xb1\xc4\x9f\xc4\xb1_kitab\xc4\xb1.md")
+            .string());
+
+    QDialog* dlg = new QDialog(this);
+    dlg->setWindowTitle("VKT Kullanıcı Kılavuzu");
+    dlg->resize(900, 680);
+    auto* layout = new QVBoxLayout(dlg);
+
+    auto* browser = new QTextBrowser(dlg);
+    browser->setOpenLinks(false);
+
+    QFile f(kitapPath);
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString md = QTextStream(&f).readAll();
+        // Markdown başlıklarını HTML'e çevir (temel)
+        md.replace(QRegularExpression("^### (.+)$", QRegularExpression::MultilineOption),
+                   "<h3>\\1</h3>");
+        md.replace(QRegularExpression("^## (.+)$",  QRegularExpression::MultilineOption),
+                   "<h2>\\1</h2>");
+        md.replace(QRegularExpression("^# (.+)$",   QRegularExpression::MultilineOption),
+                   "<h1>\\1</h1>");
+        md.replace(QRegularExpression("`([^`]+)`"), "<code>\\1</code>");
+        md.replace("\n\n", "<br><br>");
+        browser->setHtml("<html><body style='font-family:Arial;font-size:10pt'>" + md + "</body></html>");
+    } else {
+        browser->setText("Kullanıcı kılavuzu bulunamadı.\n\nBeklenen konum:\n" + kitapPath);
+    }
+
+    layout->addWidget(browser);
+    auto* btnClose = new QPushButton("Kapat", dlg);
+    connect(btnClose, &QPushButton::clicked, dlg, &QDialog::accept);
+    layout->addWidget(btnClose);
+    dlg->exec();
+    delete dlg;
 }
 
 void MainWindow::OnSelectMode() {
@@ -1402,6 +1574,16 @@ void MainWindow::RunAutoHydro() {
 //  ESC — ÇİZİM MODU İPTAL
 // ============================================================
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    // F8 — Ortho modu toggle (yatay/dikey kısıt)
+    if (event->key() == Qt::Key_F8) {
+        m_orthoMode = !m_orthoMode;
+        statusBar()->showMessage(m_orthoMode
+            ? "Ortho AÇIK (F8) — sadece yatay/dikey çizim"
+            : "Ortho KAPALI (F8)", 2000);
+        event->accept();
+        return;
+    }
+
     // F11 — tam ekran toggle (AutoCAD Ctrl+0 benzeri)
     if (event->key() == Qt::Key_F11) {
         m_isFullScreen = !m_isFullScreen;
@@ -2393,7 +2575,8 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     case ToolMode::DrawPipe: {
         if (m_drawState == DrawState::WaitingFirstPoint || m_drawState == DrawState::Idle) {
             // İlk nokta: sadece konumu kaydet, henüz graph'a ekleme
-            m_firstClickPos = geom::Vec3(worldX, worldY, GetActiveFloorZ());
+            m_firstClickPos  = geom::Vec3(worldX, worldY, GetActiveFloorZ());
+            m_drawFirstPoint = m_firstClickPos; // Ortho modu için referans nokta
             m_firstNodeInGraph = false;
             m_drawState = DrawState::WaitingSecondPoint;
             // Rubber-band başlangıcı için ekran koordinatı
@@ -3007,27 +3190,36 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
 }
 
 void MainWindow::HandleMouseMove(double worldX, double worldY) {
+    // ── Ortho modu (F8): yatay/dikey kısıt ─────────────────────────────
+    if (m_orthoMode && m_drawState == DrawState::WaitingSecondPoint && m_drawFirstPoint.has_value()) {
+        double dx = worldX - m_drawFirstPoint->x;
+        double dy = worldY - m_drawFirstPoint->y;
+        if (std::abs(dx) >= std::abs(dy)) worldY = m_drawFirstPoint->y; // yatay
+        else                               worldX = m_drawFirstPoint->x; // dikey
+    }
+
     // ── Grip drag ────────────────────────────────────────────────────────
     if (m_gripDragging && m_activeGrip >= 0 && m_activeGrip < static_cast<int>(m_grips.size())) {
         auto& gp = m_grips[m_activeGrip];
         auto it = m_cadEntityCache.find(gp.entityId);
         if (it != m_cadEntityCache.end() && it->second) {
             cad::Entity* e = it->second;
+            geom::Vec3 snapped{worldX, worldY, gp.worldPos.z};
             if (e->GetType() == cad::EntityType::Line) {
                 auto* ln = static_cast<cad::Line*>(e);
-                geom::Vec3 snapped{worldX, worldY, gp.worldPos.z};
-                if (gp.index == 0) {          // start
-                    ln->SetStart(snapped);
-                } else if (gp.index == 2) {   // end
-                    ln->SetEnd(snapped);
-                } else {                       // midpoint → translate
-                    double dx = worldX - gp.worldPos.x;
-                    double dy = worldY - gp.worldPos.y;
-                    ln->SetStart({m_gripEntityOrig[0].x + dx, m_gripEntityOrig[0].y + dy, m_gripEntityOrig[0].z});
-                    ln->SetEnd  ({m_gripEntityOrig[2].x + dx, m_gripEntityOrig[2].y + dy, m_gripEntityOrig[2].z});
+                if (gp.index == 0)       ln->SetStart(snapped);
+                else if (gp.index == 2)  ln->SetEnd(snapped);
+                else {
+                    double dx = worldX - gp.worldPos.x, dy = worldY - gp.worldPos.y;
+                    ln->SetStart({m_gripEntityOrig[0].x+dx, m_gripEntityOrig[0].y+dy, m_gripEntityOrig[0].z});
+                    ln->SetEnd  ({m_gripEntityOrig[2].x+dx, m_gripEntityOrig[2].y+dy, m_gripEntityOrig[2].z});
                 }
-                gp.worldPos = snapped;
+            } else if (e->GetType() == cad::EntityType::Polyline) {
+                auto* pl = static_cast<cad::Polyline*>(e);
+                if (gp.index >= 0 && gp.index < static_cast<int>(pl->GetVertices().size()))
+                    pl->SetVertexPosition(static_cast<size_t>(gp.index), snapped);
             }
+            gp.worldPos = snapped;
         }
         UpdateGripScreen();
         if (m_snapOverlay) {
@@ -3220,7 +3412,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gorunum : ZOOM-EXTENTS  VIEW-PLAN  VIEW-ISO  KATMAN(-VIS)");
             m_logList->addItem("Analiz  : HYDRAULICS  HIDROFOR  NORM  YAGMUR  BOM  RISER");
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA  GENLESIM  YAGMUR-ALAN  NORM-KARSILASTIR  HESAP-KARARI  BIRLESIK-MOD");
-            m_logList->addItem("Diger   : UNDO  REDO  SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA");
+            m_logList->addItem("Duzen   : TUMU(Ctrl+A)  MIRROR/AYNA  ORTHO(F8)  UNDO  REDO");
+            m_logList->addItem("Diger   : SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA  ABOUT");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -3335,6 +3528,15 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnExportFloorDXF();
     } else if (c == "EXPORT-PDF") {
         OnExportReport();
+    } else if (c == "TUMU" || c == "SELECTALL" || c == "TUMUNU-SEC") {
+        OnSelectAll();
+    } else if (c == "MIRROR" || c == "AYNA" || c == "YANSI") {
+        OnMirror();
+    } else if (c == "ORTHO" || c == "F8") {
+        m_orthoMode = !m_orthoMode;
+        statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
+    } else if (c == "HAKKINDA" || c == "ABOUT" || c == "VERSION" || c == "VERSIYON") {
+        OnAbout();
     } else {
         statusBar()->showMessage(QString("Bilinmeyen komut: %1  (HELP yazın)").arg(cmd));
         if (m_commandBar) m_commandBar->SetPrompt("Komut");
@@ -5881,6 +6083,13 @@ void MainWindow::ComputeGrips() {
                 addGrip(eid, 0, {c.x + r*std::cos(sa), c.y + r*std::sin(sa), c.z});
                 addGrip(eid, 1, {c.x + r*std::cos(ma), c.y + r*std::sin(ma), c.z});
                 addGrip(eid, 2, {c.x + r*std::cos(ea), c.y + r*std::sin(ea), c.z});
+                break;
+            }
+            case cad::EntityType::Polyline: {
+                const auto* pl = static_cast<const cad::Polyline*>(e);
+                const auto& verts = pl->GetVertices();
+                for (int vi = 0; vi < static_cast<int>(verts.size()); ++vi)
+                    addGrip(eid, vi, verts[vi].pos);
                 break;
             }
             default: break;

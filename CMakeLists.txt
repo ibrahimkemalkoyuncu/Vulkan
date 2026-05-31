@@ -1,6 +1,13 @@
 ﻿cmake_minimum_required(VERSION 3.20)
 project(MekanikTesisatDraw VERSION 1.0.0 LANGUAGES CXX)
 
+# Sürüm bilgisini header'a yaz
+configure_file(
+    "${CMAKE_SOURCE_DIR}/vkt/core/Version.hpp.in"
+    "${CMAKE_BINARY_DIR}/vkt/core/Version.hpp"
+    @ONLY
+)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -76,6 +83,7 @@ endif()
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/vkt
+    ${CMAKE_BINARY_DIR}/vkt      # configure_file ile üretilen Version.hpp
     ${CMAKE_SOURCE_DIR}/third_party
     ${Vulkan_INCLUDE_DIRS}
 )

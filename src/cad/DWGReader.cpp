@@ -700,6 +700,25 @@ void DWGReader::ExpandXref(const std::string& xrefPath,
                 delete e; e = new Polyline(verts, cl);
                 break;
             }
+            case EntityType::Text:
+            case EntityType::MText: {
+                Text* t = static_cast<Text*>(e);
+                t->SetInsertPoint(ApplyTransformChain(t->GetInsertPoint(), transformChain));
+                t->SetRotationDeg(t->GetRotationDeg() + chainRotation * (180.0 / M_PI));
+                // Ölçek: font yüksekliği
+                t->SetHeight(t->GetHeight() * chainScale);
+                // Nesneyi olduğu gibi tut (sahiplik devredilecek)
+                break;
+            }
+            case EntityType::Hatch: {
+                Hatch* h = static_cast<Hatch*>(e);
+                auto boundary = h->GetBoundary();
+                for (auto& bv : boundary) {
+                    bv.pos = ApplyTransformChain(bv.pos, transformChain);
+                }
+                h->SetBoundary(std::move(boundary));
+                break;
+            }
             default: break;
         }
 
