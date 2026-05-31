@@ -40,6 +40,7 @@ public:
     void SetModified(bool mod) { m_modified = mod; }
 
     std::string GetFilePath() const { return m_filePath; }
+    void        SetFilePath(const std::string& p) { m_filePath = p; }
     std::string GetTitle() const { return m_title; }
 
     // Command pattern

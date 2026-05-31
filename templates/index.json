@@ -1,0 +1,19 @@
+{
+  "templates": [
+    {
+      "file": "3_katli_konut.vkt",
+      "name": "3 Katli Konut",
+      "description": "3 katli konut — her katta Lavabo, WC, Dus, Mutfak Evyesi. PPR boru, TS EN 806-3."
+    },
+    {
+      "file": "otel_odasi.vkt",
+      "name": "Otel Odasi Banyo Unitesi",
+      "description": "Standart otel odasi banyo — Lavabo, WC, Dus. Soguk + sicak ikili besleme, PPR boru."
+    },
+    {
+      "file": "ofis_kati.vkt",
+      "name": "Ofis Kati (Erkek + Kadin WC Grubu)",
+      "description": "Tipik ofis kati — erkek/kadin WC gruplari, pisuar, servis evyesi. Galvaniz boru."
+    }
+  ]
+}

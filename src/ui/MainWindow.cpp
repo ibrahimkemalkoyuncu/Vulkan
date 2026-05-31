@@ -55,6 +55,12 @@
 #include <QPainter>
 #include <QPageLayout>
 #include <QSvgRenderer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDir>
+#include <QCoreApplication>
+#include <QFileInfo>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -453,6 +459,10 @@ void MainWindow::CreateMenus() {
     auto* fileMenu = menuBar()->addMenu("&Dosya");
     fileMenu->addAction(m_actNewProject);
     fileMenu->addAction(m_actNew);
+    auto* actNewFromTemplate = fileMenu->addAction("Şablondan Yeni...");
+    actNewFromTemplate->setToolTip("Hazir sablondan yeni proje olustur (3 katli konut, otel odasi, vb.)");
+    actNewFromTemplate->setShortcut(QKeySequence("Ctrl+Shift+T"));
+    connect(actNewFromTemplate, &QAction::triggered, this, &MainWindow::OnNewFromTemplate);
     fileMenu->addAction(m_actOpen);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actSave);
@@ -502,6 +512,11 @@ void MainWindow::CreateMenus() {
         auto* actTrim  = editMenu->addAction("Trim (Kısalt)...");
         actTrim->setShortcut(Qt::Key_T | Qt::NoModifier);
         connect(actTrim, &QAction::triggered, this, &MainWindow::OnTrim);
+
+        auto* actExtend = editMenu->addAction("Extend (Uzat)...");
+        actExtend->setShortcut(Qt::Key_X | Qt::NoModifier);
+        actExtend->setToolTip("Seçili sınıra kadar çizgiyi uzat (TRIM tersi)");
+        connect(actExtend, &QAction::triggered, this, &MainWindow::OnExtend);
     }
 
     // Çizim
@@ -846,6 +861,103 @@ void MainWindow::OnNew() {
     SetDocument(doc);
     setWindowTitle("VKT - Mekanik Tesisat CAD (FINE SANI++) - Yeni Proje");
     statusBar()->showMessage("Yeni proje olusturuldu", 3000);
+}
+
+// ============================================================
+//  ŞABLONDAN YENİ PROJE
+// ============================================================
+void MainWindow::OnNewFromTemplate() {
+    if (m_document && m_document->IsModified()) {
+        auto reply = QMessageBox::question(this, "Sablondan Yeni",
+            "Mevcut proje kaydedilmedi. Devam edilsin mi?",
+            QMessageBox::Yes | QMessageBox::No);
+        if (reply != QMessageBox::Yes) return;
+    }
+
+    // Şablon dizinini exe yanında veya kaynak dizininde ara
+    QString templateDir;
+    QStringList searchDirs = {
+        QCoreApplication::applicationDirPath() + "/templates",
+        QCoreApplication::applicationDirPath() + "/../templates",
+        QString::fromStdString([]() -> std::string {
+            // kaynak ağacındaki templates/ (geliştirme ortamı)
+            return "C:/Users/afney/Desktop/vulkan/templates";
+        }())
+    };
+    for (const auto& d : searchDirs) {
+        if (QDir(d).exists()) { templateDir = d; break; }
+    }
+
+    if (templateDir.isEmpty()) {
+        QMessageBox::information(this, "Sablondan Yeni",
+            "Sablon dizini bulunamadi.\n"
+            "templates/ klasorunu uygulama yani ile ayni dizine koyun.");
+        return;
+    }
+
+    // index.json oku
+    QFile indexFile(templateDir + "/index.json");
+    if (!indexFile.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, "Sablon Hatasi", "templates/index.json okunamadi.");
+        return;
+    }
+    QJsonDocument idxDoc = QJsonDocument::fromJson(indexFile.readAll());
+    indexFile.close();
+    if (idxDoc.isNull() || !idxDoc.isObject()) {
+        QMessageBox::warning(this, "Sablon Hatasi", "templates/index.json gecersiz.");
+        return;
+    }
+
+    QJsonArray templates = idxDoc.object().value("templates").toArray();
+    if (templates.isEmpty()) {
+        QMessageBox::information(this, "Sablon Yok", "Hicbir sablon bulunamadi.");
+        return;
+    }
+
+    // Şablon seçim dialog
+    QStringList names;
+    QStringList files;
+    QStringList descs;
+    for (const auto& t : templates) {
+        QJsonObject o = t.toObject();
+        names  << o.value("name").toString();
+        files  << o.value("file").toString();
+        descs  << o.value("description").toString();
+    }
+
+    bool ok;
+    QString selected = QInputDialog::getItem(this, "Sablondan Yeni Proje",
+        "Sablon secin:", names, 0, false, &ok);
+    if (!ok) return;
+
+    int idx = names.indexOf(selected);
+    if (idx < 0) return;
+
+    QString tmplFile = templateDir + "/" + files[idx];
+    auto& app = core::Application::Instance();
+    auto* doc = app.CreateNewDocument();
+    if (!doc->Load(tmplFile.toStdString())) {
+        QMessageBox::critical(this, "Sablon Yuklenemedi",
+            QString("Dosya acilamadi:\n%1").arg(tmplFile));
+        return;
+    }
+    // Şablonu yeni proje olarak aç (kaydedilmemiş)
+    doc->SetFilePath("");
+
+    SetDocument(doc);
+    setWindowTitle(QString("VKT — %1 (Sablondan)").arg(selected));
+    ScheduleAutoHydro();
+
+    int nodeCount = 0;
+    for (auto& [id, n] : doc->GetNetwork().GetNodeMap()) ++nodeCount;
+    int edgeCount = 0;
+    for (auto& [id, e] : doc->GetNetwork().GetEdgeMap()) ++edgeCount;
+
+    statusBar()->showMessage(
+        QString("Sablon yuklendi: %1 — %2 node, %3 boru (Ctrl+S ile kaydedin)")
+            .arg(selected).arg(nodeCount).arg(edgeCount), 5000);
+    if (m_logList)
+        m_logList->addItem(QString("Sablon: %1 (%2 boru)").arg(selected).arg(edgeCount));
 }
 
 void MainWindow::OnOpen() {
@@ -1244,6 +1356,93 @@ void MainWindow::OnTrim() {
     ComputeGrips();
     statusBar()->showMessage(
         QString("TRIM uygulandı — Entity #%1 kesişim noktasına kısaltıldı (Ctrl+Z ile geri alınabilir)").arg(trimId), 3000);
+}
+
+// ============================================================
+//  EXTEND komutu — çizgiyi sınıra uzat (TRIM'in tersi)
+// ============================================================
+void MainWindow::OnExtend() {
+    if (!m_document) return;
+
+    // Sınır entity seçili olmalı
+    cad::EntityId boundId = m_selectedCADEntityId;
+    if (m_selectedCADEntityIds.size() == 1) boundId = *m_selectedCADEntityIds.begin();
+
+    if (boundId == 0) {
+        QMessageBox::information(this, "EXTEND",
+            "Önce sınır olarak kullanılacak entity'yi seçin,\n"
+            "sonra EXTEND komutunu çalıştırın.");
+        return;
+    }
+
+    auto boundIt = m_cadEntityCache.find(boundId);
+    if (boundIt == m_cadEntityCache.end() || !boundIt->second ||
+        boundIt->second->GetType() != cad::EntityType::Line) {
+        QMessageBox::information(this, "EXTEND", "Sınır entity bir Line olmalıdır.");
+        return;
+    }
+    const auto* boundLine = static_cast<const cad::Line*>(boundIt->second);
+
+    bool ok;
+    int extId = QInputDialog::getInt(this, "EXTEND — Uzatılacak Entity",
+        QString("Sınır: Entity #%1 (Line)\nUzatılacak entity ID:").arg(boundId),
+        0, 1, INT_MAX, 1, &ok);
+    if (!ok || extId == 0) return;
+
+    auto extIt = m_cadEntityCache.find(static_cast<cad::EntityId>(extId));
+    if (extIt == m_cadEntityCache.end() || !extIt->second ||
+        extIt->second->GetType() != cad::EntityType::Line) {
+        QMessageBox::warning(this, "EXTEND", "Uzatılacak entity bir Line olmalıdır ve var olmalıdır.");
+        return;
+    }
+    auto* extLine = static_cast<cad::Line*>(extIt->second);
+
+    // Line-Line kesişim hesabı — TRIM'den farklı: s sınırı yok, uzantıda da geçerli
+    geom::Vec3 p1 = boundLine->GetStart(), p2 = boundLine->GetEnd();
+    geom::Vec3 p3 = extLine->GetStart(),   p4 = extLine->GetEnd();
+
+    double d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+    double d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+    double denom = d1x * d2y - d1y * d2x;
+    if (std::abs(denom) < 1e-10) {
+        QMessageBox::information(this, "EXTEND", "Çizgiler paralel — kesişim yok.");
+        return;
+    }
+    double s = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / denom;
+
+    // EXTEND için s herhangi bir değerde olabilir (uzantı da dahil)
+    // ama sınır çizginin kendi uzantısına göre t kontrol et
+    double t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+    if (t < -0.001 || t > 1.001) {
+        QMessageBox::information(this, "EXTEND",
+            "Uzatılacak çizgi sınırın uzantısında değil.");
+        return;
+    }
+
+    geom::Vec3 ix{p3.x + s * d2x, p3.y + s * d2y, p3.z};
+
+    // Hangi uç sınıra daha yakın? O ucu uzat
+    double distToStart = std::hypot(p3.x - ix.x, p3.y - ix.y);
+    double distToEnd   = std::hypot(p4.x - ix.x, p4.y - ix.y);
+
+    geom::Vec3 origStart = extLine->GetStart();
+    geom::Vec3 origEnd   = extLine->GetEnd();
+
+    if (distToEnd < distToStart) {
+        // Bitiş ucu sınıra uzatılır
+        auto cmd = std::make_unique<core::GripEditLineCommand>(extLine, 2, origEnd, ix);
+        m_document->ExecuteCommand(std::move(cmd));
+    } else {
+        // Başlangıç ucu sınıra uzatılır
+        auto cmd = std::make_unique<core::GripEditLineCommand>(extLine, 0, origStart, ix);
+        m_document->ExecuteCommand(std::move(cmd));
+    }
+
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(
+        QString("EXTEND uygulandı — Entity #%1 sınıra uzatıldı (Ctrl+Z ile geri alınabilir)").arg(extId), 3000);
 }
 
 void MainWindow::OnSelectAll() {
@@ -3910,6 +4109,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnSave();
     } else if (c == "NEW") {
         OnNew();
+    } else if (c == "SABLON" || c == "TEMPLATE" || c == "YENI-SABLON") {
+        OnNewFromTemplate();
     } else if (c == "OPEN") {
         OnOpen();
     } else if (c == "EXPORT-DXF" || c == "CIKTI-DXF") {
@@ -3930,6 +4131,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnPaste();
     } else if (c == "TRIM" || c == "KISALT" || c == "TR") {
         OnTrim();
+    } else if (c == "EXTEND" || c == "UZAT" || c == "EX") {
+        OnExtend();
     } else if (c == "ORTHO" || c == "F8") {
         m_orthoMode = !m_orthoMode;
         statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
@@ -5599,10 +5802,15 @@ void MainWindow::OnExportDXF() {
     bool ok = writer.Write(path.toStdString(),
                            m_document->GetCADEntities(),
                            m_document->GetNetwork(),
-                           projName.toStdString());
+                           projName.toStdString(),
+                           &m_document->GetBlockRegistry());
 
     if (ok) {
-        statusBar()->showMessage(QString("DXF kaydedildi: %1").arg(path), 4000);
+        auto blockCount = m_document->GetBlockRegistry().Size();
+        QString msg = QString("DXF kaydedildi: %1").arg(path);
+        if (blockCount > 0)
+            msg += QString(" (%1 blok tanimi dahil)").arg(blockCount);
+        statusBar()->showMessage(msg, 4000);
         if (m_logList)
             m_logList->addItem(QString("DXF Export: %1").arg(QFileInfo(path).fileName()));
     } else {
@@ -5696,7 +5904,8 @@ void MainWindow::OnExportFloorDXF() {
     bool ok3 = writer.Write(path.toStdString(),
                             floorEntities,
                             floorNet,
-                            kat.label);
+                            kat.label,
+                            &m_document->GetBlockRegistry());
     if (ok3) {
         statusBar()->showMessage(
             QString("Kat DXF kaydedildi: %1 (%2 entity, %3 boru)")

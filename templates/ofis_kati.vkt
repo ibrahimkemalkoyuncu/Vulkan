@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "type": "VKT_Template",
+  "templateName": "Ofis Kati (Erkek + Kadin WC Grubu)",
+  "templateDescription": "Tipik ofis kati tesisat sablonu - erkek ve kadin WC gruplari, lavabolar, servis evyesi. K=0.7 (EN 12056 otel/ofis).",
+  "norm": "EN806_3",
+  "network": {
+    "nodes": [
+      {"id": 1, "type": 2, "position": [0.0, 0.0, 0.0], "label": "Su Kaynagi", "pressureDesired_Pa": 300000, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+
+      {"id": 10, "type": 0, "position": [1000.0, 0.0, 0.0],    "label": "Ana Dag.",        "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 11, "type": 0, "position": [1000.0, 2000.0, 0.0], "label": "Erkek WC Dag.",  "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 12, "type": 0, "position": [1000.0,-2000.0, 0.0], "label": "Kadin WC Dag.", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+
+      {"id": 20, "type": 1, "position": [2500.0, 2000.0, 0.0], "label": "Lavabo-E1", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 21, "type": 1, "position": [3000.0, 2000.0, 0.0], "label": "Lavabo-E2", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 22, "type": 1, "position": [3500.0, 2000.0, 0.0], "label": "Lavabo-E3", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 23, "type": 1, "position": [2500.0, 2500.0, 0.0], "label": "Pisuar-1",  "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Pisuar", "isSimultaneous": false},
+      {"id": 24, "type": 1, "position": [3000.0, 2500.0, 0.0], "label": "WC-E1",     "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",     "isSimultaneous": false},
+      {"id": 25, "type": 1, "position": [3500.0, 2500.0, 0.0], "label": "WC-E2",     "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",     "isSimultaneous": false},
+
+      {"id": 30, "type": 1, "position": [2500.0,-2000.0, 0.0], "label": "Lavabo-K1", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 31, "type": 1, "position": [3000.0,-2000.0, 0.0], "label": "Lavabo-K2", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 32, "type": 1, "position": [3500.0,-2000.0, 0.0], "label": "Lavabo-K3", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 33, "type": 1, "position": [2500.0,-2500.0, 0.0], "label": "WC-K1",    "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",     "isSimultaneous": false},
+      {"id": 34, "type": 1, "position": [3000.0,-2500.0, 0.0], "label": "WC-K2",    "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",     "isSimultaneous": false},
+      {"id": 35, "type": 1, "position": [3500.0,-2500.0, 0.0], "label": "WC-K3",    "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",     "isSimultaneous": false},
+
+      {"id": 40, "type": 1, "position": [1500.0, 0.0, 0.0], "label": "Servis Evyesi", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Mutfak Evyesi", "isSimultaneous": false}
+    ],
+    "edges": [
+      {"id": 100, "nodeA": 1,  "nodeB": 10, "type": 0, "diameter_mm": 32.0, "length_m": 1.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 101, "nodeA": 10, "nodeB": 11, "type": 0, "diameter_mm": 25.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 102, "nodeA": 10, "nodeB": 12, "type": 0, "diameter_mm": 25.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 103, "nodeA": 10, "nodeB": 40, "type": 0, "diameter_mm": 16.0, "length_m": 1.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+
+      {"id": 110, "nodeA": 11, "nodeB": 20, "type": 0, "diameter_mm": 16.0, "length_m": 1.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 111, "nodeA": 11, "nodeB": 21, "type": 0, "diameter_mm": 16.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 112, "nodeA": 11, "nodeB": 22, "type": 0, "diameter_mm": 16.0, "length_m": 2.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 113, "nodeA": 11, "nodeB": 23, "type": 0, "diameter_mm": 16.0, "length_m": 1.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 114, "nodeA": 11, "nodeB": 24, "type": 0, "diameter_mm": 16.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 115, "nodeA": 11, "nodeB": 25, "type": 0, "diameter_mm": 16.0, "length_m": 2.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+
+      {"id": 120, "nodeA": 12, "nodeB": 30, "type": 0, "diameter_mm": 16.0, "length_m": 1.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 121, "nodeA": 12, "nodeB": 31, "type": 0, "diameter_mm": 16.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 122, "nodeA": 12, "nodeB": 32, "type": 0, "diameter_mm": 16.0, "length_m": 2.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 123, "nodeA": 12, "nodeB": 33, "type": 0, "diameter_mm": 16.0, "length_m": 1.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 124, "nodeA": 12, "nodeB": 34, "type": 0, "diameter_mm": 16.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""},
+      {"id": 125, "nodeA": 12, "nodeB": 35, "type": 0, "diameter_mm": 16.0, "length_m": 2.5, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "Galvaniz", "label": ""}
+    ]
+  }
+}

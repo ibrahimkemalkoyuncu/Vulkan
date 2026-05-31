@@ -174,6 +174,9 @@ private slots:
     void OnExportDXF();
     void OnExportFloorDXF();
 
+    // Şablondan Yeni Proje
+    void OnNewFromTemplate();
+
     // Hidrofor / Ekipman Boyutlandırma
     void OnHidrofor();
 
@@ -253,6 +256,7 @@ private slots:
     void OnCopy();
     void OnPaste();
     void OnTrim();
+    void OnExtend();
     void ScanForFixtureBlocks(); // DWG import sonrası oto-fixture tanıma
 
     // Property değişiklikleri

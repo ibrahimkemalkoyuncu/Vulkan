@@ -31,6 +31,19 @@
             }
         },
         {
+            "name": "mingw-release",
+            "displayName": "MinGW Release (Qt MinGW 64-bit)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/mingw-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_PREFIX_PATH": "C:/Qt/6.10.1/mingw_64",
+                "CMAKE_C_COMPILER":   "C:/Qt/Tools/mingw1310_64/bin/gcc.exe",
+                "CMAKE_CXX_COMPILER": "C:/Qt/Tools/mingw1310_64/bin/g++.exe",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
             "name": "vs2022",
             "displayName": "Visual Studio 2022 (Multi-config)",
             "generator": "Visual Studio 18 2026",
@@ -50,6 +63,10 @@
         {
             "name": "release-build",
             "configurePreset": "release"
+        },
+        {
+            "name": "mingw-release-build",
+            "configurePreset": "mingw-release"
         },
         {
             "name": "vs2022-debug",

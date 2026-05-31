@@ -254,6 +254,16 @@ if(EXISTS "${CMAKE_BINARY_DIR}/bin/shaders")
     )
 endif()
 
+# Çizim şablonlarını kur (templates/)
+if(EXISTS "${CMAKE_SOURCE_DIR}/templates")
+    install(DIRECTORY "${CMAKE_SOURCE_DIR}/templates/"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}/templates"
+        FILES_MATCHING
+            PATTERN "*.vkt"
+            PATTERN "*.json"
+    )
+endif()
+
 # Qt DLL'lerini windeployqt ile paketle (sadece Windows Release)
 if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
     find_program(WINDEPLOYQT windeployqt
@@ -279,16 +289,26 @@ set(CPACK_PACKAGE_VERSION_MAJOR     "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR     "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH     "${PROJECT_VERSION_PATCH}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "VKT")
-set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_SOURCE_DIR}/LICENSE" )
+set(CPACK_RESOURCE_FILE_LICENSE     "${CMAKE_SOURCE_DIR}/LICENSE")
 
 # NSIS ayarları
 set(CPACK_GENERATOR                 "NSIS")
 set(CPACK_NSIS_DISPLAY_NAME         "VKT Mekanik Tesisat Draw v${PROJECT_VERSION}")
 set(CPACK_NSIS_PACKAGE_NAME         "VKT")
 set(CPACK_NSIS_INSTALL_ROOT         "$PROGRAMFILES64")
+set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+if(EXISTS "${CMAKE_SOURCE_DIR}/resources/vkt.ico")
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/resources/vkt.ico")
+endif()
 set(CPACK_NSIS_CREATE_ICONS_EXTRA
-    "CreateShortcut '$SMPROGRAMS\\VKT\\VKT.lnk' '$INSTDIR\\bin\\MekanikTesisatDraw.exe'")
+    "CreateShortcut '$SMPROGRAMS\\\\VKT\\\\VKT Mekanik Tesisat Draw.lnk' '$INSTDIR\\\\bin\\\\MekanikTesisatDraw.exe'")
 set(CPACK_NSIS_DELETE_ICONS_EXTRA
-    "Delete '$SMPROGRAMS\\VKT\\VKT.lnk'")
+    "Delete '$SMPROGRAMS\\\\VKT\\\\VKT Mekanik Tesisat Draw.lnk'")
+
+# Masa üstü kısayolu
+set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
+    "CreateShortcut '$DESKTOP\\\\VKT Mekanik Tesisat Draw.lnk' '$INSTDIR\\\\bin\\\\MekanikTesisatDraw.exe'")
+set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS
+    "Delete '$DESKTOP\\\\VKT Mekanik Tesisat Draw.lnk'")
 
 include(CPack)

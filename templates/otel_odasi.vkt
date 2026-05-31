@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "type": "VKT_Template",
+  "templateName": "Otel Odasi Banyo Unitesi",
+  "templateDescription": "Standart otel odasi banyo unitesi - Lavabo, WC, Dus + sicak/soguk ikili besleme. TS EN 806-3 uyumlu.",
+  "norm": "EN806_3",
+  "network": {
+    "nodes": [
+      {"id": 1, "type": 2, "position": [0.0, 0.0, 0.0],     "label": "Soguk Su Kaynagi", "pressureDesired_Pa": 300000, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 2, "type": 3, "position": [0.0, 300.0, 0.0],   "label": "Kombi Kazan",      "pressureDesired_Pa": 0.0,    "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "",  "isSimultaneous": false},
+
+      {"id": 10, "type": 0, "position": [1000.0, 0.0, 0.0],   "label": "Dag. Kolektoru",  "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 11, "type": 0, "position": [1000.0, 300.0, 0.0], "label": "Sicak Dag.",      "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+
+      {"id": 20, "type": 1, "position": [2000.0, 0.0, 0.0],   "label": "Lavabo (Soguk)",  "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo",        "isSimultaneous": false},
+      {"id": 21, "type": 1, "position": [2000.0, 300.0, 0.0], "label": "Lavabo (Sicak)",  "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo",        "isSimultaneous": false},
+      {"id": 22, "type": 1, "position": [3000.0, 0.0, 0.0],   "label": "WC",              "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC",            "isSimultaneous": false},
+      {"id": 23, "type": 1, "position": [4000.0, 0.0, 0.0],   "label": "Dus (Soguk)",     "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Dus Teknesi",   "isSimultaneous": false},
+      {"id": 24, "type": 1, "position": [4000.0, 300.0, 0.0], "label": "Dus (Sicak)",     "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Dus Teknesi",   "isSimultaneous": false}
+    ],
+    "edges": [
+      {"id": 100, "nodeA": 1,  "nodeB": 10, "type": 0, "diameter_mm": 20.0, "length_m": 1.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 101, "nodeA": 2,  "nodeB": 11, "type": 1, "diameter_mm": 20.0, "length_m": 1.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+
+      {"id": 110, "nodeA": 10, "nodeB": 20, "type": 0, "diameter_mm": 16.0, "length_m": 1.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 111, "nodeA": 11, "nodeB": 21, "type": 1, "diameter_mm": 16.0, "length_m": 1.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 112, "nodeA": 10, "nodeB": 22, "type": 0, "diameter_mm": 16.0, "length_m": 2.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 113, "nodeA": 10, "nodeB": 23, "type": 0, "diameter_mm": 16.0, "length_m": 3.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 114, "nodeA": 11, "nodeB": 24, "type": 1, "diameter_mm": 16.0, "length_m": 3.0, "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""}
+    ]
+  }
+}

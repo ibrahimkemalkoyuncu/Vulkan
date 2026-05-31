@@ -9,6 +9,7 @@
 #include "cad/Arc.hpp"
 #include "cad/Circle.hpp"
 #include "cad/Ellipse.hpp"
+#include "cad/Block.hpp"
 #include "cad/Layer.hpp"
 
 #include <fstream>
@@ -45,20 +46,16 @@ void DXFWriter::WriteGroup(std::ostream& out, int code, int value) {
 bool DXFWriter::Write(const std::string& filePath,
                       const std::vector<std::unique_ptr<Entity>>& entities,
                       const mep::NetworkGraph& network,
-                      const std::string& projectName) const {
+                      const std::string& projectName,
+                      const BlockRegistry* registry) const {
     std::ofstream out(filePath);
     if (!out.is_open()) return false;
 
     out << std::fixed << std::setprecision(6);
 
     WriteHeader(out, projectName);
-    WriteTables(out, entities);
-
-    // Boş BLOCKS bölümü (R2000 gerektirir)
-    WriteGroup(out, 0, "SECTION");
-    WriteGroup(out, 2, "BLOCKS");
-    WriteGroup(out, 0, "ENDSEC");
-
+    WriteTables(out, entities, registry);
+    WriteBlocksSection(out, registry);
     WriteEntitiesSection(out, entities, network);
 
     WriteGroup(out, 0, "SECTION");
@@ -107,7 +104,8 @@ void DXFWriter::WriteHeader(std::ostream& out, const std::string& projectName) c
 // ═══════════════════════════════════════════════════════════
 
 void DXFWriter::WriteTables(std::ostream& out,
-                            const std::vector<std::unique_ptr<Entity>>& entities) const {
+                            const std::vector<std::unique_ptr<Entity>>& entities,
+                            const BlockRegistry* registry) const {
     WriteGroup(out, 0, "SECTION");
     WriteGroup(out, 2, "TABLES");
 
@@ -157,7 +155,89 @@ void DXFWriter::WriteTables(std::ostream& out,
     }
     WriteGroup(out, 0, "ENDTAB");
 
+    // BLOCK table (blok isimlerini kaydeder — R2000 için gerekli)
+    std::vector<std::string> blockNames;
+    if (registry) {
+        blockNames = registry->GetBlockNames();
+    }
+    // *MODEL_SPACE ve *PAPER_SPACE zorunlu sentinel blokları
+    WriteGroup(out, 0, "TABLE");
+    WriteGroup(out, 2, "BLOCK_RECORD");
+    WriteGroup(out, 70, static_cast<int>(blockNames.size()) + 2);
+    WriteGroup(out, 0, "BLOCK_RECORD");
+    WriteGroup(out, 2, "*Model_Space");
+    WriteGroup(out, 0, "BLOCK_RECORD");
+    WriteGroup(out, 2, "*Paper_Space");
+    for (const auto& bn : blockNames) {
+        WriteGroup(out, 0, "BLOCK_RECORD");
+        WriteGroup(out, 2, bn);
+    }
+    WriteGroup(out, 0, "ENDTAB");
+
     WriteGroup(out, 0, "ENDSEC");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BLOCKS SECTION
+// ═══════════════════════════════════════════════════════════
+
+void DXFWriter::WriteBlocksSection(std::ostream& out, const BlockRegistry* registry) const {
+    WriteGroup(out, 0, "SECTION");
+    WriteGroup(out, 2, "BLOCKS");
+
+    // Zorunlu sentinel bloklar
+    for (const auto* sentinel : {"*Model_Space", "*Paper_Space"}) {
+        WriteGroup(out, 0, "BLOCK");
+        WriteGroup(out, 8, "0");
+        WriteGroup(out, 2, sentinel);
+        WriteGroup(out, 70, 0);
+        WriteGroup(out, 10, 0.0); WriteGroup(out, 20, 0.0); WriteGroup(out, 30, 0.0);
+        WriteGroup(out, 3, sentinel);
+        WriteGroup(out, 1, "");
+        WriteGroup(out, 0, "ENDBLK");
+        WriteGroup(out, 8, "0");
+    }
+
+    if (registry) {
+        for (const auto& name : registry->GetBlockNames()) {
+            const BlockDef* blk = registry->GetBlock(name);
+            if (!blk) continue;
+
+            WriteGroup(out, 0, "BLOCK");
+            WriteGroup(out, 8, "0");
+            WriteGroup(out, 2, blk->name);
+            WriteGroup(out, 70, 0);
+            WriteGroup(out, 10, blk->basePoint.x);
+            WriteGroup(out, 20, blk->basePoint.y);
+            WriteGroup(out, 30, blk->basePoint.z);
+            WriteGroup(out, 3, blk->name);
+            WriteGroup(out, 1, "");
+
+            WriteBlockEntities(out, blk->entities);
+
+            WriteGroup(out, 0, "ENDBLK");
+            WriteGroup(out, 8, "0");
+        }
+    }
+
+    WriteGroup(out, 0, "ENDSEC");
+}
+
+void DXFWriter::WriteBlockEntities(std::ostream& out,
+                                    const std::vector<std::unique_ptr<Entity>>& blockEntities) const {
+    for (const auto& e : blockEntities) {
+        if (!e) continue;
+        switch (e->GetType()) {
+            case EntityType::Line:      WriteEntityLine(out, *e);      break;
+            case EntityType::Polyline:  WriteEntityPolyline(out, *e);  break;
+            case EntityType::Circle:    WriteEntityCircle(out, *e);    break;
+            case EntityType::Arc:       WriteEntityArc(out, *e);       break;
+            case EntityType::Ellipse:   WriteEntityEllipse(out, *e);   break;
+            case EntityType::Text:      WriteEntityText(out, *e);      break;
+            case EntityType::Insert:    WriteEntityInsert(out, *e);    break;
+            default: break;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -191,6 +271,9 @@ void DXFWriter::WriteEntitiesSection(std::ostream& out,
                 break;
             case EntityType::Text:
                 WriteEntityText(out, *e);
+                break;
+            case EntityType::Insert:
+                WriteEntityInsert(out, *e);
                 break;
             default:
                 break;
@@ -317,9 +400,27 @@ void DXFWriter::WriteEntityText(std::ostream& out, const Entity& e) const {
     WriteGroup(out, 10, pos.x);
     WriteGroup(out, 20, pos.y);
     WriteGroup(out, 30, pos.z);
-    WriteGroup(out, 40, 2.5);    // varsayılan metin yüksekliği (mm)
-    WriteGroup(out, 1, e.GetLayerName()); // Text içeriği olarak katman adı (fallback)
+    WriteGroup(out, 40, 2.5);
+    WriteGroup(out, 1, e.GetLayerName());
     WriteGroup(out, 50, e.GetRotation());
+}
+
+void DXFWriter::WriteEntityInsert(std::ostream& out, const Entity& e) const {
+    const auto& ins = static_cast<const Insert&>(e);
+    auto c = e.GetColor();
+
+    WriteGroup(out, 0, "INSERT");
+    WriteGroup(out, 8, e.GetLayerName().empty() ? "0" : e.GetLayerName());
+    if (c.a != 0)
+        WriteGroup(out, 62, ColorToACI(c.r, c.g, c.b));
+    WriteGroup(out, 2, ins.GetBlockName());          // blok adı
+    WriteGroup(out, 10, ins.GetInsertPt().x);
+    WriteGroup(out, 20, ins.GetInsertPt().y);
+    WriteGroup(out, 30, ins.GetInsertPt().z);
+    WriteGroup(out, 41, ins.GetScaleX());            // X ölçeği
+    WriteGroup(out, 42, ins.GetScaleY());            // Y ölçeği
+    WriteGroup(out, 43, 1.0);                        // Z ölçeği
+    WriteGroup(out, 50, ins.GetRotDeg());            // dönme açısı (derece)
 }
 
 // ═══════════════════════════════════════════════════════════

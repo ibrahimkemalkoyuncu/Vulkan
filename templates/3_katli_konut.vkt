@@ -1,0 +1,50 @@
+{
+  "version": "1.0.0",
+  "type": "VKT_Template",
+  "templateName": "3 Katli Konut",
+  "templateDescription": "3 katli konut projesi - her katta lavabo, WC, dus, mutfak evyesi. Zemin katta su kaynagi ve kolonu bagli.",
+  "norm": "EN806_3",
+  "network": {
+    "nodes": [
+      {"id": 1, "type": 2, "position": [0.0, 0.0, 0.0],   "label": "Su Kaynagi", "pressureDesired_Pa": 300000, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+
+      {"id": 10, "type": 0, "position": [0.0, 0.0, 3000.0], "label": "J-1.Kat", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 11, "type": 1, "position": [1500.0, 500.0, 3000.0], "label": "Lavabo", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 12, "type": 1, "position": [1500.0, 1000.0, 3000.0], "label": "WC", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC", "isSimultaneous": false},
+      {"id": 13, "type": 1, "position": [1500.0, 1500.0, 3000.0], "label": "Dus", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Dus", "isSimultaneous": false},
+      {"id": 14, "type": 1, "position": [2000.0, 500.0, 3000.0],  "label": "Evye", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Mutfak Evyesi", "isSimultaneous": false},
+
+      {"id": 20, "type": 0, "position": [0.0, 0.0, 6000.0], "label": "J-2.Kat", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 21, "type": 1, "position": [1500.0, 500.0, 6000.0], "label": "Lavabo", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 22, "type": 1, "position": [1500.0, 1000.0, 6000.0], "label": "WC", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC", "isSimultaneous": false},
+      {"id": 23, "type": 1, "position": [1500.0, 1500.0, 6000.0], "label": "Dus", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Dus", "isSimultaneous": false},
+      {"id": 24, "type": 1, "position": [2000.0, 500.0, 6000.0],  "label": "Evye", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Mutfak Evyesi", "isSimultaneous": false},
+
+      {"id": 30, "type": 0, "position": [0.0, 0.0, 9000.0], "label": "J-3.Kat", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.0, "fixtureType": "", "isSimultaneous": false},
+      {"id": 31, "type": 1, "position": [1500.0, 500.0, 9000.0], "label": "Lavabo", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "Lavabo", "isSimultaneous": false},
+      {"id": 32, "type": 1, "position": [1500.0, 1000.0, 9000.0], "label": "WC", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 0.5, "fixtureType": "WC", "isSimultaneous": false},
+      {"id": 33, "type": 1, "position": [1500.0, 1500.0, 9000.0], "label": "Dus", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Dus", "isSimultaneous": false},
+      {"id": 34, "type": 1, "position": [2000.0, 500.0, 9000.0],  "label": "Evye", "pressureDesired_Pa": 0.0, "flowRate_m3s": 0.0, "loadUnit": 1.0, "fixtureType": "Mutfak Evyesi", "isSimultaneous": false}
+    ],
+    "edges": [
+      {"id": 100, "nodeA": 1,  "nodeB": 10, "type": 0, "diameter_mm": 32.0, "length_m": 3.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 101, "nodeA": 10, "nodeB": 20, "type": 0, "diameter_mm": 25.0, "length_m": 3.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 102, "nodeA": 20, "nodeB": 30, "type": 0, "diameter_mm": 20.0, "length_m": 3.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+
+      {"id": 110, "nodeA": 10, "nodeB": 11, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 111, "nodeA": 10, "nodeB": 12, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 112, "nodeA": 10, "nodeB": 13, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 113, "nodeA": 10, "nodeB": 14, "type": 0, "diameter_mm": 16.0, "length_m": 2.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+
+      {"id": 120, "nodeA": 20, "nodeB": 21, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 121, "nodeA": 20, "nodeB": 22, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 122, "nodeA": 20, "nodeB": 23, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 123, "nodeA": 20, "nodeB": 24, "type": 0, "diameter_mm": 16.0, "length_m": 2.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+
+      {"id": 130, "nodeA": 30, "nodeB": 31, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 131, "nodeA": 30, "nodeB": 32, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 132, "nodeA": 30, "nodeB": 33, "type": 0, "diameter_mm": 16.0, "length_m": 1.5,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""},
+      {"id": 133, "nodeA": 30, "nodeB": 34, "type": 0, "diameter_mm": 16.0, "length_m": 2.0,  "roughness_mm": 0.0015, "flowRate_m3s": 0.0, "velocity_ms": 0.0, "headLoss_m": 0.0, "pressure_Pa": 0.0, "zeta": 0.0, "localLoss_Pa": 0.0, "slope": 0.0, "cumulativeDU": 0.0, "material": "PPR", "label": ""}
+    ]
+  }
+}
