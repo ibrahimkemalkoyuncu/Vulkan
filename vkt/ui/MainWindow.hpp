@@ -36,6 +36,7 @@
 #include "ui/STFixturePanel.hpp"
 #include "ui/DevreSecenekleriDialog.hpp"
 #include "cad/SnapManager.hpp"
+#include "cad/EntityGrid.hpp"
 
 namespace vkt {
 namespace render { class VulkanWindow; }
@@ -432,8 +433,10 @@ private:
     std::unordered_set<cad::EntityId> m_selectedCADEntityIds; // box seçimi (çoklu)
     bool          m_draggingCADEntity   = false;
     geom::Vec3    m_cadDragAnchor;
+    geom::Vec3    m_cadDragTotalDelta;  // kümülatif sürükleme (undo için)
     std::unordered_map<cad::EntityId, cad::Entity*> m_cadEntityCache;
     std::vector<cad::Entity*> m_snapEntityCache;
+    cad::EntityGrid           m_entityGrid;          ///< Mekânsal indeks — hızlı pick
     geom::Vec3    m_cadDragEntityOrigin;
 
     // AutoCAD sol/sağ seçim dikdörtgeni state

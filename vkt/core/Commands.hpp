@@ -7,8 +7,12 @@
 
 #include "core/Command.hpp"
 #include "mep/NetworkGraph.hpp"
+#include "cad/Entity.hpp"
+#include "cad/Line.hpp"
+#include "geom/Math.hpp"
 #include <vector>
 #include <memory>
+#include <string>
 
 namespace vkt {
 namespace core {
@@ -188,6 +192,44 @@ public:
 
 private:
     std::vector<std::unique_ptr<Command>> m_commands;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+/// CAD entity taşıma (sürükleme / grip midpoint translate) — undo/redo
+class MoveCADEntityCommand : public Command {
+public:
+    MoveCADEntityCommand(cad::Entity* entity, const geom::Vec3& delta)
+        : m_entity(entity), m_delta(delta) {}
+
+    void Execute() override { if (m_entity) m_entity->Move(m_delta); }
+    void Undo()    override {
+        if (m_entity) m_entity->Move(geom::Vec3(-m_delta.x, -m_delta.y, -m_delta.z));
+    }
+
+private:
+    cad::Entity* m_entity;
+    geom::Vec3   m_delta;
+};
+
+/// CAD Line endpoint değiştirme (grip start/end) — undo/redo
+class GripEditLineCommand : public Command {
+public:
+    GripEditLineCommand(cad::Line* line, int gripIdx,
+                        const geom::Vec3& oldPos, const geom::Vec3& newPos)
+        : m_line(line), m_gripIdx(gripIdx), m_old(oldPos), m_new(newPos) {}
+
+    void Execute() override { applyPos(m_new); }
+    void Undo()    override { applyPos(m_old); }
+
+private:
+    void applyPos(const geom::Vec3& p) {
+        if (!m_line) return;
+        if (m_gripIdx == 0) m_line->SetStart(p);
+        else                m_line->SetEnd(p);
+    }
+    cad::Line*   m_line;
+    int          m_gripIdx;
+    geom::Vec3   m_old, m_new;
 };
 
 } // namespace core

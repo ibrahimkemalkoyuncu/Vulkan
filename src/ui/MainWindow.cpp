@@ -3150,16 +3150,26 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) m_vulkanWindow->GetRenderer()->SetGizmoVisible(false);
             if (m_fixturePanel) m_fixturePanel->Clear();
 
-            // CAD entity en yakınını bul (1m = 1000mm aperture)
+            // CAD entity en yakınını bul — ızgara varsa O(1), yoksa O(n)
             const double CAD_APERTURE_MM = 1000.0;
             cad::EntityId pickedId = 0;
             double pickedDist = CAD_APERTURE_MM;
-            for (const auto& ent : m_document->GetCADEntities()) {
-                if (!ent) continue;
-                double d = DistToCADEntity(worldX, worldY, ent.get());
-                if (d < pickedDist) {
-                    pickedDist = d;
-                    pickedId = ent->GetId();
+
+            auto pickFrom = [&](const std::vector<cad::Entity*>& candidates) {
+                for (cad::Entity* e : candidates) {
+                    if (!e || !e->IsVisible()) continue;
+                    double d = DistToCADEntity(worldX, worldY, e);
+                    if (d < pickedDist) { pickedDist = d; pickedId = e->GetId(); }
+                }
+            };
+
+            if (m_entityGrid.IsBuilt()) {
+                pickFrom(m_entityGrid.QueryNear(worldX, worldY, CAD_APERTURE_MM));
+            } else {
+                for (const auto& ent : m_document->GetCADEntities()) {
+                    if (!ent) continue;
+                    double d = DistToCADEntity(worldX, worldY, ent.get());
+                    if (d < pickedDist) { pickedDist = d; pickedId = ent->GetId(); }
                 }
             }
 
@@ -3193,7 +3203,8 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                     if (it != m_cadEntityCache.end() && it->second) {
                         cad::Entity* ent = it->second;
                         auto bb = ent->GetBounds();
-                        m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
+                        m_cadDragAnchor     = geom::Vec3(worldX, worldY, 0);
+                        m_cadDragTotalDelta = geom::Vec3(0, 0, 0); // undo için sıfırla
                         m_cadDragEntityOrigin = bb.GetCenter();
                         m_draggingCADEntity = true;
                         const std::string& layName = ent->GetLayerName();
@@ -3241,24 +3252,61 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
 void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButton btn) {
     if (btn != Qt::LeftButton || !m_document) return;
 
-    // ── Grip drag commit ─────────────────────────────────────────────────
+    // ── Grip drag commit — undo stack'e kaydet ──────────────────────────
     if (m_gripDragging) {
+        int savedGrip = m_activeGrip;
         m_gripDragging = false;
         m_activeGrip   = -1;
         m_hotGrip      = -1;
+
+        if (savedGrip >= 0 && savedGrip < static_cast<int>(m_grips.size())) {
+            auto& gp = m_grips[savedGrip];
+            auto it = m_cadEntityCache.find(gp.entityId);
+            if (it != m_cadEntityCache.end() && it->second &&
+                it->second->GetType() == cad::EntityType::Line) {
+                auto* ln = static_cast<cad::Line*>(it->second);
+                geom::Vec3 finalPos = (gp.index == 0) ? ln->GetStart() : ln->GetEnd();
+                geom::Vec3 origPos  = m_gripEntityOrig[gp.index];
+                if (gp.index != 1) { // start/end — endpoint grip
+                    // Entity halihazırda finalPos'ta; revert, sonra command ile uygula
+                    if (gp.index == 0) ln->SetStart(origPos);
+                    else               ln->SetEnd(origPos);
+                    auto cmd = std::make_unique<core::GripEditLineCommand>(ln, gp.index, origPos, finalPos);
+                    m_document->ExecuteCommand(std::move(cmd));
+                } else { // midpoint — entity translate
+                    geom::Vec3 delta = {finalPos.x - origPos.x, finalPos.y - origPos.y, 0};
+                    ln->SetStart(m_gripEntityOrig[0]);
+                    ln->SetEnd  (m_gripEntityOrig[2]);
+                    auto cmd = std::make_unique<core::MoveCADEntityCommand>(ln, delta);
+                    m_document->ExecuteCommand(std::move(cmd));
+                }
+            }
+        }
         m_document->SetModified(true);
         InvalidateRenderer();
-        ComputeGrips(); // grip pozisyonlarını güncelle
-        statusBar()->showMessage("Grip düzenleme tamamlandı", 2000);
+        ComputeGrips();
+        statusBar()->showMessage("Grip düzenleme tamamlandı (Ctrl+Z ile geri alınabilir)", 2000);
         return;
     }
 
-    // CAD entity drag bırakma
+    // CAD entity drag bırakma — undo stack'e kaydet
     if (m_draggingCADEntity) {
         m_draggingCADEntity = false;
+        geom::Vec3 delta = m_cadDragTotalDelta;
+        if (std::abs(delta.x) > 0.1 || std::abs(delta.y) > 0.1) {
+            // Entity halihazırda taşınmış; revert + command ile undo stack'e ekle
+            auto it = m_cadEntityCache.find(m_selectedCADEntityId);
+            if (it != m_cadEntityCache.end() && it->second) {
+                cad::Entity* e = it->second;
+                e->Move(geom::Vec3(-delta.x, -delta.y, 0)); // orijinal pozisyona dön
+                auto cmd = std::make_unique<core::MoveCADEntityCommand>(e, delta);
+                m_document->ExecuteCommand(std::move(cmd)); // re-apply + undo stack
+            }
+        }
         m_document->SetModified(true);
         InvalidateRenderer();
-        statusBar()->showMessage(QString("CAD entity #%1 taşındı").arg(m_selectedCADEntityId), 2000);
+        statusBar()->showMessage(QString("CAD entity #%1 taşındı (Ctrl+Z ile geri alınabilir)")
+                                     .arg(m_selectedCADEntityId), 2000);
         return;
     }
 
@@ -3401,11 +3449,12 @@ void MainWindow::HandleMouseMove(double worldX, double worldY) {
     if (m_draggingCADEntity && m_document && m_selectedCADEntityId != 0) {
         double ddx = worldX - m_cadDragAnchor.x;
         double ddy = worldY - m_cadDragAnchor.y;
-        // Entity'yi bul ve taşı (O(1) cache lookup)
         auto it = m_cadEntityCache.find(m_selectedCADEntityId);
         if (it != m_cadEntityCache.end() && it->second)
             it->second->Move(geom::Vec3(ddx, ddy, 0));
-        m_cadDragAnchor = geom::Vec3(worldX, worldY, 0);
+        m_cadDragAnchor     = geom::Vec3(worldX, worldY, 0);
+        m_cadDragTotalDelta.x += ddx; // undo için kümülatif topla
+        m_cadDragTotalDelta.y += ddy;
         InvalidateRenderer();
         return;
     }
@@ -3926,6 +3975,28 @@ void MainWindow::RefreshTextOverlay() {
             }
         }
         m_snapOverlay->SetOpenEndMarkers(std::move(openEndPts));
+
+        // ── Reactive validation: ağ durumu status bar'a yaz ──────────
+        if (!network.GetNodeMap().empty()) {
+            int openCount  = static_cast<int>(openEndPts.size());
+            bool hasSource = false;
+            for (const auto& [nid, node] : network.GetNodeMap()) {
+                if (node.type == mep::NodeType::Source ||
+                    node.type == mep::NodeType::HotSource) { hasSource = true; break; }
+            }
+            QString valMsg;
+            if (!hasSource)
+                valMsg = "⚠ Kaynak (SOURCE) eksik";
+            else if (openCount > 0)
+                valMsg = QString("⚠ %1 açık uç — bağlantı eksik").arg(openCount);
+            else
+                valMsg = QString("✓ %1 node · %2 boru — ağ tam bağlı")
+                             .arg(network.GetNodeMap().size())
+                             .arg(network.GetEdgeMap().size());
+            // Yalnızca seçim modu ve çizim modu dışındayken göster
+            if (m_currentToolMode == ToolMode::Select)
+                statusBar()->showMessage(valMsg);
+        }
     }
 }
 
@@ -6294,6 +6365,8 @@ void MainWindow::RebuildCADEntityCache() {
         m_cadEntityCache[e->GetId()] = e.get();
         m_snapEntityCache.push_back(e.get());
     }
+    // Mekânsal ızgara — büyük projelerde pick O(n)→O(1)
+    m_entityGrid.Build(entities);
 }
 
 } // namespace ui
