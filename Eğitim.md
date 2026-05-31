@@ -1239,4 +1239,115 @@ A3 yatay, ölçek 1:50 → ISO başlık bloğu otomatik doldurulur.
 
 ---
 
+---
+
+## 32. Yeni Düzenleme Komutları — Pratik Rehber
+
+Bu bölüm, son sürümde eklenen AutoCAD uyumlu komutları pratik örneklerle açıklar.
+
+---
+
+### Ortho Modu (F8) — Dik Boru Garantisi
+
+**Sorun:** Boru çizerken fare hafifçe kaydırılırsa boru 90° yerine 89.3° çizilir. Hidrolik hesapta sorun çıkmaz ama DWG export'ta çizim bozuk görünür.
+
+**Çözüm:**
+```
+F8 tuşuna bas → "Ortho AÇIK" mesajı görünür
+Artık boru sadece yatay veya dikey çizilir
+```
+
+**Pratik Kullanım:** Kat planında mutfak borularını çizerken Ortho'yu aç — duvar boyunca gittiğinde yatay, duvardan uzaklaştığında dikey kilitlenir.
+
+---
+
+### TRIM — Boru Kesiştirmesi
+
+**Senaryo:** Mimari planda bir kapı açıklığından geçmesi gereken bir boru var. Boru önce duvar boyunca çizildi, sonra kapı boşluğuna denk gelen kısmı kısaltılacak.
+
+```
+1. Kapı kenarlığını temsil eden çizgiyi tıkla (sınır)
+2. Komut satırına: TRIM
+3. Kesilecek boru entity ID'sini gir
+4. "Son tarafını kes" seç
+5. Ctrl+Z ile geri alınabilir
+```
+
+---
+
+### OFFSET — Paralel Boru Güzergahı
+
+**Senaryo:** Sıcak su borusunu soğuk su borusundan 50 mm uzağa çizmek istiyorsunuz.
+
+```
+1. Soğuk su borusunu seç
+2. Komut: OFFSET
+3. Mesafe: 50 (mm)
+4. Yön: Sağa (veya Her iki yöne — gidiş/dönüş boru)
+5. Yeni çizgi otomatik paralel oluşur
+```
+
+**İpucu:** Her iki yöne OFFSET ile hem gidiş hem dönüş boru tek seferde elde edilir — şofbenden banyoya sıcak su çifti için ideal.
+
+---
+
+### MIRROR — Simetrik Daire Planı
+
+**Senaryo:** Koridorun sağ tarafındaki 3 dairenin tesisat çizimini tamamladınız. Sol taraf simetrik — aynayı kullanın.
+
+```
+1. Ctrl+A → tüm entity'leri seç
+   (veya sağdan sola Crossing ile sadece sağ tarafı seç)
+2. Komut: MIRROR
+3. "Dikey eksen" seç
+4. Sol taraf anında oluşur
+5. MEP borularını BAGLA komutu ile ana hatta bağla
+```
+
+> **Uyarı:** MIRROR yalnızca CAD entity'lerini (çizgiler) yansıtır. MEP ağını (boru/armatür) kopyalamak için **KOPYA-KAT** kullanın.
+
+---
+
+### Copy/Paste — Standart Oda Tekrarı
+
+**Senaryo:** Otel projesinde 30 oda var, hepsi aynı banyo planına sahip. Bir odanın CAD çizimini hazırlayın, geri kalanı yapıştırın.
+
+```
+1. Model oda çizimini tamamla (CAD entity'leri)
+2. Ctrl+A → hepsini seç
+3. Ctrl+C → kopyala
+4. Ctrl+V → ilk oda kadar X offset gir (örn. 3500 mm = oda genişliği)
+5. Tekrar Ctrl+V → bir sonraki oda...
+6. MEP ağı için ayrıca PIPE / BAGLA komutlarını çalıştır
+```
+
+---
+
+### Select All + Toplu İşlem
+
+**Senaryo:** Import edilen büyük DXF dosyasında tüm entity'lerin 45° döndürülmesi gerekiyor.
+
+```
+1. Ctrl+A → tüm entity'leri seç
+2. MIRROR → "180° döndür" → tüm plan döner
+   (veya gerekli açı için ROTATE komutu)
+```
+
+---
+
+### Yeni Komutlar — Hızlı Referans
+
+| Komut | Kısayol | İşlev |
+|-------|---------|-------|
+| `TRIM` / `TR` | T | Çizgi kısalt |
+| `OFFSET` | O | Paralel kopya |
+| `MIRROR` / `AYNA` | M | Yansıt |
+| `TUMU` | Ctrl+A | Tümünü seç |
+| `COPY` | Ctrl+C | Panoya kopyala |
+| `PASTE` | Ctrl+V | Yapıştır |
+| `ORTHO` | F8 | Dik/yatay kilitliği aç/kapat |
+| `HAKKINDA` / `ABOUT` | — | Sürüm bilgisi (v1.0.0) |
+
+---
+
 *VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

@@ -10,14 +10,35 @@ Hedef: 4M FINE SANI'yi her açıdan geride bırakmak.
 ## Özellikler
 
 ### CAD Motoru
-- DXF import (ASCII, tüm entity türleri, `$INSUNITS` birim dönüşümü)
-- DWG import (LibreDWG; INSERT/MINSERT genişletme, xref zincirleri, Spline/Ellipse tessellation)
+- DXF import (ASCII, tüm entity türleri, `$INSUNITS` birim dönüşümü, BLOCK/INSERT genişletme → BlockRegistry)
+- DWG import (LibreDWG; INSERT/MINSERT genişletme, xref zincirleri A→B→C, TEXT/MTEXT/HATCH xref transform)
 - DXF export (R2000 tam proje + kat bazlı)
 - Snap sistemi: Endpoint › Center › Intersection › Midpoint › Perpendicular › Nearest › Grid (F3 toggle)
-- AutoCAD uyumlu seçim: Window (soldan sağa, mavi) / Crossing (sağdan sola, yeşil)
-- Entity sürükleme, Delete, Undo/Redo (Command Pattern, sınırsız geçmiş)
-- Katman yöneticisi (seçimle otomatik vurgulama)
-- Boyutlandırma (Dimension), Metin (Text/MText, word-wrap), Hatch entity
+- AutoCAD uyumlu seçim: Window (soldan sağa, mavi) / Crossing (sağdan sola, yeşil), Shift+click multi-select
+- Grip editing: Line/Arc/Circle/Polyline vertex grip noktaları — sürükle+bırak, Undo destekli
+- Ortho modu (F8): yatay/dikey kısıt, boru çizimi hassasiyeti
+- Katman yöneticisi: seçimle otomatik vurgulama, çift tık ile renk düzenleme
+- Boyutlandırma (Dimension), Metin (Text/MText, word-wrap), Hatch, Spline, Ellipse
+- Block/Insert altyapısı (BlockDef, BlockRegistry, Insert entity render)
+- Fixture oto-tanıma: DXF/DWG import sonrası Text içeriğinden lavabo/WC/duş otomatik tespiti
+
+### CAD Düzenleme Komutları (AutoCAD Uyumlu)
+
+| Komut | Kısayol | Açıklama |
+|-------|---------|---------|
+| TRIM / KISALT | T | İki çizginin kesişimine kısalt (undo destekli) |
+| OFFSET / PARALEL | O | Seçili entity'nin paralel kopyası |
+| MIRROR / AYNA | M | Yatay/dikey eksen veya 180° yansıtma |
+| ORTHO | F8 | Yatay/dikey kısıt toggle |
+| SELECT ALL | Ctrl+A | Tüm görünür entity'leri seç |
+| COPY | Ctrl+C | Seçili entity'leri kopyala |
+| PASTE | Ctrl+V | Kopyalananları offset ile yapıştır |
+
+### Performans
+- Entity pick: Quad-tree (EntityGrid) — O(1) pick, 15K+ entity'de anlık
+- Async CAD vertex build: >2000 entity'de arka planda, UI donmaz
+- Network dirty flag: MEP vertex rebuild yalnızca değişimde
+- Reactive validation: açık uç ve kaynak eksikliği anlık status bar
 
 ### MEP Mühendislik Motoru
 - Temiz su (TS EN 806-3): LU→debi, Darcy-Weisbach, Haaland, kritik devre, pompa boyutlandırma
@@ -54,7 +75,7 @@ Hedef: 4M FINE SANI'yi her açıdan geride bırakmak.
 
 ### Raporlama & Çıktı
 - Kolon Şeması / Riser Diyagramı (SVG + PDF A3 + DXF R12)
-- Keşif Listesi / BOM (DN × malzeme × metraj)
+- Keşif Listesi / BOM (DN × malzeme × metraj + **maliyet tahmini TL**)
 - Hesap Föyü XLS (boru ID / Q / v / ΔH / DN)
 - Word RTF Rapor (native RTF, Unicode escape, Türkçe tam destek)
 - Pis Su Hesap Föyü (DN / DU / Q / eğim / h/d, kırmızı uyarı)
@@ -92,6 +113,8 @@ Hedef: 4M FINE SANI'yi her açıdan geride bırakmak.
 | Paket | vcpkg (LibreDWG) |
 | Serialization | nlohmann/json |
 | Test | Catch2 v3 — 118/118 geçiyor |
+| Sürüm | v1.0.0 (configure_file → Version.hpp) |
+| Installer | CPack NSIS (Windows, windeployqt ile Qt DLL paketi) |
 | Shader | GLSL → SPIR-V (glslc) |
 
 ---

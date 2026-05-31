@@ -42,6 +42,8 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 32. [Snap Sistemi — Gelişmiş](#snap-sistemi)
 33. [Katman Yöneticisi](#katman-yoneticisi)
 34. [Firma Logosu & Pafta Export](#logo-pafta)
+35. [Düzenleme Komutları — TRIM / OFFSET / MIRROR](#duzen-komutlari)
+36. [Ortho Modu & Copy/Paste](#ortho-copy)
 
 ---
 
@@ -1716,6 +1718,156 @@ SVG formatında logo, dosya içine **Base64 olarak gömülür** — ayrı bir lo
 ```
 
 > **FineSANI farkı:** FineSANI'de pafta antetine logo eklemek mümkün değildir (statik şablon). VKT her projede farklı logo ve başlık bloğu kullanabilir.
+
+---
+
+---
+
+## Bölüm 35 — Düzenleme Komutları: TRIM / OFFSET / MIRROR {#duzen-komutlari}
+
+VKT, AutoCAD'in en sık kullanılan düzenleme komutlarını destekler. Hepsi **Ctrl+Z ile geri alınabilir**.
+
+---
+
+### TRIM — Kısalt
+
+İki çizginin kesişim noktasına göre bir çizgiyi kısaltır.
+
+```
+Komut: TRIM  veya  KISALT  veya  TR
+Menü: Düzen → Trim (Kısalt)...
+Kısayol: T
+```
+
+**Adımlar:**
+1. Sınır olarak kullanılacak çizgiyi **tek tıkla** seçin.
+2. `TRIM` komutunu çalıştırın.
+3. Kısaltılacak entity'nin ID'sini girin.
+4. Hangi tarafın kesileceğini seçin (başlangıç mı, son mu?).
+
+> **Not:** Şu an Line → Line kesişimi destekleniyor. Her iki entity de `Line` tipinde olmalıdır.
+
+---
+
+### OFFSET — Paralel Kopya
+
+Seçili entity'nin paralel (eşit mesafeli) kopyasını oluşturur.
+
+```
+Komut: OFFSET  veya  PARALEL  veya  OFSET
+Menü: Düzen → Offset (Paralel Kopya)...
+Kısayol: O
+```
+
+**Adımlar:**
+1. Entity'i seçin (tek tık veya Shift+tık çoklu seçim).
+2. `OFFSET` komutunu çalıştırın.
+3. Offset mesafesini (mm) girin.
+4. Yönü seçin: Sağa / Sola / Her iki yöne.
+
+**Line entity için:** Doğru geometrik dik mesafe (perp-normal) uygulanır.
+
+| Seçenek | Sonuç |
+|---------|-------|
+| Sağa / Yukarıya | +normal yönde kopya |
+| Sola / Aşağıya | −normal yönde kopya |
+| Her iki yöne | İki kopya birden |
+
+---
+
+### MIRROR — Ayna (Yansıtma)
+
+Seçili entity'leri bir eksen etrafında yansıtır.
+
+```
+Komut: MIRROR  veya  AYNA  veya  YANSI
+Menü: Düzen → Ayna (Mirror)...
+Kısayol: M
+```
+
+**Adımlar:**
+1. Entity'leri seçin.
+2. `MIRROR` komutunu çalıştırın.
+3. Yansıtma eksenini seçin:
+   - **Yatay eksen** — Y koordinatları ters çevrilir
+   - **Dikey eksen** — X koordinatları ters çevrilir
+   - **180° döndür** — Seçimin merkezine göre tam döndürme
+
+> **FineSANI farkı:** FineSANI'de MIRROR komutu yoktur. Simetrik plan tipleri (koridorlar, daire çiftleri) VKT'de tek komutla kopyalanabilir.
+
+---
+
+### SELECT ALL — Tümünü Seç
+
+Çizimdeki tüm görünür entity'leri seçer.
+
+```
+Komut: TUMU  veya  SELECTALL
+Menü: Düzen → Tümünü Seç
+Kısayol: Ctrl+A
+```
+
+Seçim sonrası:
+- Tüm entity'ler sarı vurgulanır
+- Delete → hepsini sil
+- MIRROR / OFFSET → hepsine uygula
+- ESC → seçimi temizle
+
+---
+
+## Bölüm 36 — Ortho Modu & Copy/Paste {#ortho-copy}
+
+### Ortho Modu (F8)
+
+Boru çizerken fareyi **yalnızca yatay veya dikey** eksende kilitler.
+
+```
+Komut: ORTHO  veya  F8
+Kısayol: F8 (toggle)
+```
+
+| Durum | Status Bar Mesajı |
+|-------|------------------|
+| Açık | "Ortho AÇIK (F8) — sadece yatay/dikey çizim" |
+| Kapalı | "Ortho KAPALI (F8)" |
+
+**Kullanım:** İkinci noktayı seçerken fare önce yatay ya da dikey eksenin hangisinde daha fazla hareket ettiğine bakar ve o ekseni kilitler. Dik boru ve dirsek geometrisi garantilenir.
+
+> **İpucu:** Ortho açıkken bir noktadan yatay çizgi çizmek için fareyi yatay hareket ettirip tıklayın — VKT otomatik olarak aynı Y koordinatını kullanır.
+
+---
+
+### Copy / Paste (Kopyala / Yapıştır)
+
+Entity'leri panoya kopyalayıp farklı konuma yapıştırır.
+
+```
+Kopyala: Ctrl+C  /  COPY  /  KOPYALA  /  CP
+Yapıştır: Ctrl+V  /  PASTE  /  YAPISTIR
+Menü: Düzen → Kopyala / Yapıştır
+```
+
+**Kopyalama:**
+1. Entity'leri seçin (tek veya Shift+tık çoklu).
+2. `Ctrl+C` — panoya kopyalandı mesajı çıkar.
+3. Seçim sayısı status bar'da gösterilir.
+
+**Yapıştırma:**
+1. `Ctrl+V` — offset dialog açılır.
+2. X ve Y öteleme değeri girin (mm, 0 = aynı konum).
+3. Yapıştırılan entity'ler otomatik olarak seçili gelir → Delete, Mirror vb. hemen uygulanabilir.
+
+**Örnek kullanım:**
+```
+Zemin katta lavabo grubu çiz →
+Ctrl+A ile tümünü seç →
+Ctrl+C ile kopyala →
+Ctrl+V → Y=3000 mm (1 kat yüksekliği) →
+1. kattaki lavabolar hazır
+```
+
+> **Not:** Bu kopyalama yalnızca CAD entity'leri (çizgi, daire, metin) için geçerlidir.  
+> MEP ağını (borular, armatürler) katlar arası kopyalamak için **KOPYA-KAT** komutunu kullanın.
 
 ---
 
