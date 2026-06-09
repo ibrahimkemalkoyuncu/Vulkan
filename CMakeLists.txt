@@ -205,8 +205,20 @@ set(HEADERS
     vkt/core/Commands.hpp
 )
 
-# Executable
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+# Windows kaynak dosyası (exe ikonu) — mutlak yol ile .rc oluştur
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/resources/vkt.ico")
+    set(VKT_RC_FILE "${CMAKE_BINARY_DIR}/vkt_generated.rc")
+    file(WRITE "${VKT_RC_FILE}"
+        "IDI_ICON1 ICON \"${CMAKE_SOURCE_DIR}/resources/vkt.ico\"\n")
+    list(APPEND SOURCES "${VKT_RC_FILE}")
+endif()
+
+# Executable (WIN32 = konsol penceresi açılmaz — sadece Release'de)
+if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+endif()
 
 if(GLSLC_EXECUTABLE)
     add_dependencies(${PROJECT_NAME} VKTShaders)

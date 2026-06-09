@@ -4,6 +4,8 @@
  */
 
 #include <QApplication>
+#include <QIcon>
+#include <QDir>
 #include <iostream>
 #include "core/Application.hpp"
 #include "ui/MainWindow.hpp"
@@ -14,6 +16,19 @@ int main(int argc, char* argv[]) {
         QApplication qapp(argc, argv);
         qapp.setApplicationName("VKT - Mekanik Tesisat Draw (FINE SANI++)");
         qapp.setApplicationVersion("1.0.0");
+
+        // Uygulama ikonu — exe yanındaki resources/ veya kaynak ağacından
+        QStringList iconPaths = {
+            QDir(qapp.applicationDirPath()).filePath("resources/vkt.ico"),
+            QDir(qapp.applicationDirPath()).filePath("../resources/vkt.ico"),
+            "C:/Users/afney/Desktop/vulkan/resources/vkt.ico"
+        };
+        for (const auto& p : iconPaths) {
+            if (QFile::exists(p)) {
+                qapp.setWindowIcon(QIcon(p));
+                break;
+            }
+        }
         
         // VKT uygulama örneği
         auto& app = vkt::core::Application::Instance();

@@ -1,0 +1,4 @@
+// VKT Uygulama kaynak dosyası
+// Windows exe ikonu
+
+IDI_ICON1 ICON "vkt.ico"

@@ -1723,7 +1723,7 @@ SVG formatında logo, dosya içine **Base64 olarak gömülür** — ayrı bir lo
 
 ---
 
-## Bölüm 35 — Düzenleme Komutları: TRIM / OFFSET / MIRROR {#duzen-komutlari}
+## Bölüm 35 — Düzenleme Komutları: TRIM / EXTEND / OFFSET / MIRROR {#duzen-komutlari}
 
 VKT, AutoCAD'in en sık kullanılan düzenleme komutlarını destekler. Hepsi **Ctrl+Z ile geri alınabilir**.
 
@@ -1746,6 +1746,39 @@ Kısayol: T
 4. Hangi tarafın kesileceğini seçin (başlangıç mı, son mu?).
 
 > **Not:** Şu an Line → Line kesişimi destekleniyor. Her iki entity de `Line` tipinde olmalıdır.
+
+---
+
+### EXTEND — Uzat
+
+Bir çizgiyi seçili sınır çizgisine kadar uzatır. TRIM'in tersi işlemi.
+
+```
+Komut: EXTEND  veya  UZAT  veya  EX
+Menü: Düzen → Extend (Uzat)...
+Kısayol: X
+```
+
+**Adımlar:**
+1. Sınır olarak kullanılacak çizgiyi **tek tıkla** seçin.
+2. `EXTEND` komutunu çalıştırın (veya `X` tuşuna basın).
+3. Uzatılacak entity'nin ID'sini girin.
+4. VKT, borunun sınıra **en yakın ucunu** otomatik uzatır.
+
+**TRIM ile farkı:**
+
+| Durum | Kullan |
+|-------|--------|
+| Boru çok uzun, sınırı geçiyor | `TRIM` |
+| Boru kısa kaldı, sınıra yetişmiyor | `EXTEND` |
+
+**Örnek kullanım:**
+```
+Döşeme sınırını temsil eden duvar çizgisini seç →
+X tuşuna bas →
+Kısa kalan pis su borusunun ID'sini gir →
+Boru duvar çizgisine tam yetişir
+```
 
 ---
 
@@ -1868,6 +1901,73 @@ Ctrl+V → Y=3000 mm (1 kat yüksekliği) →
 
 > **Not:** Bu kopyalama yalnızca CAD entity'leri (çizgi, daire, metin) için geçerlidir.  
 > MEP ağını (borular, armatürler) katlar arası kopyalamak için **KOPYA-KAT** komutunu kullanın.
+
+---
+
+## Bölüm 37 — Şablondan Yeni Proje {#sablon}
+
+VKT, sık kullanılan proje tiplerini hazır olarak sunar. Şablondan başladığınızda MEP ağı (boru + armatür topolojisi), boru boyları, LU değerleri ve malzeme atamaları hazır gelir.
+
+### Hazır Şablonlar
+
+| Şablon | İçerik | Uygun Proje Tipi |
+|--------|--------|-----------------|
+| **3 Katlı Konut** | 3 kat × Lavabo + WC + Duş + Mutfak Evyesi, kolonlu PPR şebeke | Apartman dairesi, villa |
+| **Otel Odası Banyo Ünitesi** | Soğuk + sıcak ikili besleme, Lavabo/WC/Duş, dağıtım kolektörü | Otel, pansiyon |
+| **Ofis Katı (Erkek + Kadın WC)** | Erkek/Kadın WC grubu (3'er lavabo + WC), pisuar, servis evyesi | Ofis, idari bina |
+
+### Şablondan Proje Açma
+
+```
+Menü yolu:  Dosya → Şablondan Yeni...
+Kısayol:    Ctrl+Shift+T
+Komut:      SABLON  veya  TEMPLATE  veya  YENI-SABLON
+```
+
+**Adımlar:**
+1. `Ctrl+Shift+T` ile şablon listesini açın.
+2. Uygun şablonu seçin → **Tamam**.
+3. VKT şablonu yükler ve otomatik hidrolik hesap yapar.
+4. Status bar'da node ve boru sayısı görünür.
+
+> **Not:** Şablon, kaydedilmemiş yeni proje olarak açılır (`Ctrl+S` ile kaydedin).
+
+### Önerilen İş Akışı
+
+```
+1. Ctrl+Shift+T  →  Şablon seç
+2. Ctrl+Shift+N  →  Proje klasörü oluştur (ProjectManager)
+3. Ctrl+M        →  Mimari Belirle (kat kotları + DXF altlıklar)
+4. PIPE / FIXTURE →  Ek boru ve armatür ekle
+5. KABUL         →  Tesisatı doğrula ve numaralandır
+6. Ctrl+P        →  Pafta düzeni → PDF çıktı
+```
+
+### Kendi Şablonunu Kaydetme
+
+İstediğiniz projeyi şablon olarak ekleyebilirsiniz:
+
+1. Projeyi `Dosya → Farklı Kaydet` ile `templates/` klasörüne `.vkt` uzantılı kaydedin.
+2. `templates/index.json` dosyasını bir metin editöründe açın ve yeni satır ekleyin:
+
+```json
+{
+  "file": "benim_tipim.vkt",
+  "name": "Kendi Şablon Adım",
+  "description": "Açıklama metni..."
+}
+```
+
+Sonraki açılışta şablonunuz listede görünür.
+
+### VKT vs FineSANI — Şablon Karşılaştırması
+
+| Özellik | FineSANI | VKT |
+|---------|----------|-----|
+| Hazır şablonlar | Sınırlı | 3 şablon (genişletilebilir) |
+| Kendi şablonunu ekle | Hayır | Evet (JSON index) |
+| Şablon ile oto-hesap | Hayır | Evet (AutoHydro tetiklenir) |
+| Şablon formatı | Tescilli | Açık `.vkt` (JSON) |
 
 ---
 

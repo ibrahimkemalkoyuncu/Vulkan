@@ -1275,6 +1275,29 @@ Artık boru sadece yatay veya dikey çizilir
 
 ---
 
+### EXTEND — Boruyu Sınıra Uzat
+
+**Senaryo:** Yan bölmeden gelen bir boru şeması çizilirken ölçü tutmadı — boru biraz kısa kaldı, sınır çizgisine yetişmiyor.
+
+```
+1. Sınır olacak çizgiyi tıkla (örn. bölme duvarı)
+2. Komut satırına: EXTEND  (veya X tuşu)
+3. Uzatılacak boru entity ID'sini gir
+4. VKT, borunun sınıra en yakın ucunu otomatik uzatır
+5. Ctrl+Z ile geri alınabilir
+```
+
+**TRIM vs EXTEND:**
+
+| İşlem | Ne yapar | Kısayol |
+|-------|----------|---------|
+| `TRIM` | Çizgiyi sınırdan *keser* | T |
+| `EXTEND` | Çizgiyi sınıra *uzatır* | X |
+
+**İpucu:** İkisi birlikte kullanılır — önce OFFSET ile paralel boru, ardından TRIM+EXTEND ile tam ölçüye getir.
+
+---
+
 ### OFFSET — Paralel Boru Güzergahı
 
 **Senaryo:** Sıcak su borusunu soğuk su borusundan 50 mm uzağa çizmek istiyorsunuz.
@@ -1335,17 +1358,75 @@ Artık boru sadece yatay veya dikey çizilir
 
 ---
 
-### Yeni Komutlar — Hızlı Referans
+---
+
+## Bölüm 33 — Şablondan Yeni Proje
+
+**Şablon sistemi**, tekrar eden proje tiplerini sıfırdan çizmeden başlatmanızı sağlar. Hazır ağ topolojisi, boru boyları ve armatür LU değerleriyle birlikte gelir — üzerine mimari altlık ekleyerek devam edebilirsiniz.
+
+### Hazır Şablonlar
+
+| Şablon | İçerik | Boru Malzemesi |
+|--------|--------|----------------|
+| **3 Katli Konut** | 3 kat × Lavabo + WC + Duş + Mutfak Evyesi, kolon bağlı | PPR |
+| **Otel Odası Banyo Ünitesi** | Soğuk+sıcak ikili besleme, Lavabo/WC/Duş, dağıtım kolektörü | PPR |
+| **Ofis Katı (Erkek + Kadın WC)** | Erkek/Kadın WC grubu, pisuar, servis evyesi | Galvaniz |
+
+### Kullanım
+
+```
+Yöntem 1 — Menü:
+  Dosya → Şablondan Yeni...  (Ctrl+Shift+T)
+
+Yöntem 2 — Komut satırı:
+  SABLON
+```
+
+Açılan listeden şablon seçin → Tamam → VKT şablonu yükler ve otomatik hidrolik hesabı çalıştırır.
+
+> **Not:** Şablon, kaydedilmemiş yeni proje olarak açılır. İlk kayıtta `Ctrl+Shift+N` ile proje klasörü oluşturmanız önerilir.
+
+### Şablonu Özelleştirme İş Akışı
+
+```
+1. SABLON → "3 Katli Konut" seç
+2. Ctrl+M → Mimari Belirle: kat kotlarını ve DXF altlıklarını tanımla
+3. PIPE / FIXTURE ile ek armatür ekle
+4. KABUL → açık uçları kapat, tesisat numaralandır
+5. Ctrl+S → projeyi kaydet
+```
+
+### Kendi Şablonunu Kaydetme
+
+Hazırladığınız projeyi şablon olarak kaydetmek için:
+
+1. Projeyi istenen duruma getir
+2. `Dosya → Farklı Kaydet` ile `templates/` klasörüne `.vkt` uzantılı kaydet
+3. `templates/index.json` dosyasını metin editörüyle aç, yeni girdi ekle:
+
+```json
+{
+  "file": "benim_sablonum.vkt",
+  "name": "Benim Şablonum",
+  "description": "Açıklama..."
+}
+```
+
+---
+
+### Komutlar — Güncel Hızlı Referans
 
 | Komut | Kısayol | İşlev |
 |-------|---------|-------|
-| `TRIM` / `TR` | T | Çizgi kısalt |
+| `TRIM` / `TR` | T | Çizgiyi sınırda kes |
+| `EXTEND` / `EX` / `UZAT` | X | Çizgiyi sınıra uzat |
 | `OFFSET` | O | Paralel kopya |
 | `MIRROR` / `AYNA` | M | Yansıt |
 | `TUMU` | Ctrl+A | Tümünü seç |
 | `COPY` | Ctrl+C | Panoya kopyala |
 | `PASTE` | Ctrl+V | Yapıştır |
 | `ORTHO` | F8 | Dik/yatay kilitliği aç/kapat |
+| `SABLON` / `TEMPLATE` | Ctrl+Shift+T | Şablondan yeni proje |
 | `HAKKINDA` / `ABOUT` | — | Sürüm bilgisi (v1.0.0) |
 
 ---
