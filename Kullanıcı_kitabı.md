@@ -42,8 +42,11 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 32. [Snap Sistemi — Gelişmiş](#snap-sistemi)
 33. [Katman Yöneticisi](#katman-yoneticisi)
 34. [Firma Logosu & Pafta Export](#logo-pafta)
-35. [Düzenleme Komutları — TRIM / OFFSET / MIRROR](#duzen-komutlari)
+35. [Düzenleme Komutları — TRIM / EXTEND / OFFSET / MIRROR](#duzen-komutlari)
 36. [Ortho Modu & Copy/Paste](#ortho-copy)
+37. [Şablondan Yeni Proje](#sablon)
+38. [F11 Tam Ekran & Sağ Tık Menüsü](#tam-ekran-sag-tik)
+39. [Kurulum ve Sistem Gereksinimleri](#kurulum)
 
 ---
 
@@ -1971,4 +1974,89 @@ Sonraki açılışta şablonunuz listede görünür.
 
 ---
 
-*VKT v1.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*
+---
+
+## Bölüm 38 — F11 Tam Ekran & Sağ Tık Menüsü {#tam-ekran-sag-tik}
+
+### F11 Tam Ekran Modu
+
+Çizim alanını tüm ekrana alarak çalışma alanını maksimize eder.
+
+```
+Kısayol: F11 (toggle — açık/kapalı)
+```
+
+| Durum | Görünüm |
+|-------|---------|
+| Normal | Menü çubuğu + dock panel'ler + status bar görünür |
+| Tam Ekran | Yalnızca Vulkan viewport — maksimum çizim alanı |
+
+> **İpucu:** Pafta üzerinde ince detay kontrol ederken veya sunum sırasında F11 kullanın. Her tuş basmada toggle olur.
+
+---
+
+### Sağ Tık Context Menüsü
+
+Çizim alanına sağ tıklayınca bağlama duyarlı hızlı menü açılır.
+
+| Durum | Menü İçeriği |
+|-------|-------------|
+| Çizim modu aktif (boru/armatür çizerken) | **İptal Et** — aktif modu sonlandırır |
+| MEP node seçili | **Node Sil** · **Özellikler** |
+| CAD entity seçili | **Entity Sil** · **Seçimi Kaldır** |
+| Boş alan (seçim yok) | **Zoom Extents** · **Boru Çiz** · **Geri Al** · **Yinele** |
+
+> **İpucu:** Yanlışlıkla çizim moduna girildiğinde klavyeye uzanmadan sağ tık → "İptal Et" hızlı çıkış sağlar.
+
+---
+
+## Bölüm 39 — Kurulum ve Sistem Gereksinimleri {#kurulum}
+
+### İndirme
+
+**GitHub Releases:** https://github.com/ibrahimkemalkoyuncu/Vulkan/releases/tag/v1.0.0
+
+Dosya: `VKT Mekanik Tesisat Draw-1.0.0-win64.exe` (~26 MB)
+
+### Sistem Gereksinimleri
+
+| Bileşen | Minimum | Önerilen |
+|---------|---------|----------|
+| İşletim Sistemi | Windows 10 (64-bit) | Windows 11 (64-bit) |
+| GPU | Vulkan 1.0 destekli (2012+) | Vulkan 1.2+, 4 GB VRAM |
+| RAM | 4 GB | 8 GB+ |
+| Disk | 200 MB | 500 MB (proje dosyaları için) |
+| .NET | — | Gerekmiyor |
+| Visual C++ Runtime | Otomatik kurulur | — |
+
+**Desteklenen GPU'lar:** NVIDIA GeForce/Quadro (Maxwell+), AMD Radeon (GCN+), Intel Arc / UHD 620+
+
+### Kurulum Adımları
+
+1. İndirilen `.exe` dosyasını çalıştırın.
+2. "Bu bilgisayarda herkes için kur" veya "Yalnızca ben için kur" seçin.
+3. Kurulum dizinini onaylayın (varsayılan: `C:\Program Files\VKT Mekanik Tesisat Draw`).
+4. **Tamam** → kurulum tamamlanır.
+5. Masaüstündeki **VKT** kısayolunu çalıştırın.
+
+### Kaldırma
+
+**Denetim Masası → Program Ekle/Kaldır → VKT Mekanik Tesisat Draw → Kaldır**
+
+### İlk Çalıştırma
+
+1. Uygulama açılınca Vulkan aygıtı otomatik seçilir.
+2. **Dosya → Proje Kök Klasörü Ayarla...** ile proje dizinini belirleyin.
+3. **Dosya → Yeni Proje...** (Ctrl+Shift+N) ile ilk projeyi oluşturun.
+
+### Sorun Giderme
+
+| Hata | Çözüm |
+|------|-------|
+| "Vulkan aygıtı bulunamadı" | GPU sürücüsünü güncelleyin; Vulkan Runtime indirin |
+| "shaders/ dizini eksik" | Uygulamayı Program Files'tan çalıştırın (taşınmış klasörde shader bulunamaz) |
+| Ekran boş (siyah) | Ekran kartı Vulkan 1.0 desteklemiyor olabilir |
+
+---
+
+*VKT v1.0.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

@@ -446,6 +446,38 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **F11 Tam Ekran** — `keyPressEvent` Qt::Key_F11 handler; `m_isFullScreen` toggle; `showFullScreen()` / `showNormal()` geçişi; AutoCAD Ctrl+0 benzeri kullanım
 - **Sağ Tık Context Menüsü** — `HandleMousePress` RightButton dalı; çizim modunda "İptal Et"; MEP node seçiliyse "Node Sil + Özellikler"; CAD entity seçiliyse "Entity Sil + Seçimi Kaldır"; boş alanda "Zoom Extents / Boru Çiz / Geri Al / Yinele"; `QMenu::exec(QCursor::pos())` ile gösterim
 - **CAD Entity Seçimi ve Sürükleme** — Select modunda sol tık; MEP miss sonrası `DistToCADEntity()` ile en yakın CAD entity pick (1m aperture); `m_selectedCADEntityId` kayıt; `VulkanRenderer::SetHighlightCADEntityId()` → sarı highlight + `m_cadDirty=true`; sürükle → `Move(delta)` + `InvalidateCADData()` gerçek zamanlı; mouse release'de `SetModified`; Delete tuşu ile entity silme; ESC seçimi temizler
+- **Word RTF Rapor** — `OnWordRapor()` tam RTF implementasyonu: font/color table, Unicode `\uXXXX?` escape, RTF tablolar; harici kütüphane gerekmez; Word ve WordPad doğrudan açar; `test_export.cpp` 7 yeni test (115/115)
+- **m_networkDirty flag** — MEP vertex buffer artık her frame değil, yalnızca `RefreshTextOverlay`/`SetCriticalPathEdges`/`SetLayerVisibility` çağrılınca yeniden oluşturuluyor
+- **PrintLayoutDialog firma logosu** — PNG/JPG/BMP/SVG logo yükleme; 120×40 px önizleme; `TitleBlock.logoPath`; `ExportToPDF`'de QPainter logo render; SVG export'ta base64 gömülü `<image>`; diyalog açılınca `SetInitialTitleBlock` ile logo restore
+- **Async CAD vertex build** — >2000 entity için `std::async` ile arka plan build; `UploadCADBuffers()` GPU upload render thread'de; `WaitForCADBuild()` guard ile entity silme/undo koruma
+- **DWGReader nested xref chain** — sub-reader `m_xrefSearchPaths`/`m_missingXrefs`'i üst okuyucudan devralıyor; A→B→C zincirinde C.dwg doğru aranır; `test_dwg_colors.cpp`'ye 3 yeni test (118/118)
+- **Kullanıcı_kitabı.md Bölüm 34** — Firma Logosu & Pafta Export: PDF/SVG logo konumu, format tablosu, FineSANI karşılaştırması
+- **Sürüm numarası sistemi** — `Version.hpp.in` + `configure_file`; Yardım → Hakkında dialog (VKT v1.0.0); F1 kısayolu ile Kullanıcı Kitabı QTextBrowser
+- **DWG xref TEXT/MTEXT/HATCH transform** — `ExpandXref()` switch-case'e eklendi; nested xref'lerde tüm entity tipleri transform uygulanıyor
+- **Ortho Modu (F8)** — boru çizerken yatay/dikey kısıt; `keyPressEvent` + `HandleMouseMove`; status bar bildirim; AutoCAD F8 uyumlu
+- **Polyline grip editing** — `ComputeGrips()` switch-case + `SetVertexPosition()`; vertex başlangıç/bitiş/orta noktaları sürüklenebilir
+- **Katman rengi düzenleme** — çift tık → `QColorDialog`; renderer anlık güncelleme
+- **Select All (Ctrl+A / TUMU)** — tüm görünür entity'leri seçer
+- **Mirror komutu (M / AYNA)** — yatay/dikey eksen veya 180° döndürme; FineSANI'de eksik kritik özellik
+- **OFFSET komutu (O)** — paralel kopya; Line için perp-normal offset; sağa/sola/iki yöne
+- **Copy/Paste (Ctrl+C/V)** — `m_clipboard` entity snapshot; `QInputDialog` ile XY offset yapıştır
+- **Quad-tree entity picking** — `EntityGrid.hpp` uniform grid; O(1) pick; `RebuildCADEntityCache`'e entegre
+- **Reactive background validation** — `RefreshTextOverlay`'de kaynak eksikliği + açık uç sayısı status bar'a anlık yazılıyor
+- **Undo/Redo CAD drag + grip** — `MoveCADEntityCommand` + `GripEditLineCommand`; revert+execute pattern
+- **TRIM komutu (T / KISALT)** — Line-Line kesişim; `GripEditLineCommand` ile undo; Düzen menüsü
+- **Maliyet tahmini** — `Database.unitPrice_TL`; `OnBOM()` DN bazlı maliyet tablosu + toplam TL
+- **Fixture oto-tanıma (ScanForFixtureBlocks)** — import sonrası Text/MText içerik tarama; lavabo/WC/duş/küvet vb. MEP node olarak eklenir
+- **NSIS Installer** — `CMakeLists.txt install()` + CPack NSIS; `templates/`, `shaders/`, Qt DLL'leri dahil; masaüstü kısayolu
+- **Block/Insert implementasyonu** — `Block.hpp` (`BlockDef`, `BlockRegistry`, `Insert` entity); `Document.GetBlockRegistry()`; `DXFReader::TakeBlockRegistry()` → import sonrası aktarım; VulkanRenderer'da × marker render
+- **DXFWriter BLOCK/INSERT section export** — `WriteBlocksSection()`: BlockRegistry → DXF `BLOCK/ENDBLK`; `WriteEntityInsert()`: group 2/10/20/30/41/42/43/50; `BLOCK_RECORD` tablosu (sentinel + tüm blok isimleri); `OnExportDXF`/`OnExportFloorDXF`'e entegre
+- **EXTEND komutu (X / UZAT / EX)** — TRIM'in tersi; seçili sınır Line'a en yakın ucu uzatır; paralel çizgi koruması; `GripEditLineCommand` undo; Düzen menüsü
+- **Çizim Şablonları sistemi** — `templates/` dizini + `index.json`; 3 hazır şablon (`3_katli_konut.vkt`, `otel_odasi.vkt`, `ofis_kati.vkt`); `OnNewFromTemplate()` JSON oku → QInputDialog → Document::Load + AutoHydro; Ctrl+Shift+T / `SABLON`/`TEMPLATE`
+- **v1.0 Release hazırlığı** — `CMakePresets mingw-release` preset (Ninja + Qt MinGW 64-bit); `templates/` CMakeLists install kuralı; NSIS masaüstü kısayolu + uninstall öncesi kaldır
+- **vkt.ico uygulama ikonu** — PowerShell `System.Drawing` ile 4 boyut (256/48/32/16px); lacivert zemin (#0D1B2A) + cyan çerçeve + beyaz V + cyan KT; `resources/vkt.rc` + `vkt_generated.rc`; CMakeLists RC entegrasyonu; `main.cpp QApplication::setWindowIcon()`; `WIN32 executable` (konsol yok)
+- **NSIS installer üretim** — `cpack -G NSIS` → `VKT Mekanik Tesisat Draw-1.0.0-win64.exe` (26 MB); Qt DLL'leri (windeployqt), `templates/`, `shaders/` dahil; `build/mingw-release/` konumunda
+- **Eğitim.md Bölüm 32-33** — Bölüm 32: EXTEND komutu senaryosu + TRIM vs EXTEND tablosu; Bölüm 33: Şablondan Yeni Proje (hazır şablon tablosu, Ctrl+Shift+T iş akışı, index.json özelleştirme)
+- **Kullanıcı_kitabı.md Bölüm 35-37** — Bölüm 35: TRIM/EXTEND/OFFSET/MIRROR/SelectAll; Bölüm 36: Ortho + Copy/Paste; Bölüm 37: Şablondan Yeni Proje (VKT vs FineSANI şablon karşılaştırması)
+- **v1.0.0 GitHub Release** — `git tag v1.0.0` + push; `gh release create` + installer upload; release URL: https://github.com/ibrahimkemalkoyuncu/Vulkan/releases/tag/v1.0.0
 
 ### Devam Eden
 

@@ -5476,8 +5476,38 @@ void MainWindow::OnDNOverride() {
         combo->setCurrentIndex(curIdx);
         table->setCellWidget(row, 4, combo);
     }
+    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     table->resizeColumnsToContents();
     layout->addWidget(table);
+
+    // Toplu DN değiştirme araç çubuğu
+    auto* batchRow   = new QHBoxLayout();
+    auto* batchLabel = new QLabel("<b>Seçili satırlara toplu uygula:</b>", &dlg);
+    auto* batchCombo = new QComboBox(&dlg);
+    batchCombo->addItems(kDNList);
+    auto* batchBtn   = new QPushButton("Seçilenlere Uygula", &dlg);
+    batchBtn->setToolTip("Tabloda işaretlenen tüm satırların DN değerini aynı anda değiştirir");
+    batchRow->addWidget(batchLabel);
+    batchRow->addWidget(batchCombo);
+    batchRow->addWidget(batchBtn);
+    batchRow->addStretch();
+    layout->addLayout(batchRow);
+
+    connect(batchBtn, &QPushButton::clicked, [&]() {
+        const QString targetDN = batchCombo->currentText();
+        const auto selected = table->selectionModel()->selectedRows();
+        if (selected.isEmpty()) {
+            QMessageBox::information(&dlg, "Toplu DN",
+                "Lütfen önce tabloda satır seçin (Ctrl+Tık veya Shift+Tık).");
+            return;
+        }
+        for (const auto& idx : selected) {
+            auto* combo = qobject_cast<QComboBox*>(table->cellWidget(idx.row(), 4));
+            if (combo) combo->setCurrentText(targetDN);
+        }
+        statusBar()->showMessage(
+            QString("%1 satira DN%2 atandi").arg(selected.size()).arg(targetDN), 2000);
+    });
 
     auto* btnRow    = new QHBoxLayout();
     auto* btnExport = new QPushButton("XLS Olarak Kaydet...", &dlg);
