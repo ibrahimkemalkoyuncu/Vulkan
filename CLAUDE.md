@@ -478,6 +478,10 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Eğitim.md Bölüm 32-33** — Bölüm 32: EXTEND komutu senaryosu + TRIM vs EXTEND tablosu; Bölüm 33: Şablondan Yeni Proje (hazır şablon tablosu, Ctrl+Shift+T iş akışı, index.json özelleştirme)
 - **Kullanıcı_kitabı.md Bölüm 35-37** — Bölüm 35: TRIM/EXTEND/OFFSET/MIRROR/SelectAll; Bölüm 36: Ortho + Copy/Paste; Bölüm 37: Şablondan Yeni Proje (VKT vs FineSANI şablon karşılaştırması)
 - **v1.0.0 GitHub Release** — `git tag v1.0.0` + push; `gh release create` + installer upload; release URL: https://github.com/ibrahimkemalkoyuncu/Vulkan/releases/tag/v1.0.0
+- **Word DOCX Rapor** — `OnWordRapor()` RTF yerine gerçek OOXML `.docx`; `DocxWriter` sıfır bağımlılıklı ZIP stored implementasyonu; CRC32 lookup tablosu, XML escape, 4 bölüm hesap föyü; `DocxReportParams` ile devre parametreleri aktarımı; `test_export.cpp`'ye 9 DOCX testi (128/128)
+- **DN Override Batch Seçim** — `OnDNOverride()` tablosuna `ExtendedSelection` + batch combo + "Seçilenlere Uygula" toolbar; çoklu satır seçilip tek tıkla aynı DN ataması
+- **Async Network Vertex Build** — `UpdateNetworkVertexData` → `BuildNetworkVertices` (CPU-only, thread-safe) + `UploadNetworkBuffers` (GPU, render thread); >500 node+edge için `std::async`; `m_networkStagingLine/Tri` + mutex staging; CAD async pattern ile eşleşik
+- **Kullanıcı_kitabı.md Bölüm 38-40** — Bölüm 38: F11 Tam Ekran & Sağ Tık Menüsü; Bölüm 39: Kurulum ve Sistem Gereksinimleri; Bölüm 40: DXF/DWG İmport Gelişmiş Ayarlar (birim dönüşümü, W-Block, xref, blok genişletme, entity matrisi)
 
 ### Devam Eden
 
