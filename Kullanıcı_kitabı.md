@@ -47,6 +47,7 @@ Standartlar: TS EN 806-3 (su temini) · EN 12056-2 (drenaj) · TS 822 · EN 1256
 37. [Şablondan Yeni Proje](#sablon)
 38. [F11 Tam Ekran & Sağ Tık Menüsü](#tam-ekran-sag-tik)
 39. [Kurulum ve Sistem Gereksinimleri](#kurulum)
+40. [DXF / DWG İmport — Gelişmiş Ayarlar](#dxf-dwg-import)
 
 ---
 
@@ -2056,6 +2057,137 @@ Dosya: `VKT Mekanik Tesisat Draw-1.0.0-win64.exe` (~26 MB)
 | "Vulkan aygıtı bulunamadı" | GPU sürücüsünü güncelleyin; Vulkan Runtime indirin |
 | "shaders/ dizini eksik" | Uygulamayı Program Files'tan çalıştırın (taşınmış klasörde shader bulunamaz) |
 | Ekran boş (siyah) | Ekran kartı Vulkan 1.0 desteklemiyor olabilir |
+
+---
+
+---
+
+## Bölüm 40 — DXF / DWG İmport — Gelişmiş Ayarlar {#dxf-dwg-import}
+
+### Genel Bakış
+
+VKT, AutoCAD DXF (R12–R2018) ve DWG (binary LibreDWG) dosyalarını eksiksiz aktarır.
+**Dosya → DXF/DWG Aç...** `Ctrl+O`
+
+---
+
+### Birim Dönüşümü ($INSUNITS)
+
+DXF dosyaları farklı birimlerle çizilmiş olabilir. VKT, dosya başlığındaki `$INSUNITS` değişkenini okuyarak otomatik dönüşüm uygular:
+
+| $INSUNITS | Birim | Ölçek (→ mm) |
+|-----------|-------|--------------|
+| 0 | Tanımsız | ×1 (değişmez) |
+| 1 | İnç | ×25.4 |
+| 2 | Fit | ×304.8 |
+| 4 | **Milimetre** | ×1 (standart VKT birimi) |
+| 5 | Santimetre | ×10 |
+| 6 | **Metre** | ×1000 |
+| 7 | Kilometre | ×1 000 000 |
+
+İmport tamamlandıktan sonra **durum çubuğu** aktif dönüşümü gösterir: ör. `"Birim: metre → ×1000"`
+
+> **FineSANI karşılaştırması:** FineSANI birim dönüşümünü kullanıcıya bırakır; ölçek hatası pratikte yaygın bir sorundur. VKT bunu otomatik çözer.
+
+---
+
+### W-Block Referans Noktası (Referans Hizalama)
+
+Birden fazla DXF/DWG altlığını aynı koordinat sistemine hizalamak için **global referans noktası** kullanılır.
+
+**Mimari → Mimari Belirle...** `Ctrl+M`
+
+1. Her kata karşılık gelen DXF/DWG dosyasını seçin.
+2. Alt kısımdaki **Global Referans Noktası** X/Y spinbox'larına bina çıkış referans koordinatını girin.
+3. **Tamam** — VKT tüm katlara aynı offset uygular (`DXFReader::SetInsertionOffset`).
+
+> **Ne zaman kullanılır?** AutoCAD'de her kat ayrı dosyaya W-Block ile çıkarılmışsa baz nokta farklı olabilir. Referans noktası tüm katları aynı aksa oturtur.
+
+---
+
+### Xref (Dış Referans) Desteği
+
+DWG dosyaları içinde başka DWG dosyalarına (`XREF`) referans verilebilir. VKT bu yapıyı otomatik çözer:
+
+**Nasıl çalışır:**
+1. Ana DWG okunurken xref yolları tespit edilir.
+2. VKT önce DWG ile aynı dizinde arar, ardından kayıtlı arama dizinlerinde tarar.
+3. Bulunamayan xref'ler için **uyarı penceresi** açılır — kullanıcı dizin belirtirse yeniden taranır.
+
+**Xref arama yolu eklemek:**
+- İmport diyaloğunda xref uyarısı çıkınca **"Dizin Belirt"** butonuna tıklayın.
+- Seçilen dizin session boyunca hatırlanır.
+
+**Sınır:**
+- Dairesel xref zinciri (`A → B → A`) otomatik algılanır ve atlanır (sonsuz döngü önlenir).
+- Nested xref'ler (`A → B → C`) desteklenir.
+
+---
+
+### Blok ve INSERT Genişletme
+
+DXF `BLOCK/INSERT` yapıları (örn. kapı/pencere bloğu), `BlockRegistry`'de saklanır ve her `INSERT` için expand edilir. VKT şunları destekler:
+
+| Özellik | Destek |
+|---------|--------|
+| Tekil INSERT | Tam destek |
+| MINSERT (dizi) | Genişletilir (satır × sütun) |
+| Ölçek (X/Y/Z) | Uygulanır |
+| Rotasyon | Uygulanır |
+| Nested block | Desteklenir |
+
+**Block Editörü yok** — bloklar salt okunur içe aktarılır, VKT'de blok oluşturmak için DXFWriter kullanın.
+
+---
+
+### Entity Tipi Desteği
+
+| Entity | DXF | DWG |
+|--------|-----|-----|
+| LINE | ✓ | ✓ |
+| POLYLINE / LWPOLYLINE | ✓ | ✓ |
+| ARC | ✓ | ✓ |
+| CIRCLE | ✓ | ✓ |
+| ELLIPSE | ✓ | ✓ |
+| SPLINE | ✓ | ✓ |
+| TEXT / MTEXT | ✓ | ✓ (word-wrap, rotation) |
+| HATCH | ✓ | ✓ |
+| INSERT (BLOCK) | ✓ | ✓ |
+| DIMENSION | ✓ | ✓ |
+| XLINE / RAY | — | — |
+| 3DSOLID | — | — |
+
+---
+
+### DXF İmport Sorun Giderme
+
+| Belirti | Olası Neden | Çözüm |
+|---------|-------------|-------|
+| Çizim çok küçük/büyük görünüyor | $INSUNITS tanımsız (=0) | Mimari → Mimari Belirle → Global Referans ile manuel ölçek |
+| Katlar üst üste biniyor | Referans noktası farklı | W-Block baz noktasını DXF dosyasında kontrol edin |
+| Xref'ler gelmiyor | Dosyalar farklı dizinde | İmport sırasında "Dizin Belirt" ile xref klasörünü gösterin |
+| Türkçe katman adı bozuk | Kodlama sorunu | DWG UTF-16LE otomatik algılanır; DXF için CP1252 varsayılır |
+| Blok içerikleri eksik | Karmaşık nested blok | `Document → BlockRegistry` → blok tanımı içe aktarıldı mı kontrol edin |
+
+---
+
+### Armatür Otomatik Tanıma (ScanForFixtureBlocks)
+
+Import sonrası VKT, TEXT ve MTEXT içeriklerini tarayarak tesisat armatürlerini otomatik MEP node'una dönüştürür:
+
+| Anahtar Kelime | Tespit Edilen Armatür |
+|----------------|----------------------|
+| lavabo, lav | Lavabo (LU=0.5) |
+| wc, klozet | WC (LU=2.0) |
+| dus, duş | Duş (LU=0.6) |
+| küvet, kuvet | Küvet (LU=3.0) |
+| evye | Evye (LU=0.5) |
+| pisuvar, pisuar | Pisuar (LU=0.5) |
+| bide | Bide (LU=0.5) |
+
+Tespit edilen armatürler turuncu daire ile gösterilir. Yanlış tespit edilenleri seçip **Delete** tuşu ile kaldırabilir, ya da **ST Cihazları** panelinden yeniden yerleştirebilirsiniz.
+
+> **İpucu:** Otomatik tanıma DXF'deki metin etiketlerine dayanır. Etiket yoksa tanıma çalışmaz — armatürleri manuel olarak ST Cihazları panelinden sürükleyin.
 
 ---
 

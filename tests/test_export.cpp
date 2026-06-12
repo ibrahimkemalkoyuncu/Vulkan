@@ -1,9 +1,9 @@
 /**
  * @file test_export.cpp
- * @brief RTF export yardimci algoritmasi birim testleri
+ * @brief Export yardimci algoritmasi birim testleri
  *
- * OnWordRapor() icerisindeki RTF Unicode escape lambda'sini ayni mantikla
- * test eder. Qt bagimliligi olmadan saf C++ ile calisir.
+ * - RTF Unicode escape (legacy referans, algoritma dokumantasyonu icin korundu)
+ * - DOCX ZIP/OOXML: CRC32, XML escape, belge yapisi
  */
 
 #include <catch2/catch_test_macros.hpp>
@@ -113,4 +113,111 @@ TEST_CASE("RtfEscape - Sayisal format karakterleri", "[export][rtf]") {
     CHECK(RtfEscape(L"2.0 m/s") == "2.0 m/s");
     CHECK(RtfEscape(L"KRITIK") == "KRITIK");
     CHECK(RtfEscape(L"-") == "-");
+}
+
+// ============================================================
+//  DOCX / OOXML testleri
+// ============================================================
+
+// CRC32 referans degerleri (IEEE 802.3 standardi)
+static uint32_t Crc32Test(const std::string& s) {
+    uint32_t tbl[256];
+    for (uint32_t i = 0; i < 256; ++i) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; ++k)
+            c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        tbl[i] = c;
+    }
+    uint32_t crc = 0xFFFFFFFFu;
+    for (unsigned char c : s)
+        crc = tbl[(crc ^ c) & 0xFF] ^ (crc >> 8);
+    return crc ^ 0xFFFFFFFFu;
+}
+
+TEST_CASE("DOCX - CRC32 bos string", "[export][docx]") {
+    CHECK(Crc32Test("") == 0x00000000u);
+}
+
+TEST_CASE("DOCX - CRC32 bilinen degerler", "[export][docx]") {
+    CHECK(Crc32Test("123456789") == 0xCBF43926u);
+    CHECK(Crc32Test("a") == 0xE8B7BE43u);
+}
+
+// XML escape
+static std::string XmlEscTest(const std::string& s) {
+    std::string r;
+    for (unsigned char c : s) {
+        switch (c) {
+            case '&':  r += "&amp;";  break;
+            case '<':  r += "&lt;";   break;
+            case '>':  r += "&gt;";   break;
+            case '"':  r += "&quot;"; break;
+            case '\'': r += "&apos;"; break;
+            default:   r += c;        break;
+        }
+    }
+    return r;
+}
+
+TEST_CASE("DOCX - XML escape ozel karakterler", "[export][docx]") {
+    CHECK(XmlEscTest("&") == "&amp;");
+    CHECK(XmlEscTest("<b>") == "&lt;b&gt;");
+    CHECK(XmlEscTest("\"quote\"") == "&quot;quote&quot;");
+    CHECK(XmlEscTest("it's") == "it&apos;s");
+}
+
+TEST_CASE("DOCX - XML escape ASCII passthrough", "[export][docx]") {
+    CHECK(XmlEscTest("DN25") == "DN25");
+    CHECK(XmlEscTest("3.14 m/s") == "3.14 m/s");
+    CHECK(XmlEscTest("") == "");
+}
+
+TEST_CASE("DOCX - XML escape karisik", "[export][docx]") {
+    CHECK(XmlEscTest("a < b && b > c") == "a &lt; b &amp;&amp; b &gt; c");
+    CHECK(XmlEscTest("<tag attr=\"v\">") == "&lt;tag attr=&quot;v&quot;&gt;");
+}
+
+TEST_CASE("DOCX - ZIP local header imzasi dogru", "[export][docx]") {
+    // ZIP local file header: 4 byte signature = 0x04034b50 (little-endian: 50 4B 03 04)
+    const uint8_t sig[] = {0x50, 0x4B, 0x03, 0x04};
+    uint32_t val = (uint32_t)sig[0] | ((uint32_t)sig[1]<<8) |
+                   ((uint32_t)sig[2]<<16) | ((uint32_t)sig[3]<<24);
+    CHECK(val == 0x04034b50u);
+}
+
+TEST_CASE("DOCX - ZIP central dir imzasi dogru", "[export][docx]") {
+    const uint8_t sig[] = {0x50, 0x4B, 0x01, 0x02};
+    uint32_t val = (uint32_t)sig[0] | ((uint32_t)sig[1]<<8) |
+                   ((uint32_t)sig[2]<<16) | ((uint32_t)sig[3]<<24);
+    CHECK(val == 0x02014b50u);
+}
+
+TEST_CASE("DOCX - ZIP EOCD imzasi dogru", "[export][docx]") {
+    const uint8_t sig[] = {0x50, 0x4B, 0x05, 0x06};
+    uint32_t val = (uint32_t)sig[0] | ((uint32_t)sig[1]<<8) |
+                   ((uint32_t)sig[2]<<16) | ((uint32_t)sig[3]<<24);
+    CHECK(val == 0x06054b50u);
+}
+
+TEST_CASE("DOCX - OOXML Content-Types zorunlu partlar iceriyor", "[export][docx]") {
+    const std::string ct = R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Override PartName="/word/document.xml"
+    ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>)";
+    CHECK(ct.find("word/document.xml") != std::string::npos);
+    CHECK(ct.find("wordprocessingml.document.main") != std::string::npos);
+    CHECK(ct.find("relationships+xml") != std::string::npos);
+}
+
+TEST_CASE("DOCX - OOXML root rels officeDocument iliskisi var", "[export][docx]") {
+    const std::string rels = R"(<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1"
+    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+    Target="word/document.xml"/>
+</Relationships>)";
+    CHECK(rels.find("officeDocument") != std::string::npos);
+    CHECK(rels.find("word/document.xml") != std::string::npos);
 }

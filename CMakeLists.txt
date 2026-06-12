@@ -102,6 +102,7 @@ set(SOURCES
     src/core/Persistence.cpp
     src/core/FloorManager.cpp
     src/core/ProjectManager.cpp
+    src/core/DocxWriter.cpp
     src/renderer/VulkanRenderer.cpp
     src/renderer/VulkanWindow.cpp
     src/renderer/Gizmo.cpp

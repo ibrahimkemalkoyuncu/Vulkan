@@ -10,6 +10,7 @@
 #include "ui/FloorAlignmentDialog.hpp"
 #include "ui/PrintLayoutDialog.hpp"
 #include "core/ProjectManager.hpp"
+#include "core/DocxWriter.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
 #include "ui/SnapOverlay.hpp"
@@ -319,8 +320,8 @@ void MainWindow::CreateActions() {
     m_actBaskiKaybi->setToolTip("Tum devrelerin basinc kaybi tablosu — kritik devre vurgulu");
     connect(m_actBaskiKaybi, &QAction::triggered, this, &MainWindow::OnBaskiKaybi);
 
-    m_actWordRapor = new QAction("Word/HTML Rapor Olustur...", this);
-    m_actWordRapor->setToolTip("Hesap foyu + kritik devre + armatur listesi HTML raporunu kaydet (Word acar)");
+    m_actWordRapor = new QAction("Word Rapor Olustur (.docx)...", this);
+    m_actWordRapor->setToolTip("Hesap foyu + kritik devre + armatur listesi OOXML .docx olarak kaydet (Microsoft Word acar)");
     connect(m_actWordRapor, &QAction::triggered, this, &MainWindow::OnWordRapor);
 
     m_actYagmurSuyu = new QAction("Yagmur Suyu Modulu...", this);
@@ -4893,7 +4894,7 @@ void MainWindow::OnBaskiKaybi() {
 }
 
 // ============================================================
-//  WORD RTF RAPOR EXPORT (FineSANI Word dosyası eşdeğeri)
+//  WORD DOCX RAPOR EXPORT (FineSANI Word dosyası eşdeğeri — OOXML .docx)
 // ============================================================
 void MainWindow::OnWordRapor() {
     if (!m_document) return;
@@ -4903,165 +4904,36 @@ void MainWindow::OnWordRapor() {
     solver.Solve();
     auto critResult = solver.CalculateCriticalPath();
 
-    QString projName = QString::fromStdString(core::ProjectManager::Instance().GetProjectName());
+    auto& pm       = core::ProjectManager::Instance();
+    QString projName = QString::fromStdString(pm.GetProjectName());
     QString today    = QDate::currentDate().toString("dd.MM.yyyy");
 
-    // RTF Unicode helper: non-ASCII → \uXXXX? escape
-    auto R = [](const QString& s) -> QString {
-        QString r;
-        r.reserve(s.size() * 2);
-        for (const QChar& c : s) {
-            ushort u = c.unicode();
-            if (u > 127)       r += QString("\\u%1?").arg((int)(short)u);
-            else if (u == '\\') r += "\\\\";
-            else if (u == '{')  r += "\\{";
-            else if (u == '}')  r += "\\}";
-            else                r += c;
-        }
-        return r;
-    };
-
-    // RTF table row helper: cells[] → \trowd...\row
-    // colWidths: twips (1440 twips = 1 inch; A4 usable ≈ 9000 twips)
-    auto rtfRow = [&](const QStringList& cells,
-                      const QVector<int>& colWidths,
-                      bool header = false) -> QString
-    {
-        QString row = "\\trowd\\trgaph108\\trleft0\n";
-        int cx = 0;
-        for (int w : colWidths) {
-            cx += w;
-            row += QString("\\clbrdrl\\brdrw10\\brdrs"
-                           "\\clbrdrt\\brdrw10\\brdrs"
-                           "\\clbrdrr\\brdrw10\\brdrs"
-                           "\\clbrdrb\\brdrw10\\brdrs");
-            if (header) row += "\\clcbpat1"; // color index 1 = navy bg
-            row += QString("\\cellx%1\n").arg(cx);
-        }
-        for (int i = 0; i < cells.size(); ++i) {
-            row += "\\pard\\intbl";
-            if (header) row += "\\cf2\\b"; // white text, bold
-            else        row += "\\cf0";
-            row += " " + R(cells.value(i)) + "\\cell\n";
-        }
-        row += "\\row\n";
-        return row;
-    };
-
-    QString rtf;
-    rtf += "{\\rtf1\\ansi\\ansicpg1252\\deff0\\deflang1055\n";
-    rtf += "{\\fonttbl{\\f0\\froman\\fcharset162 Arial;}}\n";
-    // colortbl: index1=navy, index2=white, index3=red, index4=orange, index5=gray
-    rtf += "{\\colortbl;\\red34\\green85\\blue170;\\white;"
-           "\\red180\\green0\\blue0;\\red255\\green140\\blue0;\\red120\\green120\\blue120;}\n";
-    rtf += "\\paperw11906\\paperh16838\\margl1134\\margr1134\\margt1134\\margb1134\n";
-    rtf += "\\f0\\fs22\\widowctrl\\hyphauto0\n";
-
-    // Title
-    rtf += QString("{\\fs28\\b\\cf1 %1}\\par\n").arg(R(projName.isEmpty() ? "VKT Tesisat Projesi" : projName));
-    rtf += QString("\\b0\\fs20 %1  |  Norm: %2  |  Malzeme: %3\\par\n")
-               .arg(R(today)).arg(R(m_devreParams.norm)).arg(R(m_devreParams.mainPipeMat));
-    rtf += "\\brdrb\\brdrs\\brdrw10\\brdr0 \\par\n";
-
-    // 1. Devre Parametreleri
-    rtf += "{\\fs24\\b\\cf1 1. Devre Parametreleri}\\par\\pard\\par\n";
-    QVector<int> col2 = {3600, 5400};
-    rtf += rtfRow({"Parametre", "Deger"}, col2, true);
-    auto kv = [&](const QString& k, const QString& v){ return rtfRow({k, v}, col2); };
-    rtf += kv("Bina Tipi",         m_devreParams.buildingType);
-    rtf += kv("Ana Boru Cinsi",    m_devreParams.mainPipeMat);
-    rtf += kv("Ikincil Boru Cinsi",m_devreParams.branchPipeMat);
-    rtf += kv("Boru Puruzlulugu",  QString("%1 mm").arg(m_devreParams.roughness_mm, 0, 'f', 4));
-    rtf += kv("Maks. Su Hizi",     QString("%1 m/s").arg(m_devreParams.maxVelocity_ms, 0, 'f', 1));
-    rtf += kv("Hesap Normu",       m_devreParams.norm);
-    rtf += "\\pard\\par\n";
-
-    // 2. Boru Hesap Föyü
-    rtf += "{\\fs24\\b\\cf1 2. Boru Hesap Foyu}\\par\\pard\\par\n";
-    QVector<int> col8 = {900, 900, 900, 900, 1000, 1000, 1000, 1400};
-    rtf += rtfRow({"Boru No","Tip","DN","L (m)","Q (L/s)","v (m/s)","DH (m)","Durum"}, col8, true);
-
-    std::set<uint32_t> critSet(critResult.criticalPath.begin(), critResult.criticalPath.end());
-    for (const auto& [eid, edge] : network.GetEdgeMap()) {
-        if (edge.type == mep::EdgeType::Drainage || edge.type == mep::EdgeType::Vent) continue;
-        bool isCrit = critSet.count(eid) > 0;
-        QString typeStr = (edge.type == mep::EdgeType::HotWater) ? "Sicak" : "Soguk";
-        QString lbl = edge.label.empty() ? QString("E%1").arg(eid) : QString::fromStdString(edge.label);
-        QStringList cells = {
-            lbl, typeStr,
-            QString("%1").arg(edge.diameter_mm, 0, 'f', 0),
-            QString("%1").arg(edge.length_m, 0, 'f', 2),
-            QString("%1").arg(edge.flowRate_m3s * 1000.0, 0, 'f', 3),
-            QString("%1").arg(edge.velocity_ms, 0, 'f', 2),
-            QString("%1").arg(edge.headLoss_m, 0, 'f', 4),
-            isCrit ? "KRITIK" : "-"
-        };
-        // Critical rows: highlight label bold
-        QString row = "\\trowd\\trgaph108\\trleft0\n";
-        int cx = 0;
-        for (int w : col8) { cx += w; row += QString("\\cellx%1\n").arg(cx); }
-        for (int i = 0; i < cells.size(); ++i) {
-            row += "\\pard\\intbl";
-            if (isCrit) row += "\\b";
-            if (isCrit && i == 7) row += "\\cf3"; // red for KRITIK
-            row += " " + R(cells[i]) + "\\b0\\cf0\\cell\n";
-        }
-        row += "\\row\n";
-        rtf += row;
-    }
-    rtf += "\\pard\\par\n";
-
-    // 3. Kritik Devre Özeti
-    rtf += "{\\fs24\\b\\cf1 3. Kritik Devre ve Hidrofor}\\par\\pard\\par\n";
-    QVector<int> col2b = {4500, 4500};
-    rtf += rtfRow({"Parametre", "Deger"}, col2b, true);
-    rtf += rtfRow({"Kritik Hat Toplam Kayip",
-                   QString("%1 m").arg(critResult.totalHeadLoss_m, 0, 'f', 2)}, col2b);
-    rtf += rtfRow({"Gerekli Pompa Basma Yuksekligi",
-                   QString("%1 m").arg(critResult.requiredPumpHead_m, 0, 'f', 2)}, col2b);
-    rtf += "\\pard\\par\n";
-
-    // 4. Armatür Listesi
-    rtf += "{\\fs24\\b\\cf1 4. Armatur Listesi}\\par\\pard\\par\n";
-    QVector<int> col4 = {1800, 2700, 1800, 2700};
-    rtf += rtfRow({"ID","Tip","LU","Debi (L/s)"}, col4, true);
-    for (const auto& [nid, node] : network.GetNodeMap()) {
-        if (node.type != mep::NodeType::Fixture) continue;
-        rtf += rtfRow({
-            QString::number(nid),
-            QString::fromStdString(node.fixtureType),
-            QString("%1").arg(node.loadUnit, 0, 'f', 1),
-            QString("%1").arg(node.flowRate_m3s * 1000.0, 0, 'f', 3)
-        }, col4);
-    }
-    rtf += "\\pard\\par\n";
-
-    // Footer
-    rtf += QString("{\\fs16\\cf5 VKT v1.0 - %1 - %2 uyumlu}\\par\n")
-               .arg(R(today)).arg(R(m_devreParams.norm));
-    rtf += "}\n";
-
-    // Save
+    // Dosya yolu
     QString defaultPath;
-    auto& pm = core::ProjectManager::Instance();
     if (!pm.GetProjectFolder().empty())
         defaultPath = QString::fromStdString(pm.GetProjectFolder()) + "/rapor/";
-    defaultPath += (projName.isEmpty() ? "rapor" : projName) + "_hesap_foyu.rtf";
+    defaultPath += (projName.isEmpty() ? "rapor" : projName) + "_hesap_foyu.docx";
 
-    QString path = QFileDialog::getSaveFileName(this, "Word RTF Rapor Kaydet",
+    QString path = QFileDialog::getSaveFileName(this, "Word Rapor Kaydet (.docx)",
                                                 defaultPath,
-                                                "RTF Dosyasi (*.rtf);;Tum Dosyalar (*)");
+                                                "Word Belgesi (*.docx);;Tum Dosyalar (*)");
     if (path.isEmpty()) return;
 
-    QFile f(path);
-    if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&f);
-        out.setEncoding(QStringConverter::Latin1); // RTF: Unicode escapes; Latin1 safe
-        out << rtf;
-        f.close();
-        if (m_logList) m_logList->addItem("Word RTF rapor kaydedildi: " + path);
+    core::DocxReportParams params;
+    params.projectName    = projName.toStdString();
+    params.norm           = m_devreParams.norm.toStdString();
+    params.mainMaterial   = m_devreParams.mainPipeMat.toStdString();
+    params.branchMaterial = m_devreParams.branchPipeMat.toStdString();
+    params.buildingType   = m_devreParams.buildingType.toStdString();
+    params.roughness_mm   = m_devreParams.roughness_mm;
+    params.maxVelocity_ms = m_devreParams.maxVelocity_ms;
+    params.date           = today.toStdString();
+
+    if (core::DocxWriter::Write(path.toStdString(), network, critResult, params)) {
+        if (m_logList) m_logList->addItem("Word .docx rapor kaydedildi: " + path);
+        statusBar()->showMessage("Word rapor kaydedildi: " + path, 4000);
         QMessageBox::information(this, "Rapor Kaydedildi",
-            QString("RTF rapor kaydedildi:\n%1\n\nMicrosoft Word veya WordPad ile acilabiilir.").arg(path));
+            QString("Word belgesi kaydedildi:\n%1\n\nMicrosoft Word ile acilabiilir.").arg(path));
     } else {
         QMessageBox::warning(this, "Hata", "Dosya yazilimadi: " + path);
     }

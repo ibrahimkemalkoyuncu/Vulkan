@@ -369,8 +369,36 @@ void VulkanRenderer::Render(const mep::NetworkGraph& network) {
 
     const bool useSSAO = m_ssaoInitialized && m_viewMode != ViewMode::Plan;
 
-    if (m_networkDirty)
-        UpdateNetworkVertexData(network);
+    // Async network build: tamamlanan build varsa GPU'ya yükle
+    if (m_networkBuildReady.load()) {
+        m_networkBuildReady = false;
+        if (m_networkBuildFuture.valid()) m_networkBuildFuture.get();
+        std::lock_guard<std::mutex> lk(m_networkStagingMutex);
+        UploadNetworkBuffers(m_networkStagingLine, m_networkStagingTri);
+    }
+
+    if (m_networkDirty) {
+        m_networkDirty = false;
+        const int totalElements = static_cast<int>(network.GetNodes().size() + network.GetEdges().size());
+        const bool launchAsync = (totalElements > 500);
+
+        if (launchAsync) {
+            bool prevRunning = m_networkBuildFuture.valid() &&
+                m_networkBuildFuture.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready;
+            if (prevRunning) {
+                m_networkDirty = true; // bir sonraki frame'e ertele
+            } else {
+                if (m_networkBuildFuture.valid()) m_networkBuildFuture.get();
+                m_networkBuildFuture = std::async(std::launch::async,
+                    [this, &network]() { BuildNetworkVertices(network); });
+            }
+        } else {
+            // Küçük ağ: senkron
+            BuildNetworkVertices(network);
+            std::lock_guard<std::mutex> lk(m_networkStagingMutex);
+            UploadNetworkBuffers(m_networkStagingLine, m_networkStagingTri);
+        }
+    }
 
     if (useSSAO) {
         DrawGridGBuffer(cmd);
@@ -1510,7 +1538,7 @@ std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type, bool isCol
     }
 }
 
-void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
+void VulkanRenderer::BuildNetworkVertices(const mep::NetworkGraph& network) {
     std::vector<geom::Vertex> lineVertices;
     std::vector<geom::Vertex> triVertices;
 
@@ -1644,15 +1672,28 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
         }
     }
 
+    // Staging'e yaz (mutex ile — render thread'den UploadNetworkBuffers okuyacak)
+    {
+        std::lock_guard<std::mutex> lk(m_networkStagingMutex);
+        m_networkStagingLine = std::move(lineVertices);
+        m_networkStagingTri  = std::move(triVertices);
+    }
+    m_networkBuildReady = true;
+}
+
+void VulkanRenderer::UploadNetworkBuffers(const std::vector<geom::Vertex>& lineVertices,
+                                          const std::vector<geom::Vertex>& triVertices) {
     m_lineVertexOffset = 0;
     m_lineVertexCount = static_cast<uint32_t>(lineVertices.size());
     m_triangleVertexOffset = m_lineVertexCount;
     m_triangleVertexCount = static_cast<uint32_t>(triVertices.size());
 
     uint32_t totalCount = m_lineVertexCount + m_triangleVertexCount;
-    if (totalCount == 0) return;
+    if (totalCount == 0) {
+        DestroyBuffer(m_vertexBuffer, m_vertexMemory);
+        return;
+    }
 
-    // Vertex buffer güncelle
     VkDeviceSize bufferSize = sizeof(geom::Vertex) * totalCount;
     DestroyBuffer(m_vertexBuffer, m_vertexMemory);
     CreateBuffer(bufferSize,
@@ -1663,11 +1704,11 @@ void VulkanRenderer::UpdateNetworkVertexData(const mep::NetworkGraph& network) {
     void* data;
     vkMapMemory(m_device, m_vertexMemory, 0, bufferSize, 0, &data);
     auto* dest = static_cast<geom::Vertex*>(data);
-    if (m_lineVertexCount > 0) memcpy(dest, lineVertices.data(), sizeof(geom::Vertex) * m_lineVertexCount);
-    if (m_triangleVertexCount > 0) memcpy(dest + m_lineVertexCount, triVertices.data(), sizeof(geom::Vertex) * m_triangleVertexCount);
+    if (m_lineVertexCount > 0)
+        memcpy(dest, lineVertices.data(), sizeof(geom::Vertex) * m_lineVertexCount);
+    if (m_triangleVertexCount > 0)
+        memcpy(dest + m_lineVertexCount, triVertices.data(), sizeof(geom::Vertex) * m_triangleVertexCount);
     vkUnmapMemory(m_device, m_vertexMemory);
-
-    m_networkDirty = false;
 }
 
 void VulkanRenderer::DrawGrid(VkCommandBuffer cmd) {

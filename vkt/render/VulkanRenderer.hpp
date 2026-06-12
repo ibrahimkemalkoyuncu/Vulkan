@@ -339,6 +339,17 @@ private:
                           const std::vector<geom::Vertex>& fatVerts,
                           const std::vector<geom::Vertex>& hatchVerts);
 
+    // Async network vertex build — aynı CAD pattern'ı, MEP ağı için
+    std::mutex              m_networkStagingMutex;
+    std::future<void>       m_networkBuildFuture;
+    std::atomic<bool>       m_networkBuildReady{false};
+    std::vector<geom::Vertex> m_networkStagingLine;
+    std::vector<geom::Vertex> m_networkStagingTri;
+
+    void BuildNetworkVertices(const mep::NetworkGraph& network); // CPU-only, thread-safe
+    void UploadNetworkBuffers(const std::vector<geom::Vertex>& line,
+                              const std::vector<geom::Vertex>& tri);
+
     // Cihaz limitleri — linewidth için
     float m_deviceMaxLineWidth = 1.0f;
     bool  m_deviceWideLines    = false;
@@ -480,7 +491,6 @@ private:
     bool CreateSyncObjects();
 
     // Vertex buffer fonksiyonları
-    void UpdateNetworkVertexData(const mep::NetworkGraph& network);
     void CreateGridVertexData();
     bool CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                       VkMemoryPropertyFlags properties,
