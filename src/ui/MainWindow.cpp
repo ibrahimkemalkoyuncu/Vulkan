@@ -50,6 +50,7 @@
 #include <QUrl>
 #include <QTextBrowser>
 #include <QTableWidget>
+#include <QTreeWidget>
 #include <QHeaderView>
 #include <QSpinBox>
 #include <QComboBox>
@@ -737,9 +738,9 @@ void MainWindow::CreateDockPanels() {
     layVBox->setContentsMargins(2, 2, 2, 2);
     layVBox->setSpacing(2);
 
-    // Araç çubuğu: Tümünü Göster / Tümünü Gizle
+    // Araç çubuğu satırı 1: Göster/Gizle
     auto* layToolRow = new QHBoxLayout();
-    auto* btnLayerAll = new QPushButton("Tümünü Göster");
+    auto* btnLayerAll  = new QPushButton("Tümünü Göster");
     auto* btnLayerNone = new QPushButton("Tümünü Gizle");
     btnLayerAll->setFixedHeight(22);
     btnLayerNone->setFixedHeight(22);
@@ -747,36 +748,76 @@ void MainWindow::CreateDockPanels() {
     layToolRow->addWidget(btnLayerNone);
     layVBox->addLayout(layToolRow);
 
-    m_layerList = new QListWidget();
+    // Araç çubuğu satırı 2: LAYISO / LAYUNISO / PURGE
+    auto* layToolRow2 = new QHBoxLayout();
+    auto* btnLayIso    = new QPushButton("İzole (LAYISO)");
+    auto* btnLayUnIso  = new QPushButton("İzole Kaldır");
+    auto* btnPurge     = new QPushButton("Temizle (PURGE)");
+    btnLayIso->setFixedHeight(22);
+    btnLayUnIso->setFixedHeight(22);
+    btnPurge->setFixedHeight(22);
+    btnLayIso->setToolTip("Seçili entity'nin katmanını izole et — diğerlerini gizle (LAYISO)");
+    btnLayUnIso->setToolTip("İzolasyonu geri al — tüm katmanları eski haline döndür (LAYUNISO)");
+    btnPurge->setToolTip("Kullanılmayan katmanları ve blokları sil (PURGE)");
+    layToolRow2->addWidget(btnLayIso);
+    layToolRow2->addWidget(btnLayUnIso);
+    layToolRow2->addWidget(btnPurge);
+    layVBox->addLayout(layToolRow2);
+
+    // QTreeWidget: 4 sütun — G (görünür), K (kilit), D (dondur), İsim
+    m_layerList = new QTreeWidget();
+    m_layerList->setColumnCount(4);
+    m_layerList->setHeaderLabels({"G", "K", "D", "Katman Adı"});
+    m_layerList->header()->setDefaultSectionSize(24);
+    m_layerList->header()->resizeSection(0, 24);
+    m_layerList->header()->resizeSection(1, 24);
+    m_layerList->header()->resizeSection(2, 24);
+    m_layerList->header()->setSectionResizeMode(3, QHeaderView::Stretch);
+    m_layerList->setRootIsDecorated(false);
+    m_layerList->setSortingEnabled(true);
+    m_layerList->sortByColumn(3, Qt::AscendingOrder);
+    m_layerList->setToolTip("G=Görünür  K=Kilitli  D=Dondurulmuş\nÇift tıklama=Renk değiştir\nSağ tık=Menü");
     m_layerList->setStyleSheet(
-        "QListWidget::item { padding: 2px; }"
-        "QListWidget::item:selected { background: #2255aa; color: white; }");
+        "QTreeWidget::item { padding: 1px; }"
+        "QTreeWidget::item:selected { background: #2255aa; color: white; }");
     layVBox->addWidget(m_layerList);
 
     m_layerPanel->setWidget(layWid);
-    m_layerPanel->setMinimumWidth(200);
+    m_layerPanel->setMinimumWidth(220);
     addDockWidget(Qt::LeftDockWidgetArea, m_layerPanel);
     tabifyDockWidget(m_spacePanel, m_layerPanel);
-    m_layerPanel->raise(); // Katman Yöneticisi varsayılan sekme (Space Panel değil)
+    m_layerPanel->raise();
 
-    // Layer checkbox değişince görünürlük güncelle
-    connect(m_layerList, &QListWidget::itemChanged, this,
-        [this](QListWidgetItem* item) {
-            if (!m_document) return;
-            QString layName = item->text();
+    // Sütun tıklama — G/K/D toggle
+    connect(m_layerList, &QTreeWidget::itemClicked, this,
+        [this](QTreeWidgetItem* item, int col) {
+            if (!m_document || !item) return;
+            QString layName = item->text(3);
             auto& layers = m_document->GetLayersMutable();
             auto it = layers.find(layName.toStdString());
             if (it == layers.end()) return;
-            bool visible = (item->checkState() == Qt::Checked);
-            it->second.SetVisible(visible);
+            auto& lay = it->second;
+
+            if (col == 0) {
+                lay.SetVisible(!lay.IsVisible());
+            } else if (col == 1) {
+                lay.SetLocked(!lay.IsLocked());
+            } else if (col == 2) {
+                lay.SetFrozen(!lay.IsFrozen());
+            } else {
+                return; // isim sütunu — tıklama seçim, eylem yok
+            }
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+            RefreshLayerPanel();
             InvalidateRenderer();
         });
 
-    // Çift tıklama → katman rengi düzenleme (#5)
-    connect(m_layerList, &QListWidget::itemDoubleClicked, this,
-        [this](QListWidgetItem* item) {
-            if (!m_document) return;
-            QString layName = item->text();
+    // Çift tıklama → katman rengi düzenleme
+    connect(m_layerList, &QTreeWidget::itemDoubleClicked, this,
+        [this](QTreeWidgetItem* item, int /*col*/) {
+            if (!m_document || !item) return;
+            QString layName = item->text(3);
             auto& layers = m_document->GetLayersMutable();
             auto it = layers.find(layName.toStdString());
             if (it == layers.end()) return;
@@ -789,12 +830,53 @@ void MainWindow::CreateDockPanels() {
                           static_cast<uint8_t>(chosen.green()),
                           static_cast<uint8_t>(chosen.blue())};
             lay.SetColor(nc);
-            // Layer haritasını renderer'a aktar
-            if (m_vulkanWindow)
+            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
                 m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
             RefreshLayerPanel();
             InvalidateRenderer();
             statusBar()->showMessage(QString("'%1' katman rengi değiştirildi").arg(layName), 2000);
+        });
+
+    // Sağ tık menüsü — Seçimi Katmana Taşı / Katmandakileri Seç / Kilitle / Dondur
+    m_layerList->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_layerList, &QTreeWidget::customContextMenuRequested, this,
+        [this](const QPoint& pos) {
+            auto* item = m_layerList->itemAt(pos);
+            if (!item || !m_document) return;
+            QString layName = item->text(3);
+            QMenu menu(this);
+            menu.addAction(QString("Katmandakileri Seç: %1").arg(layName), this,
+                [this, layName]() { OnSelectByLayer(layName); });
+            if (!m_selectedCADEntityIds.empty() || m_selectedCADEntityId != 0)
+                menu.addAction("Seçimi Bu Katmana Taşı", this,
+                    [this, layName]() {
+                        m_moveToLayerTarget = layName;
+                        OnMoveToLayer();
+                    });
+            menu.addSeparator();
+            auto& layers = m_document->GetLayersMutable();
+            auto it = layers.find(layName.toStdString());
+            if (it != layers.end()) {
+                bool locked = it->second.IsLocked();
+                bool frozen = it->second.IsFrozen();
+                menu.addAction(locked ? "Kilidi Kaldır" : "Kilitle", this,
+                    [this, layName, locked]() {
+                        auto& lm = m_document->GetLayersMutable();
+                        if (lm.count(layName.toStdString()))
+                            lm.at(layName.toStdString()).SetLocked(!locked);
+                        RefreshLayerPanel(); InvalidateRenderer();
+                    });
+                menu.addAction(frozen ? "Çöz (Thaw)" : "Dondur (Freeze)", this,
+                    [this, layName, frozen]() {
+                        auto& lm = m_document->GetLayersMutable();
+                        if (lm.count(layName.toStdString()))
+                            lm.at(layName.toStdString()).SetFrozen(!frozen);
+                        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                            m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+                        RefreshLayerPanel(); InvalidateRenderer();
+                    });
+            }
+            menu.exec(m_layerList->mapToGlobal(pos));
         });
 
     connect(btnLayerAll, &QPushButton::clicked, this, [this]() {
@@ -812,6 +894,10 @@ void MainWindow::CreateDockPanels() {
         RefreshLayerPanel();
         InvalidateRenderer();
     });
+
+    connect(btnLayIso,   &QPushButton::clicked, this, &MainWindow::OnLayIso);
+    connect(btnLayUnIso, &QPushButton::clicked, this, &MainWindow::OnLayUnIso);
+    connect(btnPurge,    &QPushButton::clicked, this, &MainWindow::OnPurge);
 
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
@@ -3564,9 +3650,21 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             cad::EntityId pickedId = 0;
             double pickedDist = CAD_APERTURE_MM;
 
+            // Entity seçilebilir mi? Frozen=seçilemez, Locked=seçilemez
+            auto isPickable = [&](const cad::Entity* e) -> bool {
+                if (!e || !e->IsVisible()) return false;
+                const auto& layers = m_document->GetLayers();
+                auto lit = layers.find(e->GetLayerName());
+                if (lit != layers.end()) {
+                    if (!lit->second.IsDrawable()) return false; // frozen veya gizli
+                    if (lit->second.IsLocked())    return false; // kilitli
+                }
+                return true;
+            };
+
             auto pickFrom = [&](const std::vector<cad::Entity*>& candidates) {
                 for (cad::Entity* e : candidates) {
-                    if (!e || !e->IsVisible()) continue;
+                    if (!isPickable(e)) continue;
                     double d = DistToCADEntity(worldX, worldY, e);
                     if (d < pickedDist) { pickedDist = d; pickedId = e->GetId(); }
                 }
@@ -3736,17 +3834,27 @@ void MainWindow::HandleMouseRelease(double worldX, double worldY, Qt::MouseButto
 
         bool crossing = (worldX < m_selBoxStartWorld.x); // sola sürükleme = crossing
 
+        // Lock/freeze kontrolü için layer map
+        const auto& layersRef = m_document->GetLayers();
+        auto isBoxPickable = [&](const cad::Entity* e) -> bool {
+            if (!e || !e->IsVisible()) return false;
+            auto lit = layersRef.find(e->GetLayerName());
+            if (lit != layersRef.end()) {
+                if (!lit->second.IsDrawable()) return false;
+                if (lit->second.IsLocked())    return false;
+            }
+            return true;
+        };
+
         m_selectedCADEntityIds.clear();
         for (const auto& ent : m_document->GetCADEntities()) {
-            if (!ent || !ent->IsVisible()) continue;
+            if (!isBoxPickable(ent.get())) continue;
             auto bb = ent->GetBounds();
             if (crossing) {
-                // Kesişim seçimi: bounding box seçim rect ile kesişiyor mu?
                 bool noOverlap = (bb.max.x < rxMin || bb.min.x > rxMax ||
                                   bb.max.y < ryMin || bb.min.y > ryMax);
                 if (!noOverlap) m_selectedCADEntityIds.insert(ent->GetId());
             } else {
-                // Pencere seçimi: bounding box tamamen içinde mi?
                 if (bb.min.x >= rxMin && bb.max.x <= rxMax &&
                     bb.min.y >= ryMin && bb.max.y <= ryMax)
                     m_selectedCADEntityIds.insert(ent->GetId());
@@ -4110,6 +4218,18 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnBosaltmaNoktasi();
     } else if (c == "KATMAN" || c == "LAYER-VIS" || c == "KATMAN-VIS") {
         OnLayerVisibility();
+    } else if (c == "LAYISO" || c == "KATMAN-IZOLE" || c == "IZOLE") {
+        OnLayIso();
+    } else if (c == "LAYUNISO" || c == "KATMAN-TUM" || c == "IZOLE-KALDIR") {
+        OnLayUnIso();
+    } else if (c == "PURGE" || c == "TEMIZLE" || c == "KULLANILMAYAN") {
+        OnPurge();
+    } else if (c == "LAYLCK" || c == "KILITLE-TUMU") {
+        OnLayLockAll();
+    } else if (c == "LAYULK" || c == "KIL-KALDIR-TUMU") {
+        OnLayUnlockAll();
+    } else if (c == "TASIYE" || c == "KATMANA-TASI" || c == "MOVE-TO-LAYER") {
+        OnMoveToLayer();
     } else if (c == "KOPYA-KAT" || c == "FLOOR-COPY") {
         OnCopyFloor();
     } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
@@ -5526,6 +5646,192 @@ void MainWindow::OnPBRMaterialChanged(float roughness, float metalness, float am
 // ============================================================
 //  CİZİMİ GUNCELLE — hesap sonuclarini cizime yaz
 // ============================================================
+// ============================================================
+//  LAYISO / LAYUNISO / PURGE / SelectByLayer / MoveToLayer
+// ============================================================
+void MainWindow::OnLayIso() {
+    if (!m_document) return;
+
+    // Hangi katmanı izole edeceğiz? Seçili entity'den al, yoksa kullanıcıya sor
+    std::string targetLayer;
+    if (m_selectedCADEntityId != 0) {
+        auto it = m_cadEntityCache.find(m_selectedCADEntityId);
+        if (it != m_cadEntityCache.end() && it->second)
+            targetLayer = it->second->GetLayerName();
+    }
+    if (targetLayer.empty() && !m_selectedCADEntityIds.empty()) {
+        auto it = m_cadEntityCache.find(*m_selectedCADEntityIds.begin());
+        if (it != m_cadEntityCache.end() && it->second)
+            targetLayer = it->second->GetLayerName();
+    }
+    if (targetLayer.empty()) {
+        // Katman adını kullanıcıdan sor
+        QStringList layerNames;
+        for (const auto& [n, _] : m_document->GetLayers())
+            layerNames << QString::fromStdString(n);
+        layerNames.sort();
+        bool ok = false;
+        QString chosen = QInputDialog::getItem(this, "LAYISO", "İzole edilecek katman:", layerNames, 0, false, &ok);
+        if (!ok || chosen.isEmpty()) return;
+        targetLayer = chosen.toStdString();
+    }
+
+    // Mevcut görünürlük durumunu kaydet
+    m_preIsoVisibility.clear();
+    for (auto& [name, layer] : m_document->GetLayersMutable()) {
+        m_preIsoVisibility[name] = layer.IsVisible();
+        layer.SetVisible(name == targetLayer);
+    }
+    m_layisoActive = true;
+
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+    RefreshLayerPanel();
+    InvalidateRenderer();
+    statusBar()->showMessage(QString("LAYISO: '%1' katmanı izole edildi — LAYUNISO ile geri al")
+        .arg(QString::fromStdString(targetLayer)), 4000);
+}
+
+void MainWindow::OnLayUnIso() {
+    if (!m_document) return;
+    if (!m_layisoActive) {
+        statusBar()->showMessage("LAYUNISO: Aktif izolasyon yok", 2000);
+        return;
+    }
+    for (auto& [name, layer] : m_document->GetLayersMutable()) {
+        auto it = m_preIsoVisibility.find(name);
+        layer.SetVisible(it != m_preIsoVisibility.end() ? it->second : true);
+    }
+    m_layisoActive = false;
+    m_preIsoVisibility.clear();
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+    RefreshLayerPanel();
+    InvalidateRenderer();
+    statusBar()->showMessage("LAYUNISO: Tüm katmanlar eski haline döndürüldü", 2000);
+}
+
+void MainWindow::OnLayLockAll() {
+    if (!m_document) return;
+    for (auto& [name, layer] : m_document->GetLayersMutable())
+        layer.SetLocked(true);
+    RefreshLayerPanel();
+    statusBar()->showMessage("Tüm katmanlar kilitlendi", 2000);
+}
+
+void MainWindow::OnLayUnlockAll() {
+    if (!m_document) return;
+    for (auto& [name, layer] : m_document->GetLayersMutable())
+        layer.SetLocked(false);
+    RefreshLayerPanel();
+    statusBar()->showMessage("Tüm katman kilitleri kaldırıldı", 2000);
+}
+
+void MainWindow::OnPurge() {
+    if (!m_document) return;
+
+    // Hangi layer adları entity'lerde kullanılıyor?
+    std::unordered_set<std::string> usedLayers;
+    for (const auto& e : m_document->GetCADEntities())
+        if (e) usedLayers.insert(e->GetLayerName());
+    // MEP node/edge de layer kullanmaz, "0" her zaman korunur
+    usedLayers.insert("0");
+
+    auto& layers = m_document->GetLayersMutable();
+    std::vector<std::string> toRemove;
+    for (const auto& [name, _] : layers)
+        if (!usedLayers.count(name)) toRemove.push_back(name);
+
+    if (toRemove.empty()) {
+        QMessageBox::information(this, "PURGE", "Kullanılmayan katman veya blok bulunamadı.");
+        return;
+    }
+
+    QString msg = QString("%1 kullanılmayan katman bulundu:\n").arg(toRemove.size());
+    for (const auto& n : toRemove) msg += QString("  • %1\n").arg(QString::fromStdString(n));
+    msg += "\nSilmek istiyor musunuz?";
+    if (QMessageBox::question(this, "PURGE", msg) != QMessageBox::Yes) return;
+
+    for (const auto& n : toRemove) layers.erase(n);
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetLayerMap(m_document->GetLayers());
+    RefreshLayerPanel();
+    m_document->SetModified(true);
+    statusBar()->showMessage(QString("PURGE: %1 katman silindi").arg(toRemove.size()), 3000);
+}
+
+void MainWindow::OnSelectByLayer(const QString& layerName) {
+    if (!m_document) return;
+    const std::string layStd = layerName.toStdString();
+
+    m_selectedCADEntityIds.clear();
+    m_selectedCADEntityId = 0;
+
+    for (const auto& e : m_document->GetCADEntities()) {
+        if (!e || !e->IsVisible()) continue;
+        const auto& layers = m_document->GetLayers();
+        auto lit = layers.find(e->GetLayerName());
+        if (lit != layers.end() && (lit->second.IsLocked() || !lit->second.IsDrawable())) continue;
+        if (e->GetLayerName() == layStd)
+            m_selectedCADEntityIds.insert(e->GetId());
+    }
+
+    if (!m_selectedCADEntityIds.empty()) {
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
+        statusBar()->showMessage(
+            QString("'%1' katmanında %2 entity seçildi").arg(layerName).arg(m_selectedCADEntityIds.size()), 4000);
+    } else {
+        statusBar()->showMessage(QString("'%1' katmanında seçilebilir entity bulunamadı").arg(layerName), 2000);
+    }
+}
+
+void MainWindow::OnMoveToLayer() {
+    if (!m_document) return;
+
+    // Hedef katman adı: m_moveToLayerTarget dolu değilse kullanıcıdan sor
+    if (m_moveToLayerTarget.isEmpty()) {
+        QStringList layerNames;
+        for (const auto& [n, _] : m_document->GetLayers())
+            layerNames << QString::fromStdString(n);
+        layerNames.sort();
+        bool ok = false;
+        QString chosen = QInputDialog::getItem(this, "Katmana Taşı", "Hedef katman:", layerNames, 0, false, &ok);
+        if (!ok || chosen.isEmpty()) return;
+        m_moveToLayerTarget = chosen;
+    }
+
+    const std::string targetStd = m_moveToLayerTarget.toStdString();
+    m_moveToLayerTarget.clear();
+
+    // Hedef katman yoksa oluştur
+    auto& layers = m_document->GetLayersMutable();
+    if (!layers.count(targetStd))
+        layers[targetStd] = cad::Layer(targetStd);
+
+    // Seçili entity'leri taşı
+    auto moveIds = m_selectedCADEntityIds;
+    if (moveIds.empty() && m_selectedCADEntityId != 0) moveIds.insert(m_selectedCADEntityId);
+
+    int moved = 0;
+    for (const auto& e : m_document->GetCADEntities()) {
+        if (!e || !moveIds.count(e->GetId())) continue;
+        e->SetLayerName(targetStd);
+        ++moved;
+    }
+
+    if (moved > 0) {
+        m_document->SetModified(true);
+        RebuildCADEntityCache();
+        if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            m_vulkanWindow->GetRenderer()->SetLayerMap(layers);
+        InvalidateRenderer();
+        RefreshLayerPanel();
+        statusBar()->showMessage(
+            QString("%1 entity '%2' katmanına taşındı").arg(moved).arg(QString::fromStdString(targetStd)), 3000);
+    }
+}
+
 void MainWindow::OnCizimiGuncelle() {
     if (!m_document) return;
 
@@ -6584,14 +6890,39 @@ void MainWindow::RefreshLayerPanel() {
     names.reserve(layers.size());
     for (const auto& [name, _] : layers) names.push_back(name);
     std::sort(names.begin(), names.end());
+
     for (const auto& name : names) {
         const cad::Layer& layer = layers.at(name);
-        auto* item = new QListWidgetItem(QString::fromStdString(name));
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setCheckState(layer.IsVisible() ? Qt::Checked : Qt::Unchecked);
+        auto* item = new QTreeWidgetItem(m_layerList);
+
+        // Sütun 0 — Görünür (G)
+        item->setText(0, layer.IsVisible() ? "●" : "○");
+        item->setForeground(0, layer.IsVisible() ? QColor(80, 200, 80) : QColor(120, 120, 120));
+        item->setToolTip(0, layer.IsVisible() ? "Görünür — tıkla: gizle" : "Gizli — tıkla: göster");
+
+        // Sütun 1 — Kilitli (K)
+        item->setText(1, layer.IsLocked() ? "🔒" : "🔓");
+        item->setToolTip(1, layer.IsLocked() ? "Kilitli (seçilemez) — tıkla: kilidi kaldır" : "Serbest — tıkla: kilitle");
+
+        // Sütun 2 — Dondurulmuş (D)
+        item->setText(2, layer.IsFrozen() ? "❄" : "·");
+        item->setForeground(2, layer.IsFrozen() ? QColor(100, 180, 255) : QColor(80, 80, 80));
+        item->setToolTip(2, layer.IsFrozen() ? "Dondurulmuş (render'a girmiyor) — tıkla: çöz" : "Aktif — tıkla: dondur");
+
+        // Sütun 3 — Katman adı (renkli)
+        item->setText(3, QString::fromStdString(name));
         cad::Color col = layer.GetColor();
-        item->setForeground(QColor(col.r, col.g, col.b));
-        m_layerList->addItem(item);
+        QColor qcol(col.r, col.g, col.b);
+        // Koyu arka plan varsa açık rengi beyaza çek
+        if (col.r < 30 && col.g < 30 && col.b < 30) qcol = QColor(180, 180, 180);
+        item->setForeground(3, qcol);
+
+        // Donmuş veya kilitli satırları soluk göster
+        if (layer.IsFrozen() || !layer.IsVisible()) {
+            for (int c = 0; c < 4; ++c)
+                item->setForeground(c, QColor(70, 70, 70));
+            item->setForeground(3, QColor(90, 90, 90));
+        }
     }
     m_layerList->blockSignals(false);
 }
@@ -6604,19 +6935,18 @@ void MainWindow::HighlightLayerInPanel(const std::string& layerName) {
     const QString qName = QString::fromStdString(layerName);
     static const QColor kActiveBg(60, 55, 20);
     static const QColor kDefaultBg(30, 30, 30);
-    for (int i = 0; i < m_layerList->count(); ++i) {
-        auto* item = m_layerList->item(i);
+    for (int i = 0; i < m_layerList->topLevelItemCount(); ++i) {
+        auto* item = m_layerList->topLevelItem(i);
         if (!item) continue;
-        const bool isActive = (item->text() == qName);
-        // Sadece değişen item'ı güncelle — koşulsuz setFont/setBackground Qt repaint tetikler
-        QFont f = item->font();
+        const bool isActive = (item->text(3) == qName);
+        QFont f = item->font(3);
         if (f.bold() != isActive) {
             f.setBold(isActive);
-            item->setFont(f);
+            item->setFont(3, f);
         }
         const QColor needed = isActive ? kActiveBg : kDefaultBg;
-        if (item->background().color() != needed)
-            item->setBackground(needed);
+        if (item->background(3).color() != needed)
+            item->setBackground(3, needed);
         if (isActive)
             m_layerList->scrollToItem(item);
     }

@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QListWidget>
+#include <QTreeWidget>
 #include <QKeyEvent>
 #include <QTimer>
 #include <memory>
@@ -296,7 +297,7 @@ private:
 
     // Layer Panel
     QDockWidget* m_layerPanel = nullptr;
-    QListWidget* m_layerList = nullptr;
+    QTreeWidget* m_layerList = nullptr;
 
     // Log Panel
     QDockWidget* m_logPanel = nullptr;
@@ -422,6 +423,11 @@ private:
     bool m_labelShowSlope    = false;   ///< Drenaj eğimi (%)
     bool m_labelShowFillRate = false;   ///< Doluluk derecesi h/d (%)
 
+    // LAYISO — izole önceki katman görünürlük durumu (LAYUNISO için geri yükleme)
+    bool m_layisoActive = false;
+    std::unordered_map<std::string, bool> m_preIsoVisibility; // layer name → was visible
+    QString m_moveToLayerTarget; // OnMoveToLayer için hedef katman adı
+
     // Uygulama Katman Görünürlüğü — MEP katmanlarını bağımsız göster/gizle
     bool m_showTemizSu = true;
     bool m_showSicakSu = true;
@@ -510,6 +516,13 @@ private:
 
     // Layer panelini document'taki layer listesiyle güncelle
     void RefreshLayerPanel();
+    void OnLayIso();     ///< LAYISO — seçili entity katmanını izole et
+    void OnLayUnIso();   ///< LAYUNISO — izolasyonu geri al
+    void OnLayLockAll(); ///< Tüm katmanları kilitle
+    void OnLayUnlockAll();
+    void OnPurge();      ///< Kullanılmayan katman/blok temizle
+    void OnSelectByLayer(const QString& layerName);
+    void OnMoveToLayer();///< Seçili entity'leri başka katmana taşı
     // Renderer layer map + CAD dirty flag + text overlay tek çağrıyla yenile
     void InvalidateRenderer();
     // EntityId->ptr ve snap flat-list cache'lerini yenile (import/delete sonrası çağır)
