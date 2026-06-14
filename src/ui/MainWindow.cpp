@@ -9,6 +9,7 @@
 #include "ui/NewProjectDialog.hpp"
 #include "ui/FloorAlignmentDialog.hpp"
 #include "ui/PrintLayoutDialog.hpp"
+#include "ui/PreflightCheckDialog.hpp"
 #include "core/ProjectManager.hpp"
 #include "core/DocxWriter.hpp"
 #include "ui/SpacePanel.hpp"
@@ -1995,8 +1996,16 @@ void MainWindow::OnAutoSizeDN() {
 //  GERÇEK ZAMANLI HİDROLİK (DEBOUNCED AUTO-DN)
 // ============================================================
 
+bool MainWindow::RunPreflight() {
+    if (!m_document) return false;
+    auto& network = m_document->GetNetwork();
+    PreflightCheckDialog dlg(network, m_hydraulicRanRecently, this);
+    dlg.exec();
+    return dlg.CanProceed();
+}
+
 void MainWindow::ScheduleAutoHydro() {
-    // QTimer::start() var olan timer'ı yeniden başlatır (debounce)
+    m_hydraulicRanRecently = false; // ağ değişti → hesap stale
     if (m_autoHydroTimer) m_autoHydroTimer->start(600);
 }
 
@@ -2109,6 +2118,8 @@ void MainWindow::RunAutoHydro() {
         m_vulkanWindow->SetCriticalPathEdges(critResult.criticalPath);
         m_vulkanWindow->requestUpdate();
     }
+
+    m_hydraulicRanRecently = true;
 }
 
 // ============================================================
@@ -2365,6 +2376,8 @@ void MainWindow::OnNewProject() {
     // Norm seçimini uygula
     if (dlg.Norm().contains("DIN"))
         mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
+    else if (dlg.Norm().contains("Sarfiyat") || dlg.Norm().contains("825"))
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::SARFIYAT;
     else
         mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
 
@@ -2380,8 +2393,10 @@ void MainWindow::OnNewProject() {
     }
 
     QString displayName = QString::fromStdString(pm.GetProjectName());
-    QString normLabel = (mep::HydraulicSolver::GlobalNorm() == mep::HydroNorm::DIN1988)
-                        ? "DIN 1988-300" : "EN 806-3";
+    auto gn = mep::HydraulicSolver::GlobalNorm();
+    QString normLabel = (gn == mep::HydroNorm::DIN1988)   ? "DIN 1988-300"
+                      : (gn == mep::HydroNorm::SARFIYAT)  ? "TS 825 Sarfiyat"
+                                                           : "EN 806-3";
     setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(displayName));
     statusBar()->showMessage(
         QString("Proje oluşturuldu: %1 | Norm: %2 | Müşteri: %3")
@@ -4011,6 +4026,11 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnHidrofor();
     } else if (c == "NORM" || c == "NORM-SEC") {
         OnNormSelection();
+    } else if (c == "SARFIYAT" || c == "MUSLUK-BIRIM" || c == "TS825") {
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::SARFIYAT;
+        statusBar()->showMessage("Hesap normu: TS 825 Sarfiyat / Musluk Birimi");
+        if (m_logList) m_logList->addItem("Norm: TS 825 Sarfiyat aktif");
+        ScheduleAutoHydro();
     } else if (c == "DEVRE" || c == "DEVRE-SEC") {
         OnDevreSecenekleri();
     } else if (c == "BASKI" || c == "BASKI-ICERIGI") {
@@ -4587,6 +4607,7 @@ void MainWindow::OnPrintLayout() {
         QMessageBox::warning(this, "Pafta", "Aktif belge yok.");
         return;
     }
+    if (!RunPreflight()) return;
 
     // PrintLayout'u çizim verisiyle doldur
     PrintLayout layout;
@@ -4674,10 +4695,12 @@ void MainWindow::OnHidrofor() {
 void MainWindow::OnNormSelection() {
     QStringList norms;
     norms << "TS EN 806-3  (Avrupa / Turkiye standardi — varsayilan)"
-          << "DIN 1988-300  (Alman standardi — esszamanlilik katsayili)";
+          << "DIN 1988-300  (Alman standardi — esszamanlilik katsayili)"
+          << "TS 825 Sarfiyat  (Musluk Birimi — Turkiye kamu ihalelerinde kullanilir)";
 
-    bool isEN = (mep::HydraulicSolver::GlobalNorm() == mep::HydroNorm::EN806_3);
-    int current = isEN ? 0 : 1;
+    auto cur = mep::HydraulicSolver::GlobalNorm();
+    int current = (cur == mep::HydroNorm::DIN1988) ? 1
+                : (cur == mep::HydroNorm::SARFIYAT) ? 2 : 0;
 
     bool ok = false;
     QString chosen = QInputDialog::getItem(this,
@@ -4690,12 +4713,16 @@ void MainWindow::OnNormSelection() {
         mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::DIN1988;
         statusBar()->showMessage("Hesap normu: DIN 1988-300 (esszamanlilik katsayili)");
         if (m_logList) m_logList->addItem("Norm degistirildi: DIN 1988-300");
+    } else if (chosen.startsWith("TS 825")) {
+        mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::SARFIYAT;
+        statusBar()->showMessage("Hesap normu: TS 825 Sarfiyat / Musluk Birimi");
+        if (m_logList) m_logList->addItem("Norm degistirildi: TS 825 Sarfiyat (Musluk Birimi)");
     } else {
         mep::HydraulicSolver::GlobalNorm() = mep::HydroNorm::EN806_3;
         statusBar()->showMessage("Hesap normu: TS EN 806-3");
         if (m_logList) m_logList->addItem("Norm degistirildi: TS EN 806-3");
     }
-    ScheduleAutoHydro(); // normu guncelledik → yeniden hesapla
+    ScheduleAutoHydro();
 }
 
 // ============================================================
@@ -4806,7 +4833,7 @@ void MainWindow::OnBaskiKaybi() {
             "<th>Devre No</th><th>Tip</th><th>Malzeme</th>"
             "<th>DN (mm)</th><th>L (m)</th>"
             "<th>Q_nom (L/s)</th><th>Q_hes (L/s)</th>"
-            "<th>v (m/s)</th><th>ΔH (m)</th><th>Durum</th></tr>";
+            "<th>v (m/s)</th><th>ΔH_surt (m)</th><th>ΔH_lokal (m)</th><th>ΔH_top (m)</th><th>Durum</th></tr>";
 
     // Kritik devreyi bul
     mep::HydraulicSolver critSolver(network);
@@ -4839,11 +4866,15 @@ void MainWindow::OnBaskiKaybi() {
             ? QString("<font color='#00a'>%1</font>").arg(qHes, 0, 'f', 3)
             : QString("%1").arg(qHes, 0, 'f', 3);
 
+        double localLoss_m = edge.localLoss_Pa / (1000.0 * 9.81); // Pa → m
+        double frictLoss_m = edge.headLoss_m - localLoss_m;       // sürtünme kaybı
+        if (frictLoss_m < 0.0) frictLoss_m = edge.headLoss_m;
+
         html += QString("<tr style='background:%1'>"
                         "<td>%2</td><td>%3</td><td>%4</td>"
                         "<td>%5</td><td>%6</td>"
                         "<td>%7</td><td>%8</td>"
-                        "<td>%9</td><td>%10</td><td>%11</td></tr>")
+                        "<td>%9</td><td>%10</td><td>%11</td><td>%12</td><td>%13</td></tr>")
             .arg(bg)
             .arg(edge.label.empty() ? QString("E%1").arg(eid) : QString::fromStdString(edge.label))
             .arg(typeStr)
@@ -4853,7 +4884,9 @@ void MainWindow::OnBaskiKaybi() {
             .arg(qNomStr)
             .arg(qHesStr)
             .arg(edge.velocity_ms, 0, 'f', 2)
-            .arg(edge.headLoss_m, 0, 'f', 4)
+            .arg(frictLoss_m,      0, 'f', 4)
+            .arg(localLoss_m,      0, 'f', 4)
+            .arg(edge.headLoss_m,  0, 'f', 4)
             .arg(isCrit ? "<b style='color:#c00'>KRİTİK</b>" : "OK");
 
         totalHL += edge.headLoss_m;
@@ -4898,6 +4931,7 @@ void MainWindow::OnBaskiKaybi() {
 // ============================================================
 void MainWindow::OnWordRapor() {
     if (!m_document) return;
+    if (!RunPreflight()) return;
 
     auto& network = m_document->GetNetwork();
     mep::HydraulicSolver solver(network);
@@ -5145,6 +5179,7 @@ void MainWindow::OnRiserDiagram() {
             "Once tesisat sebekesi cizin (boru + kaynak + armaturler).");
         return;
     }
+    if (!RunPreflight()) return;
 
     mep::RiserDiagram riser(network, m_floorManager);
     auto data = riser.Generate();
@@ -5687,6 +5722,7 @@ void MainWindow::OnPisSuHesapFoyu() {
 // ============================================================
 void MainWindow::OnExportDXF() {
     if (!m_document) return;
+    if (!RunPreflight()) return;
 
     auto& pm = core::ProjectManager::Instance();
     QString startDir = pm.HasActiveProject()

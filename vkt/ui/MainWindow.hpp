@@ -103,6 +103,7 @@ private slots:
     // Gerçek zamanlı hidrolik (debounced)
     void ScheduleAutoHydro();   ///< Debounce zamanlayıcısını başlat/yeniden başlat
     void RunAutoHydro();        ///< Timer'dan tetiklenen sessiz DN boyutlandırma
+    bool RunPreflight();        ///< Çıktı öncesi 6 kontrol — false dönünce çıktıyı engelle
 
     // Mahal (Space) yönetimi
     void OnSelectSpace();
@@ -472,6 +473,7 @@ private:
 
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;
+    bool    m_hydraulicRanRecently = false; ///< RunAutoHydro başarıyla çalıştıysa true
 
     // Mimari kat yönetimi
     core::FloorManager m_floorManager;

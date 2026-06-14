@@ -54,7 +54,8 @@ enum class BuildingType {
  */
 enum class HydroNorm {
     EN806_3,    ///< TS EN 806-3: Q = 0.682 * LU^0.45  (l/s)  (default)
-    DIN1988     ///< DIN 1988-300: eşzamanlılık faktörü ile Q = φ * √(ΣLU) (l/s)
+    DIN1988,    ///< DIN 1988-300: eşzamanlılık faktörü ile Q = φ * √(ΣLU) (l/s)
+    SARFIYAT    ///< TS 825 Musluk Birimi: Q = K_s * √(ΣSB) (l/s) — Türkiye kamu ihalelerinde kullanılır
 };
 
 class HydraulicSolver {

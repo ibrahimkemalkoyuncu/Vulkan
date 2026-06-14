@@ -44,11 +44,17 @@ void HydraulicSolver::Solve() {
     std::cout << "  TEMİZ SU ŞEBEKE ANALİZİ (TS EN 806-3)" << std::endl;
     std::cout << "═══════════════════════════════════════" << std::endl;
 
-    // 1. Her fixture node'un LU'sından debi hesapla
+    // 1. Her fixture node'un LU/SB değerinden debi hesapla
     for (auto& [id, node] : m_network.GetNodeMap()) {
-        if (node.loadUnit > 0.0) {
-            node.flowRate_m3s = CalculateFlowFromLU(node.loadUnit);
+        double unitVal = node.loadUnit;
+        if (m_norm == HydroNorm::SARFIYAT && node.type == NodeType::Fixture
+                && !node.fixtureType.empty()) {
+            // TS 825: armatüre özgü Sarfiyat Birimi (SB) değerini DB'den al
+            double sb = Database::Instance().GetFixture(node.fixtureType).sarfiyat_unit;
+            if (sb > 0.0) unitVal = sb;
         }
+        if (unitVal > 0.0)
+            node.flowRate_m3s = CalculateFlowFromLU(unitVal);
     }
 
     // 2. Topolojik debi dağılımı — leaf'lerden source'a kümülatif toplama
@@ -84,8 +90,11 @@ void HydraulicSolver::Solve() {
         // Sürtünme kaybı (Darcy-Weisbach + Haaland)
         edge.headLoss_m = CalculateHeadLoss(edge);
 
-        // Lokal kayıplar (Zeta)
+        // Lokal kayıplar: topoloji bazlı K katsayısı + Zeta
         edge.localLoss_Pa = CalculateLocalLoss(edge);
+        // Lokal kaybı metre su sütununa çevir ve sürtünme kaybına ekle
+        double localLoss_m = edge.localLoss_Pa / (WATER_DENSITY * GRAVITY);
+        edge.headLoss_m += localLoss_m;
 
         std::cout << "Boru " << edge.id << ": "
                   << "Q=" << edge.flowRate_m3s * 1000.0 << " L/s, "
@@ -419,10 +428,20 @@ double HydraulicSolver::CalculateFlowFromLU(double loadUnit) const {
     double Q_Ls;
     if (m_norm == HydroNorm::DIN1988) {
         // DIN 1988-300: eşzamanlılık faktörü φ = 1 / (1 + √LU/10)
-        // Q_D = φ * √(ΣLU) * q_s  (q_s = 0.5 l/s konut)
         double phi = 1.0 / (1.0 + std::sqrt(loadUnit) / 10.0);
         Q_Ls = phi * std::sqrt(loadUnit) * 0.5;
         Q_Ls = std::max(Q_Ls, 0.05);
+    } else if (m_norm == HydroNorm::SARFIYAT) {
+        // TS 825 Musluk Birimi: Q = K_s × √(SB)
+        // K_s bina tipine göre: Konut=0.6, Otel=0.8, Endüstri=1.0
+        double K_s;
+        switch (m_buildingType) {
+            case BuildingType::Hotel:       K_s = 0.8; break;
+            case BuildingType::Industrial:  K_s = 1.0; break;
+            default:                        K_s = 0.6; break;
+        }
+        Q_Ls = K_s * std::sqrt(loadUnit);
+        Q_Ls = std::max(Q_Ls, 0.1);
     } else {
         // TS EN 806-3: Qd = 0.682 * LU^0.45  [L/s]
         if (loadUnit <= 500.0) {
@@ -433,9 +452,7 @@ double HydraulicSolver::CalculateFlowFromLU(double loadUnit) const {
         }
     }
 
-    // Minimum debi: EN 806-3 tablo değerleri >= 0.1 L/s
     Q_Ls = std::max(Q_Ls, 0.1);
-
     return Q_Ls / 1000.0; // L/s → m³/s
 }
 
@@ -479,11 +496,29 @@ double HydraulicSolver::HaalandFriction(double Re, double relativeRoughness) con
 }
 
 double HydraulicSolver::CalculateLocalLoss(const Edge& edge) {
-    if (edge.zeta < 0.001) return 0.0;
-
     double v = edge.velocity_ms;
-    // ΔP = ζ × ρ × v² / 2  [Pa]
-    return edge.zeta * WATER_DENSITY * v * v / 2.0;
+    if (v < 1e-9) return 0.0;
+
+    // Topoloji bazlı K tahmini:
+    //   Her boru uç bağlantısı (nodeA/B'de >2 kenarlı junction) → T-parça (K=1.3 yan kol)
+    //   Boru başlangıcı → giriş kaybı (K=0.5)
+    //   Boru bitişi    → çıkış kaybı (K=1.0) [yalnızca fixture'da]
+    //   Her 5m boru → bir adet 90° dirsek varsayımı (K=0.9) — "eşdeğer uzunluk" yaklaşımı
+    double K = 0.0;
+
+    // Eşdeğer dirsek: her 5m boru başına 1 adet 90° dirsek (K=0.9)
+    int numElbows = std::max(0, (int)(edge.length_m / 5.0));
+    K += numElbows * 0.9;
+
+    // Bağlantı bağımsız giriş/çıkış kaybı (her boru için sabit)
+    K += 0.5; // giriş
+    K += 1.0; // çıkış
+
+    // Manuel Zeta varsa üstüne ekle
+    K += edge.zeta;
+
+    // ΔP = K × ρ × v² / 2  [Pa]
+    return K * WATER_DENSITY * v * v / 2.0;
 }
 
 // ═══════════════════════════════════════════════════════════

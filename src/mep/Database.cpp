@@ -22,17 +22,17 @@ Database::Database() {
 }
 
 void Database::InitializeFixtures() {
-    // TS EN 806-3 Standart armatürler
-    m_fixtures["Lavabo"] = {"Lavabo", 0.5, 0.5, 1.0, 0.1};
-    m_fixtures["Duş"] = {"Duş", 1.0, 1.0, 1.5, 0.15};
-    m_fixtures["WC"] = {"WC", 2.0, 2.0, 1.0, 0.12};
-    m_fixtures["Evye"] = {"Evye", 1.5, 1.5, 1.0, 0.2};
-    m_fixtures["Bulaşık Makinesi"] = {"Bulaşık Makinesi", 1.5, 1.5, 1.5, 0.15};
-    m_fixtures["Çamaşır Makinesi"] = {"Çamaşır Makinesi", 2.0, 2.0, 1.5, 0.2};
-    m_fixtures["Pisuar"] = {"Pisuar", 0.5, 0.5, 1.0, 0.08};
-    m_fixtures["Küvet"] = {"Küvet", 3.0, 3.0, 1.0, 0.3};
-    m_fixtures["Bide"]  = {"Bide",  0.5, 0.5, 1.0, 0.1};
-    m_fixtures["Bidе"]  = {"Bidе",  0.5, 0.5, 1.0, 0.1}; // compat alias
+    // name, LU (EN 806-3), DU (EN 12056-2), SB (TS 825 Sarfiyat Birimi), minP_bar, Q_Ls
+    m_fixtures["Lavabo"]           = {"Lavabo",           0.5, 0.5, 0.5, 1.0, 0.10};
+    m_fixtures["Duş"]              = {"Duş",              1.0, 1.0, 1.0, 1.5, 0.15};
+    m_fixtures["WC"]               = {"WC",               2.0, 2.0, 2.0, 1.0, 0.12};
+    m_fixtures["Evye"]             = {"Evye",             1.5, 1.5, 1.0, 1.0, 0.20};
+    m_fixtures["Bulaşık Makinesi"] = {"Bulaşık Makinesi", 1.5, 1.5, 2.0, 1.5, 0.15};
+    m_fixtures["Çamaşır Makinesi"] = {"Çamaşır Makinesi", 2.0, 2.0, 2.0, 1.5, 0.20};
+    m_fixtures["Pisuar"]           = {"Pisuar",           0.5, 0.5, 1.5, 1.0, 0.08};
+    m_fixtures["Küvet"]            = {"Küvet",            3.0, 3.0, 2.0, 1.0, 0.30};
+    m_fixtures["Bide"]             = {"Bide",             0.5, 0.5, 0.5, 1.0, 0.10};
+    m_fixtures["Bidе"]             = {"Bidе",             0.5, 0.5, 0.5, 1.0, 0.10}; // compat alias
 }
 
 void Database::InitializePipes() {

@@ -20,11 +20,12 @@ namespace mep {
  * @brief Armatür özellikleri
  */
 struct FixtureData {
-    std::string name;           ///< İsim (Lavabo, WC, vs.)
-    double loadUnit = 0.5;      ///< Yük birimi (LU)
-    double dischargeUnit = 0.5; ///< Boşalım birimi (DU)
-    double minPressure_bar = 1.0; ///< Minimum basınç (bar)
-    double flowRate_Ls = 0.1;   ///< Nominal debi (L/s)
+    std::string name;               ///< İsim (Lavabo, WC, vs.)
+    double loadUnit = 0.5;          ///< Yük birimi (LU) — EN 806-3 / DIN 1988-300
+    double dischargeUnit = 0.5;     ///< Boşalım birimi (DU) — EN 12056-2
+    double sarfiyat_unit = 0.5;     ///< Sarfiyat Birimi (SB) — TS 825 Musluk Birimi yöntemi
+    double minPressure_bar = 1.0;   ///< Minimum basınç (bar)
+    double flowRate_Ls = 0.1;       ///< Nominal debi (L/s)
 };
 
 /**

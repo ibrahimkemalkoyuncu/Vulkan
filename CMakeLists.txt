@@ -114,6 +114,8 @@ set(SOURCES
     src/ui/STFixturePanel.cpp
     src/ui/DevreSecenekleriDialog.cpp
     vkt/ui/DevreSecenekleriDialog.hpp
+    src/ui/PreflightCheckDialog.cpp
+    vkt/ui/PreflightCheckDialog.hpp
     src/ui/SpacePanel.cpp
     src/ui/PrintLayout.cpp
     src/ui/PrintLayoutDialog.cpp

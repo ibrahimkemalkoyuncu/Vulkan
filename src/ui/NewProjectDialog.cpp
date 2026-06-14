@@ -75,7 +75,7 @@ void NewProjectDialog::BuildUI(const QString& projectsRoot) {
     fTeknik->addRow("Bina Tipi:", m_cmbBuildType);
 
     m_cmbNorm = new QComboBox();
-    m_cmbNorm->addItems({"EN 806-3 (Avrupa / Türkiye TS)", "DIN 1988-300 (Alman Standardı)"});
+    m_cmbNorm->addItems({"EN 806-3 (Avrupa / Türkiye TS)", "DIN 1988-300 (Alman Standardı)", "TS 825 Sarfiyat (Musluk Birimi — kamu ihaleleri)"});
     m_cmbNorm->setToolTip("Debi hesaplama normunu şimdi seçin; "
                           "daha sonra Analiz → Hesap Normu ile değiştirilebilir.");
     fTeknik->addRow("Hesap Normu:", m_cmbNorm);

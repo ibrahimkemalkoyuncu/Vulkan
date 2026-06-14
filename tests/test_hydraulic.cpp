@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "mep/HydraulicSolver.hpp"
+#include "mep/Database.hpp"
 
 using namespace vkt::mep;
 
@@ -450,4 +451,96 @@ TEST_CASE("HydraulicSolver - Mixed Supply + HotWater network", "[hotwater]") {
     // Ayni LU → ayni debi
     REQUIRE_THAT(ecold->flowRate_m3s,
                  Catch::Matchers::WithinAbs(ehot->flowRate_m3s, 1e-9));
+}
+
+// =========================================================
+// TS 825 Sarfiyat (Musluk Birimi) normu testleri
+// =========================================================
+
+TEST_CASE("Database - FixtureData has sarfiyat_unit", "[sarfiyat]") {
+    auto& db = Database::Instance();
+    // Temel armatürlerin SB değerleri pozitif olmalı
+    REQUIRE(db.GetFixture("Lavabo").sarfiyat_unit > 0.0);
+    REQUIRE(db.GetFixture("WC").sarfiyat_unit     > 0.0);
+    REQUIRE(db.GetFixture("Küvet").sarfiyat_unit  > 0.0);
+    // WC SB değeri Lavabo'dan büyük olmalı (2.0 > 0.5)
+    REQUIRE(db.GetFixture("WC").sarfiyat_unit > db.GetFixture("Lavabo").sarfiyat_unit);
+}
+
+TEST_CASE("HydraulicSolver - Sarfiyat normu pozitif debi uretir", "[sarfiyat]") {
+    NetworkGraph g;
+    Node src; src.type = NodeType::Source; src.position = {0,0,0};
+    Node fix; fix.type = NodeType::Fixture; fix.loadUnit = 0.5;
+    fix.fixtureType = "Lavabo"; fix.position = {1,0,0};
+    uint32_t sid = g.AddNode(src);
+    uint32_t fid = g.AddNode(fix);
+    Edge e; e.nodeA = sid; e.nodeB = fid;
+    e.type = EdgeType::Supply; e.diameter_mm = 20.0; e.length_m = 2.0;
+    uint32_t eid = g.AddEdge(e);
+
+    HydraulicSolver::GlobalNorm() = HydroNorm::SARFIYAT;
+    HydraulicSolver solver(g);
+    solver.Solve();
+    HydraulicSolver::GlobalNorm() = HydroNorm::EN806_3; // geri al
+
+    REQUIRE(g.GetEdge(eid)->flowRate_m3s > 0.0);
+}
+
+TEST_CASE("HydraulicSolver - Sarfiyat K_s bina tipine gore degisir", "[sarfiyat]") {
+    // Konut K_s=0.6, Otel K_s=0.8 → otel debisi daha yüksek olmalı
+    auto makeGraph = [](double sb) -> NetworkGraph {
+        NetworkGraph g;
+        Node src; src.type = NodeType::Source; src.position = {0,0,0};
+        Node fix; fix.type = NodeType::Fixture; fix.loadUnit = sb;
+        fix.fixtureType = "WC"; fix.position = {1,0,0};
+        uint32_t sid = g.AddNode(src);
+        uint32_t fid = g.AddNode(fix);
+        Edge e; e.nodeA = sid; e.nodeB = fid;
+        e.type = EdgeType::Supply; e.diameter_mm = 25.0; e.length_m = 3.0;
+        g.AddEdge(e);
+        return g;
+    };
+
+    HydraulicSolver::GlobalNorm() = HydroNorm::SARFIYAT;
+
+    NetworkGraph g1 = makeGraph(2.0);
+    HydraulicSolver s1(g1);
+    s1.SetBuildingType(BuildingType::Residential); // K_s=0.6
+    s1.Solve();
+
+    NetworkGraph g2 = makeGraph(2.0);
+    HydraulicSolver s2(g2);
+    s2.SetBuildingType(BuildingType::Hotel);       // K_s=0.8
+    s2.Solve();
+
+    HydraulicSolver::GlobalNorm() = HydroNorm::EN806_3; // geri al
+
+    const auto& edges1 = g1.GetEdges();
+    const auto& edges2 = g2.GetEdges();
+    REQUIRE(!edges1.empty());
+    REQUIRE(!edges2.empty());
+    REQUIRE(edges2[0].flowRate_m3s > edges1[0].flowRate_m3s);
+}
+
+TEST_CASE("HydraulicSolver - Sarfiyat AutoSize DN secer", "[sarfiyat]") {
+    NetworkGraph g;
+    Node src; src.type = NodeType::Source; src.position = {0,0,0};
+    // 3 WC — toplam SB = 3×2.0 = 6.0
+    for (int i = 0; i < 3; ++i) {
+        Node fix; fix.type = NodeType::Fixture; fix.loadUnit = 2.0;
+        fix.fixtureType = "WC"; fix.position = {double(i+1),0,0};
+        uint32_t fid = g.AddNode(fix);
+        Edge e; e.nodeA = 0; e.nodeB = fid;
+        e.type = EdgeType::Supply; e.diameter_mm = 20.0; e.length_m = 3.0;
+        g.AddEdge(e);
+    }
+    HydraulicSolver::GlobalNorm() = HydroNorm::SARFIYAT;
+    HydraulicSolver solver(g);
+    solver.Solve();
+    HydraulicSolver::GlobalNorm() = HydroNorm::EN806_3;
+
+    for (const auto& edge : g.GetEdges()) {
+        if (edge.type == EdgeType::Supply)
+            REQUIRE(edge.diameter_mm >= 16.0); // geçerli DN seçilmiş
+    }
 }
