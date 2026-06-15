@@ -482,6 +482,15 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **DN Override Batch Seçim** — `OnDNOverride()` tablosuna `ExtendedSelection` + batch combo + "Seçilenlere Uygula" toolbar; çoklu satır seçilip tek tıkla aynı DN ataması
 - **Async Network Vertex Build** — `UpdateNetworkVertexData` → `BuildNetworkVertices` (CPU-only, thread-safe) + `UploadNetworkBuffers` (GPU, render thread); >500 node+edge için `std::async`; `m_networkStagingLine/Tri` + mutex staging; CAD async pattern ile eşleşik
 - **Kullanıcı_kitabı.md Bölüm 38-40** — Bölüm 38: F11 Tam Ekran & Sağ Tık Menüsü; Bölüm 39: Kurulum ve Sistem Gereksinimleri; Bölüm 40: DXF/DWG İmport Gelişmiş Ayarlar (birim dönüşümü, W-Block, xref, blok genişletme, entity matrisi)
+- **Doğal Gaz Modülü (TS EN 1775)** — `EdgeType::Gas` (sarı), `NodeType::GasSource/GasAppliance`; `SolveGas()` Darcy-Weisbach ρ_gas=0.75 kg/m³, v_max=2 m/s; `Database::GasApplianceData` (11 cihaz: Kombi/Şofben/Ocak/Soba/Merkezi Kazan); DN seçim `GetGasDN()`; `GAZ`/`GAZ-SAYAC`/`GAZ-CIHAZ` CommandBar komutları
+- **Isıtma Sistemi (EN 12831)** — `EdgeType::Heating/HeatingReturn`; `NodeType::Boiler/Radiator`; `SolveHeating()` m_flow=P/(cp×ΔT), ΔT=20K (70/50°C); `Database::RadiatorData` (6 model: Panel 11/21/22/33, Döküm, Kolon); `ISITMA`/`DONUS`/`KAZAN`/`RADYATOR` komutları
+- **Yangın / Sprinkler (EN 12845)** — `EdgeType::FireLine` (koyu kırmızı); `NodeType::FirePump/Sprinkler`; `SolveFire()` yoğunluk-alan metodu (LH/OH1-4/HH sınıfları); `YANGIN`/`SPRINKLER`/`EN12845` komutları; RunAutoHydro'ya SolveGas+SolveHeating eklendi
+- **LAYERSTATE** — `OnLayerStateSave/Restore/List()`: adlı katman anlık görüntüsü (görünürlük+kilit+dondur); `m_layerStates` vector; `LAYERSTATE`/`KATMAN-KAYDET`/`LS-SAVE` komutları
+- **Otomatik Ölçülendirme** — `OnAutoOlculendir()`: tüm Supply/HotWater/Gas/Heating/FireLine edge'lerine Aligned Dimension entity; "DN25 / 4.20m" override metin; 1500mm offset, VKT-DIM katmanı (cyan); `AUTO-OLCULENDIR`/`BOYUTLA` komutu; Analiz menüsüne eklendi
+- **Basınç Bölgesi Analizi** — `OnBaskiBolgesi()`: Source sayısı + kritik yol + pompa öneri rich-text dialog; `BOLGE`/`PRESSURE-ZONE` komutu
+- **Üretici Katalog** — `OnUreticiKatalog()`: Wavin/Valsir/Henco 9 ürün grubu (PVC-U/PP-R/PE-Xc/PP/HDPE/PE-RT/Bakır/Çelik); fiyat + pürüzlülük tablosu; `KATALOG`/`URETICI` komutu
+- **Document::AddCADEntity()** — inline helper `m_cadEntities.push_back(std::move(entity))`
+- **132/132 test geçiyor** (tüm modüller dahil)
 
 ### Devam Eden
 
