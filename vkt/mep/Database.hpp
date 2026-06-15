@@ -60,6 +60,28 @@ struct PumpData {
 };
 
 /**
+ * @struct GasApplianceData
+ * @brief Gaz cihazı kataloğu (TS EN 1775)
+ */
+struct GasApplianceData {
+    std::string name;           ///< Cihaz adı (Kombi, Ocak, Şofben, Soba)
+    double power_kW = 0.0;      ///< Toplam gaz gücü (kW)
+    double gasFlow_m3h = 0.0;   ///< Saat debisi (m³/h) — power / Hu
+    double minPressure_Pa = 17.4; ///< Min bağlantı basıncı (Pa) — TS EN 1775 L.P.
+};
+
+/**
+ * @struct RadiatorData
+ * @brief Radyatör kataloğu (EN 442)
+ */
+struct RadiatorData {
+    std::string model;          ///< Model (Panel 11, 22, Kolon, Döküm)
+    int panelCount = 1;         ///< Panel sayısı
+    double outputPerMeter_W = 0.0; ///< 1 m boy için çıktı (W) — 70/50/20°C
+    double massPerMeter_kg = 0.0;  ///< Birim ağırlık (kg/m) — sistem hacmi için
+};
+
+/**
  * @class Database
  * @brief Tesisat veritabanı yönetimi
  * 
@@ -85,17 +107,34 @@ public:
     PumpData SuggestPump(double requiredHead_m, double requiredFlow_m3h) const;
     const std::vector<PumpData>& GetPumpCatalog() const { return m_pumps; }
 
+    // Gaz cihazları kataloğu (TS EN 1775)
+    GasApplianceData GetGasAppliance(const std::string& name) const;
+    std::vector<std::string> GetGasApplianceNames() const;
+    double GetGasDN(double totalFlow_m3h) const; ///< Debi → standart gaz borusu DN
+
+    // Radyatör kataloğu (EN 442)
+    RadiatorData GetRadiator(const std::string& model) const;
+    std::vector<std::string> GetRadiatorModels() const;
+    double GetHeatingDN(double flow_Ls) const; ///< Isıtma debisi → DN
+
+    // Yangın borusu DN (EN 12845)
+    double GetFireDN(double flow_Ls) const;
+
 private:
     Database();
     void InitializeFixtures();
     void InitializePipes();
     void InitializeZetas();
     void InitializePumps();
+    void InitializeGasAppliances();
+    void InitializeRadiators();
 
-    std::map<std::string, FixtureData> m_fixtures;
-    std::map<std::string, PipeData> m_pipes;
-    std::map<std::string, double> m_zetas;
-    std::vector<PumpData> m_pumps;
+    std::map<std::string, FixtureData>       m_fixtures;
+    std::map<std::string, PipeData>          m_pipes;
+    std::map<std::string, double>            m_zetas;
+    std::vector<PumpData>                    m_pumps;
+    std::map<std::string, GasApplianceData>  m_gasAppliances;
+    std::map<std::string, RadiatorData>      m_radiators;
 };
 
 } // namespace mep

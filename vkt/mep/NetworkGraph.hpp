@@ -27,7 +27,16 @@ enum class NodeType {
     HotSource,     ///< Sıcak su kaynağı (Şofben / Kazan)
     Tank,          ///< Depo
     Pump,          ///< Pompa
-    Drain          ///< Atık su tahliye noktası
+    Drain,         ///< Atık su tahliye noktası
+    // --- Doğal Gaz ---
+    GasSource,     ///< Gaz sayacı / şebeke giriş noktası
+    GasAppliance,  ///< Gaz cihazı (Kombi, Ocak, Şofben, Soba)
+    // --- Isıtma ---
+    Boiler,        ///< Kazan / Kombi (ısıtma kaynağı)
+    Radiator,      ///< Radyatör / ısıtıcı
+    // --- Yangın ---
+    FirePump,      ///< Yangın pompası / tank
+    Sprinkler      ///< Sprinkler başlığı
 };
 
 /**
@@ -35,10 +44,14 @@ enum class NodeType {
  * @brief Kenar (boru) tipleri
  */
 enum class EdgeType {
-    Supply,        ///< Soğuk su besleme
-    HotWater,      ///< Sıcak su besleme
-    Drainage,      ///< Pis su / Atık su
-    Vent           ///< Havalandırma
+    Supply,         ///< Soğuk su besleme
+    HotWater,       ///< Sıcak su besleme
+    Drainage,       ///< Pis su / Atık su
+    Vent,           ///< Havalandırma
+    Gas,            ///< Doğal gaz (TS EN 1775) — sarı
+    Heating,        ///< Isıtma gidiş (EN 12831) — kırmızı-turuncu
+    HeatingReturn,  ///< Isıtma dönüş — mavi
+    FireLine        ///< Yangın hattı (EN 12845) — koyu kırmızı
 };
 
 /**
@@ -59,7 +72,19 @@ struct Node {
     // Armatür özellikleri
     std::string fixtureType;            ///< "Lavabo", "WC", "Duş"
     bool isSimultaneous = false;        ///< Eşzamanlı kullanım
-    double rotation_deg = 0.0;          ///< Armatür yönü (x-ekseninden derece, saat yönü tersi)
+    double rotation_deg = 0.0;         ///< Armatür yönü (x-ekseninden derece, saat yönü tersi)
+
+    // Gaz cihazı özellikleri (GasAppliance)
+    double gasPower_kW = 0.0;          ///< Cihaz gücü (kW) — Kombi=24, Ocak=12
+    double gasFlow_m3h = 0.0;          ///< Hesaplanan gaz debisi (m³/h)
+
+    // Isıtma node özellikleri (Boiler / Radiator)
+    double heatPower_kW = 0.0;         ///< Isıtma gücü (kW) — Kazan kapasitesi / Radyatör yükü
+    double heatFlow_Ls = 0.0;          ///< Isıtma debisi (l/s)
+
+    // Yangın node özellikleri (Sprinkler)
+    double sprinklerFlow_Ls = 0.0;     ///< Tek başlık debisi (l/s)
+    double sprinklerPressure_Pa = 0.0; ///< Min çalışma basıncı (Pa)
 };
 
 /**

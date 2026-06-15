@@ -93,6 +93,33 @@ public:
     void SolveDrainage();
 
     /**
+     * @brief Doğal gaz şebekesi hesabı (TS EN 1775)
+     * - GasAppliance → m³/h debi (güç / Hu)
+     * - Darcy-Weisbach gaz için (ρ_gas=0.75 kg/m³)
+     * - Max hız 2 m/s, max ΔP 200 Pa iç mekan
+     * - DN seçimi GetGasDN() ile
+     */
+    void SolveGas();
+
+    /**
+     * @brief Isıtma sistemi hesabı (EN 12831)
+     * - Radyatör → kW yük → m_flow (l/s) = Q/(cp×ΔT)
+     * - Gidiş/dönüş fark ΔT=20K (70°C/50°C)
+     * - Darcy-Weisbach su ile (ρ=1000 kg/m³)
+     * - DN seçimi GetHeatingDN() ile
+     */
+    void SolveHeating();
+
+    /**
+     * @brief Yangın / Sprinkler hesabı (EN 12845 yoğunluk-alan metodu)
+     * - Tehlike sınıfına göre yoğunluk ve tasarım alanı
+     * - Q_sistem = yoğunluk × alan → tüm FireLine edge'lere dağıt
+     * - Min basınç 5 bar yangın pompasında
+     * - DN seçimi GetFireDN() ile
+     */
+    void SolveFire(const std::string& hazardClass = "OH1");
+
+    /**
      * @brief Kritik devre analizi (Pompa yüksekliği)
      */
     CriticalPathResult CalculateCriticalPath();

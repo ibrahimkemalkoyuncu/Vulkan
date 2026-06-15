@@ -281,6 +281,49 @@ void MainWindow::CreateActions() {
     m_actPlaceHotSource->setToolTip("Sofben veya kazan — sicak su baslangi noktasi (kirmizi dugum)");
     connect(m_actPlaceHotSource, &QAction::triggered, this, &MainWindow::OnPlaceHotSource);
 
+    // Doğal Gaz araçları
+    m_actDrawGasPipe = new QAction("Dogalgaz Borusu", this);
+    m_actDrawGasPipe->setToolTip("Dogalgaz borusu ciz (sari) — TS EN 1775");
+    connect(m_actDrawGasPipe, &QAction::triggered, this, &MainWindow::OnDrawGasPipe);
+
+    m_actPlaceGasSource = new QAction("Gaz Sayaci / Giris", this);
+    m_actPlaceGasSource->setToolTip("Dogalgaz sayaci veya sehir gazi giris noktasi");
+    connect(m_actPlaceGasSource, &QAction::triggered, this, &MainWindow::OnPlaceGasSource);
+
+    m_actPlaceGasAppliance = new QAction("Gaz Cihazi Yerles...", this);
+    m_actPlaceGasAppliance->setToolTip("Kombi / Ocak / Sofben / Soba yerles");
+    connect(m_actPlaceGasAppliance, &QAction::triggered, this, &MainWindow::OnPlaceGasAppliance);
+
+    // Isıtma araçları
+    m_actDrawHeatingPipe = new QAction("Isitma Boru Gidis", this);
+    m_actDrawHeatingPipe->setToolTip("Isitma gidis borusu ciz (kirmizi-turuncu) — EN 12831");
+    connect(m_actDrawHeatingPipe, &QAction::triggered, this, &MainWindow::OnDrawHeatingPipe);
+
+    m_actDrawHeatingReturn = new QAction("Isitma Boru Donus", this);
+    m_actDrawHeatingReturn->setToolTip("Isitma donus borusu ciz (mavi) — EN 12831");
+    connect(m_actDrawHeatingReturn, &QAction::triggered, this, &MainWindow::OnDrawHeatingReturn);
+
+    m_actPlaceBoiler = new QAction("Kazan / Isitma Kaynagi", this);
+    m_actPlaceBoiler->setToolTip("Isitma kazani veya kombi — gidis/donus baslangic noktasi");
+    connect(m_actPlaceBoiler, &QAction::triggered, this, &MainWindow::OnPlaceBoiler);
+
+    m_actPlaceRadiator = new QAction("Radyator Yerles...", this);
+    m_actPlaceRadiator->setToolTip("Radyator isi yukunu ayarla ve yerles");
+    connect(m_actPlaceRadiator, &QAction::triggered, this, &MainWindow::OnPlaceRadiator);
+
+    // Yangın araçları
+    m_actDrawFireLine = new QAction("Yangin Hatti", this);
+    m_actDrawFireLine->setToolTip("Yangin borusu ciz (koyu kirmizi) — EN 12845");
+    connect(m_actDrawFireLine, &QAction::triggered, this, &MainWindow::OnDrawFireLine);
+
+    m_actPlaceSprinkler = new QAction("Sprinkler Yerles", this);
+    m_actPlaceSprinkler->setToolTip("Sprinkler basligi yerles — EN 12845");
+    connect(m_actPlaceSprinkler, &QAction::triggered, this, &MainWindow::OnPlaceSprinkler);
+
+    m_actPlaceFirePump = new QAction("Yangin Pompasi", this);
+    m_actPlaceFirePump->setToolTip("Yangin pompasi / tank giris noktasi");
+    connect(m_actPlaceFirePump, &QAction::triggered, this, &MainWindow::OnPlaceFirePump);
+
     // Tesisatı Kabul Et
     m_actTesistatKabul = new QAction("Tesisati Kabul Et", this);
     m_actTesistatKabul->setToolTip("Tum tesisati dogrula, parcaları numaralandır ve hesap modülüne hazırla (Ctrl+Enter)");
@@ -532,6 +575,19 @@ void MainWindow::CreateMenus() {
     drawMenu->addSeparator();
     drawMenu->addAction(m_actDrawHotWaterPipe);
     drawMenu->addAction(m_actPlaceHotSource);
+    drawMenu->addSeparator();
+    drawMenu->addAction(m_actDrawGasPipe);
+    drawMenu->addAction(m_actPlaceGasSource);
+    drawMenu->addAction(m_actPlaceGasAppliance);
+    drawMenu->addSeparator();
+    drawMenu->addAction(m_actDrawHeatingPipe);
+    drawMenu->addAction(m_actDrawHeatingReturn);
+    drawMenu->addAction(m_actPlaceBoiler);
+    drawMenu->addAction(m_actPlaceRadiator);
+    drawMenu->addSeparator();
+    drawMenu->addAction(m_actDrawFireLine);
+    drawMenu->addAction(m_actPlaceSprinkler);
+    drawMenu->addAction(m_actPlaceFirePump);
     drawMenu->addSeparator();
     drawMenu->addAction(m_actDrawDrainPipe);
     drawMenu->addAction(m_actPlaceYerSuzgeci);
@@ -2114,6 +2170,8 @@ void MainWindow::RunAutoHydro() {
     mep::HydraulicSolver solver(network);
     solver.Solve();
     solver.SolveDrainage();
+    solver.SolveGas();
+    solver.SolveHeating();
 
     // ── Topoloji tabanlı downstream LU (DFS) ─────────────────
     // Her edge için: o edge'in "ilerisi"ndeki fixture'ların toplam LU'su
@@ -2623,6 +2681,151 @@ void MainWindow::OnPlaceHotSource() {
     if (m_commandBar) m_commandBar->SetPrompt("Sofben konumu");
     // Özel flag: junction yerine HotSource node koysun
     m_drainLabel = "__HOT_SOURCE__";
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DOĞAL GAZ MODÜLÜ (TS EN 1775)
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnDrawGasPipe() {
+    m_currentPipeType  = mep::EdgeType::Gas;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Dogalgaz borusu (sari): Baslangic noktasini tiklayin — TS EN 1775 (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Gaz boru bas.");
+}
+
+void MainWindow::OnPlaceGasSource() {
+    if (!m_document) return;
+    m_currentToolMode = ToolMode::PlaceJunction;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    m_drainLabel      = "__GAS_SOURCE__";
+    statusBar()->showMessage("Gaz sayaci / sehir gazi giris noktasi: Konumunu tiklayin");
+    if (m_commandBar) m_commandBar->SetPrompt("Gaz sayaci");
+}
+
+void MainWindow::OnPlaceGasAppliance() {
+    if (!m_document) return;
+    // Cihaz tipi seçimi
+    QStringList items = { "Kombi 24kW", "Kombi 28kW", "Kombi 35kW",
+                          "Sofben 11L", "Sofben 13L",
+                          "Ocak (4 gozlu)", "Ocak + Firin",
+                          "Dogalgaz Sobasi", "Endustriyel Ocak",
+                          "Merkezi Kazan 100kW", "Merkezi Kazan 200kW" };
+    bool ok = false;
+    QString sel = QInputDialog::getItem(this, "Gaz Cihazi Sec",
+                                        "Cihaz tipi:", items, 0, false, &ok);
+    if (!ok || sel.isEmpty()) return;
+
+    mep::GasApplianceData data = mep::Database::Instance().GetGasAppliance(sel.toStdString());
+    m_selectedFixtureType = QString("GasAppliance:") + sel;
+    m_currentToolMode = ToolMode::PlaceFixture;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    m_drainLabel = QString("__GAS_APPLIANCE__:") + sel;
+    statusBar()->showMessage(
+        QString("Gaz cihazi [%1, %.2f m³/h]: Konumunu tiklayin")
+            .arg(sel).arg(data.gasFlow_m3h));
+    if (m_commandBar) m_commandBar->SetPrompt("Gaz cihazi koy");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ISITMA SİSTEMİ (EN 12831)
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnDrawHeatingPipe() {
+    m_currentPipeType  = mep::EdgeType::Heating;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Isitma gidis borusu (kirmizi-turuncu): Baslangic noktasini tiklayin — EN 12831 (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Isitma gidis");
+}
+
+void MainWindow::OnDrawHeatingReturn() {
+    m_currentPipeType  = mep::EdgeType::HeatingReturn;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Isitma donus borusu (mavi): Baslangic noktasini tiklayin (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Isitma donus");
+}
+
+void MainWindow::OnPlaceBoiler() {
+    if (!m_document) return;
+    QStringList opts = { "Kombi / Merkezi Kazan", "Elektrikli Kazan", "Gunes + Depo" };
+    bool ok = false;
+    QString sel = QInputDialog::getItem(this, "Kazan Tipi", "Kazan / Isitma Kaynagi:", opts, 0, false, &ok);
+    if (!ok) return;
+    m_drainLabel      = QString("__BOILER__:") + sel;
+    m_currentToolMode = ToolMode::PlaceJunction;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Kazan konumu: Tiklayin (isitma gidis/donus baslangic noktasi)");
+    if (m_commandBar) m_commandBar->SetPrompt("Kazan konumu");
+}
+
+void MainWindow::OnPlaceRadiator() {
+    if (!m_document) return;
+    bool ok = false;
+    double power = QInputDialog::getDouble(this, "Radyator Isi Yuku",
+                                           "Radyator gucu (kW):", 1.5, 0.1, 20.0, 1, &ok);
+    if (!ok) return;
+    m_drainLabel      = QString("__RADIATOR__:") + QString::number(power);
+    m_currentToolMode = ToolMode::PlaceFixture;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage(
+        QString("Radyator [%1 kW]: Konumunu tiklayin").arg(power, 0, 'f', 1));
+    if (m_commandBar) m_commandBar->SetPrompt("Radyator koy");
+}
+
+// ═══════════════════════════════════════════════════════════
+//  YANGIN / SPRİNKLER MODÜLÜ (EN 12845)
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnDrawFireLine() {
+    m_currentPipeType  = mep::EdgeType::FireLine;
+    m_currentToolMode  = ToolMode::DrawPipe;
+    m_drawState        = DrawState::WaitingFirstPoint;
+    m_firstNodeInGraph = false;
+    statusBar()->showMessage("Yangin hatti (koyu kirmizi): Baslangic noktasini tiklayin — EN 12845 (ESC=iptal)");
+    if (m_commandBar) m_commandBar->SetPrompt("Yangin hatti");
+}
+
+void MainWindow::OnPlaceSprinkler() {
+    if (!m_document) return;
+    m_drainLabel      = "__SPRINKLER__";
+    m_currentToolMode = ToolMode::PlaceDrain;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Sprinkler basligi: Konumunu tiklayin");
+    if (m_commandBar) m_commandBar->SetPrompt("Sprinkler");
+}
+
+void MainWindow::OnPlaceFirePump() {
+    if (!m_document) return;
+    m_drainLabel      = "__FIRE_PUMP__";
+    m_currentToolMode = ToolMode::PlaceJunction;
+    m_drawState       = DrawState::WaitingFirstPoint;
+    statusBar()->showMessage("Yangin pompasi / tank giris: Konumunu tiklayin");
+    if (m_commandBar) m_commandBar->SetPrompt("Yangin pompasi");
+}
+
+void MainWindow::OnFireHazardClass() {
+    if (!m_document) return;
+    QStringList hazards = { "LH", "OH1", "OH2", "OH3", "OH4", "HH" };
+    bool ok = false;
+    QString sel = QInputDialog::getItem(this, "EN 12845 Tehlike Sinifi",
+        "Sprinkler Tehlike Sinifi:\n"
+        "  LH  = Dusuk tehlike (depo, ofis)\n"
+        "  OH1 = Orta tehlike (hastane, okul)\n"
+        "  OH2 = Orta tehlike+ (restoran, otel)\n"
+        "  OH3 = Orta tehlike++ (boya, kaucuk)\n"
+        "  OH4 = Yuksek orta tehlike\n"
+        "  HH  = Yuksek tehlike (depo, uretim)",
+        hazards, 1, false, &ok);
+    if (!ok) return;
+
+    mep::HydraulicSolver solver(m_document->GetNetwork());
+    solver.SolveFire(sel.toStdString());
+    RefreshTextOverlay();
+    if (m_logList) m_logList->addItem(QString("EN 12845 Yangin hesabi: %1 sinifi").arg(sel));
+    statusBar()->showMessage(QString("Yangin hesabi tamamlandi [%1]").arg(sel));
 }
 
 void MainWindow::OnPlaceYerSuzgeci() {
@@ -3313,15 +3516,35 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                 ? std::atan2(dy, dx) * 180.0 / M_PI : 0.0;
 
             mep::Node node;
-            node.type        = mep::NodeType::Fixture;
-            node.position    = m_firstClickPos;
+            node.position     = m_firstClickPos;
             node.rotation_deg = angle_deg;
-            std::string typeName = m_selectedFixtureType.toStdString();
-            node.fixtureType = typeName;
-            node.label       = typeName;
-            auto& db = mep::Database::Instance();
-            auto fixture = db.GetFixture(typeName);
-            node.loadUnit = fixture.loadUnit;
+
+            // Gaz cihazı veya radyatör modu
+            if (m_drainLabel.startsWith("__GAS_APPLIANCE__:")) {
+                std::string appName = m_drainLabel.mid(18).toStdString();
+                node.type        = mep::NodeType::GasAppliance;
+                node.fixtureType = appName;
+                node.label       = appName;
+                auto appData = mep::Database::Instance().GetGasAppliance(appName);
+                node.gasPower_kW = appData.power_kW;
+                node.gasFlow_m3h = appData.gasFlow_m3h;
+                m_drainLabel.clear();
+            } else if (m_drainLabel.startsWith("__RADIATOR__:")) {
+                double pwr = std::stod(m_drainLabel.mid(13).toStdString());
+                node.type        = mep::NodeType::Radiator;
+                node.fixtureType = "Radiator";
+                node.label       = QString("Rad %1kW").arg(pwr, 0, 'f', 1).toStdString();
+                node.heatPower_kW = pwr;
+                m_drainLabel.clear();
+            } else {
+                node.type        = mep::NodeType::Fixture;
+                std::string typeName = m_selectedFixtureType.toStdString();
+                node.fixtureType = typeName;
+                node.label       = typeName;
+                auto& db = mep::Database::Instance();
+                auto fixture = db.GetFixture(typeName);
+                node.loadUnit = fixture.loadUnit;
+            }
             auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
             m_document->ExecuteCommand(std::move(cmd));
             m_document->SetModified(true);
@@ -3382,6 +3605,36 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             ScheduleAutoHydro();
             statusBar()->showMessage(QString("Sicak su kaynagi (Sofben/Kazan) eklendi (x=%1, y=%2)")
                 .arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+        } else if (m_drainLabel == "__GAS_SOURCE__") {
+            node.type  = mep::NodeType::GasSource;
+            node.label = "Gaz Sayaci";
+            m_drainLabel.clear();
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("Gaz sayaci eklendi (x=%1, y=%2)").arg(worldX,0,'f',2).arg(worldY,0,'f',2));
+        } else if (m_drainLabel.startsWith("__BOILER__:")) {
+            node.type  = mep::NodeType::Boiler;
+            node.label = m_drainLabel.mid(11).toStdString();
+            m_drainLabel.clear();
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("Kazan eklendi (x=%1, y=%2)").arg(worldX,0,'f',2).arg(worldY,0,'f',2));
+        } else if (m_drainLabel == "__FIRE_PUMP__") {
+            node.type  = mep::NodeType::FirePump;
+            node.label = "Yangin Pompasi";
+            m_drainLabel.clear();
+            auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
+            m_document->ExecuteCommand(std::move(cmd));
+            m_document->SetModified(true);
+            UpdateUI();
+            ScheduleAutoHydro();
+            statusBar()->showMessage(QString("Yangin pompasi eklendi (x=%1, y=%2)").arg(worldX,0,'f',2).arg(worldY,0,'f',2));
         } else {
             node.type  = mep::NodeType::Junction;
             node.label = "J";
@@ -3396,16 +3649,24 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
     }
     case ToolMode::PlaceDrain: {
         mep::Node node;
-        node.type     = mep::NodeType::Drain;
         node.position = geom::Vec3(worldX, worldY, GetActiveFloorZ());
-        node.label    = m_drainLabel.toStdString();
+        QString drainStatusLabel = m_drainLabel;
+        if (m_drainLabel == "__SPRINKLER__") {
+            node.type  = mep::NodeType::Sprinkler;
+            node.label = "Sprinkler";
+            drainStatusLabel = "Sprinkler";
+            m_drainLabel.clear();
+        } else {
+            node.type  = mep::NodeType::Drain;
+            node.label = m_drainLabel.toStdString();
+        }
         auto cmd = std::make_unique<core::AddNodeCommand>(network, node);
         m_document->ExecuteCommand(std::move(cmd));
         m_document->SetModified(true);
         UpdateUI();
         ScheduleAutoHydro();
         statusBar()->showMessage(QString("%1 eklendi (x=%2, y=%3)")
-            .arg(m_drainLabel).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
+            .arg(drainStatusLabel).arg(worldX, 0, 'f', 2).arg(worldY, 0, 'f', 2));
         break;
     }
     case ToolMode::ConnectFixture: {
@@ -4118,7 +4379,10 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     if (c == "HELP") {
         if (m_logList) {
             m_logList->addItem("Soguk Su: LINE/PIPE  FIXTURE  JUNCTION  SOURCE  DRAIN");
-            m_logList->addItem("Sicak Su: SICAK-SU  SOFBEN/KAZAN (sofben kaynagi)");
+            m_logList->addItem("Sicak Su: SICAK-SU  SOFBEN (sicak su kaynagi)");
+            m_logList->addItem("Gaz     : GAZ  GAZ-SAYAC  GAZ-CIHAZ/KOMBI/OCAK");
+            m_logList->addItem("Isitma  : ISITMA  DONUS  KAZAN/BOILER  RADYATOR");
+            m_logList->addItem("Yangin  : YANGIN  SPRINKLER  YANGIN-POMPA  EN12845");
             m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
             m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR  AKILLI(-BAGLANTI)  BOSALTMA");
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
@@ -4202,8 +4466,33 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         if (m_commandBar) m_commandBar->SetPrompt("Bağlantı noktası");
     } else if (c == "SICAK-SU" || c == "HOT-WATER" || c == "HOT-PIPE") {
         OnDrawHotWaterPipe();
-    } else if (c == "SOFBEN" || c == "KAZAN" || c == "HOT-SOURCE" || c == "SICAK-KAYNAK") {
+    } else if (c == "SOFBEN" || c == "HOT-SOURCE" || c == "SICAK-KAYNAK") {
         OnPlaceHotSource();
+    // Doğal Gaz
+    } else if (c == "GAZ" || c == "GAZ-BORU" || c == "GAS-PIPE" || c == "DOGALGAZ") {
+        OnDrawGasPipe();
+    } else if (c == "GAZ-SAYAC" || c == "GAS-SOURCE" || c == "GAZ-KAYNAK") {
+        OnPlaceGasSource();
+    } else if (c == "GAZ-CIHAZ" || c == "GAS-APPLIANCE" || c == "KOMBI" || c == "OCAK") {
+        OnPlaceGasAppliance();
+    // Isıtma
+    } else if (c == "ISITMA" || c == "HEAT-PIPE" || c == "ISITMA-GIDIS") {
+        OnDrawHeatingPipe();
+    } else if (c == "DONUS" || c == "HEAT-RETURN" || c == "ISITMA-DONUS") {
+        OnDrawHeatingReturn();
+    } else if (c == "KAZAN" || c == "BOILER" || c == "ISITMA-KAYNAK") {
+        OnPlaceBoiler();
+    } else if (c == "RADYATOR" || c == "RADIATOR") {
+        OnPlaceRadiator();
+    // Yangın
+    } else if (c == "YANGIN" || c == "FIRE-LINE" || c == "YANGIN-HATTI") {
+        OnDrawFireLine();
+    } else if (c == "SPRINKLER") {
+        OnPlaceSprinkler();
+    } else if (c == "YANGIN-POMPA" || c == "FIRE-PUMP") {
+        OnPlaceFirePump();
+    } else if (c == "YANGIN-SINIF" || c == "HAZARD-CLASS" || c == "EN12845") {
+        OnFireHazardClass();
     } else if (c == "KABUL" || c == "ACCEPT" || c == "TESISAT-KABUL") {
         OnTesistatKabul();
     } else if (c == "PIS-SU" || c == "DRAINAGE-PIPE" || c == "DRAIN-PIPE") {
@@ -4382,10 +4671,14 @@ void MainWindow::RefreshTextOverlay() {
             }
         } else {
             switch (edge.type) {
-                case mep::EdgeType::Supply:   edgeColor = QColor(100, 180, 255); break; // mavi
-                case mep::EdgeType::HotWater: edgeColor = QColor(255,  80,  60); break; // kırmızı
-                case mep::EdgeType::Drainage: edgeColor = QColor(200, 140,  70); break; // kahverengi
-                default:                      edgeColor = QColor(160, 160, 160); break;
+                case mep::EdgeType::Supply:        edgeColor = QColor(100, 180, 255); break; // mavi
+                case mep::EdgeType::HotWater:      edgeColor = QColor(255,  80,  60); break; // kırmızı
+                case mep::EdgeType::Drainage:      edgeColor = QColor(200, 140,  70); break; // kahverengi
+                case mep::EdgeType::Gas:           edgeColor = QColor(255, 215,   0); break; // sarı
+                case mep::EdgeType::Heating:       edgeColor = QColor(255,  80,  15); break; // kırmızı-turuncu
+                case mep::EdgeType::HeatingReturn: edgeColor = QColor( 60, 100, 255); break; // mavi
+                case mep::EdgeType::FireLine:      edgeColor = QColor(200,   0,   0); break; // koyu kırmızı
+                default:                           edgeColor = QColor(160, 160, 160); break;
             }
         }
 

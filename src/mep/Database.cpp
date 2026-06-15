@@ -5,6 +5,11 @@
 
 #include "mep/Database.hpp"
 #include <stdexcept>
+#include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 namespace vkt {
 namespace mep {
@@ -19,6 +24,8 @@ Database::Database() {
     InitializePipes();
     InitializeZetas();
     InitializePumps();
+    InitializeGasAppliances();
+    InitializeRadiators();
 }
 
 void Database::InitializeFixtures() {
@@ -166,6 +173,94 @@ std::vector<std::string> Database::GetFittingTypes() const {
         types.push_back(pair.first);
     }
     return types;
+}
+
+// ── Doğal Gaz Cihazları (TS EN 1775 / TS EN 437) ─────────────────────────────
+// Hu (alt ısıl değer) = 9.5 kWh/m³ (doğal gaz G20)
+// Debi (m³/h) = Güç (kW) / 9.5
+void Database::InitializeGasAppliances() {
+    // name, kW, m³/h, minP_Pa
+    m_gasAppliances["Kombi 24kW"]         = {"Kombi 24kW",         24.0,  2.53, 17.4};
+    m_gasAppliances["Kombi 28kW"]         = {"Kombi 28kW",         28.0,  2.95, 17.4};
+    m_gasAppliances["Kombi 35kW"]         = {"Kombi 35kW",         35.0,  3.68, 17.4};
+    m_gasAppliances["Şofben 11L"]         = {"Şofben 11L",         17.4,  1.83, 17.4};
+    m_gasAppliances["Şofben 13L"]         = {"Şofben 13L",         20.9,  2.20, 17.4};
+    m_gasAppliances["Ocak (4 gözlü)"]     = {"Ocak (4 gözlü)",     12.0,  1.26, 17.4};
+    m_gasAppliances["Ocak + Fırın"]       = {"Ocak + Fırın",       16.0,  1.68, 17.4};
+    m_gasAppliances["Doğalgaz Sobası"]    = {"Doğalgaz Sobası",     5.0,  0.53, 17.4};
+    m_gasAppliances["Endüstriyel Ocak"]   = {"Endüstriyel Ocak",   60.0,  6.32, 17.4};
+    m_gasAppliances["Merkezi Kazan 100kW"]= {"Merkezi Kazan 100kW",100.0,10.53, 17.4};
+    m_gasAppliances["Merkezi Kazan 200kW"]= {"Merkezi Kazan 200kW",200.0,21.05, 17.4};
+}
+
+GasApplianceData Database::GetGasAppliance(const std::string& name) const {
+    auto it = m_gasAppliances.find(name);
+    if (it != m_gasAppliances.end()) return it->second;
+    GasApplianceData d; d.name = name; d.power_kW = 24.0; d.gasFlow_m3h = 2.53; return d;
+}
+
+std::vector<std::string> Database::GetGasApplianceNames() const {
+    std::vector<std::string> names;
+    for (const auto& [n,_] : m_gasAppliances) names.push_back(n);
+    return names;
+}
+
+double Database::GetGasDN(double totalFlow_m3h) const {
+    // TS EN 1775: max hız 2 m/s, max ΔP=200 Pa/m iç mekan
+    // Q (m³/s) = totalFlow_m3h / 3600
+    // A = Q/v → D = √(4Q/(π·v))
+    const double v_max = 2.0; // m/s
+    double Q_m3s = totalFlow_m3h / 3600.0;
+    double d_mm = std::sqrt(4.0 * Q_m3s / (M_PI * v_max)) * 1000.0;
+    // Standart gaz borusu DN'leri
+    static const double kGasDN[] = {15,20,25,32,40,50,65,80,100,0};
+    for (int i = 0; kGasDN[i] > 0; ++i)
+        if (kGasDN[i] >= d_mm) return kGasDN[i];
+    return 100.0;
+}
+
+// ── Radyatörler (EN 442 / EN 12831) ──────────────────────────────────────────
+// Referans koşul: 70°C gidiş / 50°C dönüş / 20°C oda (ΔT_lm=40K)
+void Database::InitializeRadiators() {
+    // model, panel, W/m, kg/m
+    m_radiators["Panel 11"]  = {"Panel 11",  1, 580,  7.0};
+    m_radiators["Panel 21"]  = {"Panel 21",  2, 900,  9.0};
+    m_radiators["Panel 22"]  = {"Panel 22",  2,1200, 12.0};
+    m_radiators["Panel 33"]  = {"Panel 33",  3,1700, 17.0};
+    m_radiators["Döküm 5 Dilim"] = {"Döküm 5 Dilim", 1, 400, 30.0};
+    m_radiators["Kolon 2 Bölüm"] = {"Kolon 2 Bölüm", 2, 650, 11.0};
+}
+
+RadiatorData Database::GetRadiator(const std::string& model) const {
+    auto it = m_radiators.find(model);
+    if (it != m_radiators.end()) return it->second;
+    RadiatorData d; d.model = model; d.outputPerMeter_W = 1200; return d;
+}
+
+std::vector<std::string> Database::GetRadiatorModels() const {
+    std::vector<std::string> names;
+    for (const auto& [n,_] : m_radiators) names.push_back(n);
+    return names;
+}
+
+double Database::GetHeatingDN(double flow_Ls) const {
+    // Isıtma debi → DN (v_max = 1.5 m/s ısıtma için)
+    const double v_max = 1.5;
+    double d_mm = std::sqrt(4.0 * (flow_Ls / 1000.0) / (M_PI * v_max)) * 1000.0;
+    static const double kDN[] = {15,20,25,32,40,50,65,80,100,0};
+    for (int i = 0; kDN[i] > 0; ++i)
+        if (kDN[i] >= d_mm) return kDN[i];
+    return 100.0;
+}
+
+double Database::GetFireDN(double flow_Ls) const {
+    // Yangın borusu: v_max = 5.0 m/s (EN 12845)
+    const double v_max = 5.0;
+    double d_mm = std::sqrt(4.0 * (flow_Ls / 1000.0) / (M_PI * v_max)) * 1000.0;
+    static const double kDN[] = {25,32,40,50,65,80,100,150,200,0};
+    for (int i = 0; kDN[i] > 0; ++i)
+        if (kDN[i] >= d_mm) return kDN[i];
+    return 200.0;
 }
 
 } // namespace mep

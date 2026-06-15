@@ -1513,10 +1513,16 @@ std::array<float, 3> VulkanRenderer::GetNodeColor(mep::NodeType type) {
         case mep::NodeType::HotSource: return {1.0f, 0.3f, 0.1f};  // Kırmızı — sıcak su
         case mep::NodeType::Fixture:   return {0.2f, 0.9f, 0.3f};  // Yeşil
         case mep::NodeType::Junction:  return {0.7f, 0.7f, 0.7f};  // Gri
-        case mep::NodeType::Drain:     return {0.7f, 0.4f, 0.2f};  // Kahverengi
-        case mep::NodeType::Pump:      return {1.0f, 0.8f, 0.2f};  // Sarı
-        case mep::NodeType::Tank:      return {0.3f, 0.3f, 0.9f};  // Koyu mavi
-        default:                       return {0.5f, 0.5f, 0.5f};
+        case mep::NodeType::Drain:       return {0.7f, 0.4f, 0.2f};  // Kahverengi
+        case mep::NodeType::Pump:        return {1.0f, 0.8f, 0.2f};  // Sarı
+        case mep::NodeType::Tank:        return {0.3f, 0.3f, 0.9f};  // Koyu mavi
+        case mep::NodeType::GasSource:   return {1.0f, 0.85f, 0.0f}; // Sarı — gaz sayacı
+        case mep::NodeType::GasAppliance:return {1.0f, 0.65f, 0.0f}; // Amber — gaz cihazı
+        case mep::NodeType::Boiler:      return {1.0f, 0.45f, 0.0f}; // Turuncu-kırmızı — kazan
+        case mep::NodeType::Radiator:    return {0.9f, 0.3f, 0.1f};  // Kırmızı — radyatör
+        case mep::NodeType::FirePump:    return {0.8f, 0.0f, 0.0f};  // Koyu kırmızı — yangın pompası
+        case mep::NodeType::Sprinkler:   return {0.6f, 0.0f, 0.0f};  // Derin kırmızı — sprinkler
+        default:                         return {0.5f, 0.5f, 0.5f};
     }
 }
 
@@ -1533,8 +1539,12 @@ std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type, bool isCol
         case mep::EdgeType::Supply:   return {0.2f, 0.6f, 1.0f};  // Açık mavi — soğuk su
         case mep::EdgeType::HotWater: return {1.0f, 0.25f, 0.1f}; // Kırmızı — sıcak su
         case mep::EdgeType::Drainage: return {0.6f, 0.4f, 0.2f};  // Kahverengi
-        case mep::EdgeType::Vent:     return {0.5f, 0.5f, 0.5f};  // Gri
-        default:                      return {0.5f, 0.5f, 0.5f};
+        case mep::EdgeType::Vent:          return {0.5f, 0.5f, 0.5f};  // Gri
+        case mep::EdgeType::Gas:           return {1.0f, 0.85f, 0.0f}; // Sarı — gaz
+        case mep::EdgeType::Heating:       return {1.0f, 0.3f, 0.05f}; // Kırmızı-turuncu — gidiş
+        case mep::EdgeType::HeatingReturn: return {0.2f, 0.4f, 1.0f};  // Mavi — dönüş
+        case mep::EdgeType::FireLine:      return {0.8f, 0.0f, 0.0f};  // Koyu kırmızı — yangın
+        default:                           return {0.5f, 0.5f, 0.5f};
     }
 }
 

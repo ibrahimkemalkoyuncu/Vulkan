@@ -152,6 +152,23 @@ private slots:
     void OnDrawHotWaterPipe();
     void OnPlaceHotSource();
 
+    // Doğal Gaz modülü (TS EN 1775)
+    void OnDrawGasPipe();
+    void OnPlaceGasSource();
+    void OnPlaceGasAppliance();
+
+    // Isıtma sistemi (EN 12831)
+    void OnDrawHeatingPipe();
+    void OnDrawHeatingReturn();
+    void OnPlaceBoiler();
+    void OnPlaceRadiator();
+
+    // Yangın / Sprinkler (EN 12845)
+    void OnDrawFireLine();
+    void OnPlaceSprinkler();
+    void OnPlaceFirePump();
+    void OnFireHazardClass();
+
     // Tesisatı Kabul Et — doğrulama + numaralandırma
     void OnTesistatKabul();
 
@@ -344,9 +361,23 @@ private:
     QAction* m_actPlaceSmartPoint    = nullptr;
     QAction* m_actBosaltmaNoktasi    = nullptr;
     QAction* m_actLayerVisibility    = nullptr;
-    QAction* m_actDrawHotWaterPipe = nullptr;
-    QAction* m_actPlaceHotSource   = nullptr;
-    QAction* m_actTesistatKabul    = nullptr;
+    QAction* m_actDrawHotWaterPipe   = nullptr;
+    QAction* m_actPlaceHotSource     = nullptr;
+    // Doğal Gaz
+    QAction* m_actDrawGasPipe        = nullptr;
+    QAction* m_actPlaceGasSource     = nullptr;
+    QAction* m_actPlaceGasAppliance  = nullptr;
+    // Isıtma
+    QAction* m_actDrawHeatingPipe    = nullptr;
+    QAction* m_actDrawHeatingReturn  = nullptr;
+    QAction* m_actPlaceBoiler        = nullptr;
+    QAction* m_actPlaceRadiator      = nullptr;
+    // Yangın
+    QAction* m_actDrawFireLine       = nullptr;
+    QAction* m_actPlaceSprinkler     = nullptr;
+    QAction* m_actPlaceFirePump      = nullptr;
+    QAction* m_actFireHazardClass    = nullptr;
+    QAction* m_actTesistatKabul      = nullptr;
     QAction* m_actCopyFloor        = nullptr;
     QAction* m_actConnectFixture   = nullptr;
     QAction* m_actDrawColumn       = nullptr;

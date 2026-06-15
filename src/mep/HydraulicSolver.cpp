@@ -360,6 +360,223 @@ void HydraulicSolver::DistributeDrainageFlows() {
 }
 
 // ═══════════════════════════════════════════════════════════
+//  DOĞAL GAZ HESABI (TS EN 1775)
+// ═══════════════════════════════════════════════════════════
+void HydraulicSolver::SolveGas() {
+    constexpr double Hu_kWh_m3   = 9.5;    // Doğal gaz alt ısıl değer (G20)
+    constexpr double rho_gas     = 0.75;   // Yoğunluk (kg/m³, 15°C, 1013 hPa)
+    constexpr double v_max_ms    = 2.0;    // Max iç mekan hız (TS EN 1775)
+    constexpr double dP_max_Pa_m = 1.0;    // Max özgül basınç düşümü (Pa/m) — iç mekan
+
+    // 1 — GasAppliance node'larına debi ata
+    for (auto& [id, node] : m_network.GetNodeMap()) {
+        if (node.type != NodeType::GasAppliance) continue;
+        double power_kW = node.gasPower_kW > 0.0 ? node.gasPower_kW : 24.0;
+        node.gasFlow_m3h = power_kW / Hu_kWh_m3;
+        node.flowRate_m3s = node.gasFlow_m3h / 3600.0;
+    }
+
+    // 2 — Kümülatif debi: leaf→source DFS (soğuk su ile aynı yaklaşım)
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    for (auto& [id, edge] : edgeMap) {
+        if (edge.type != EdgeType::Gas) continue;
+        edge.flowRate_m3s = 0.0;
+    }
+
+    // Her GasSource'dan DFS ile downstream toplam
+    std::function<double(uint32_t, uint32_t)> dfs = [&](uint32_t nid, uint32_t parent) -> double {
+        double total = 0.0;
+        auto nit = nodeMap.find(nid);
+        if (nit != nodeMap.end() && nit->second.type == NodeType::GasAppliance)
+            total += nit->second.flowRate_m3s;
+        for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+            auto* e = m_network.GetEdge(eid);
+            if (!e || e->type != EdgeType::Gas) continue;
+            uint32_t nb = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+            if (nb == parent) continue;
+            double sub = dfs(nb, nid);
+            e->flowRate_m3s = sub;
+            total += sub;
+        }
+        return total;
+    };
+
+    for (auto& [id, node] : nodeMap) {
+        if (node.type == NodeType::GasSource)
+            dfs(id, 0);
+    }
+
+    // 3 — Her Gas edge için Darcy-Weisbach + DN seç
+    for (auto& [id, edge] : edgeMap) {
+        if (edge.type != EdgeType::Gas) continue;
+        double Q_m3h = edge.flowRate_m3s * 3600.0;
+        if (Q_m3h < 1e-9) { edge.diameter_mm = 15.0; continue; }
+
+        // DN seç (Database)
+        edge.diameter_mm = Database::Instance().GetGasDN(Q_m3h);
+
+        // Hız
+        double D_m = edge.diameter_mm / 1000.0;
+        double A   = M_PI * D_m * D_m / 4.0;
+        edge.velocity_ms = edge.flowRate_m3s / A;
+
+        // Basınç kaybı — Darcy-Weisbach gaz için
+        double Re = rho_gas * edge.velocity_ms * D_m / 1.81e-5; // μ_gaz ≈ 1.81e-5 Pa·s
+        double f  = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
+                                   : HaalandFriction(Re, edge.roughness_mm / (edge.diameter_mm));
+        double dP_Pa = f * (edge.length_m / D_m) * (rho_gas * edge.velocity_ms * edge.velocity_ms / 2.0);
+        edge.headLoss_m = dP_Pa / (rho_gas * 9.81); // gaz su sütununa çevirmek yerine Pa olarak tut
+        edge.pressure_Pa = dP_Pa;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ISITMA SİSTEMİ HESABI (EN 12831)
+// ═══════════════════════════════════════════════════════════
+void HydraulicSolver::SolveHeating() {
+    constexpr double cp_water   = 4186.0; // J/(kg·K)
+    constexpr double rho_water  = 1000.0; // kg/m³
+    constexpr double dT_K       = 20.0;   // Gidiş-dönüş fark (70/50°C)
+
+    // 1 — Radyatör node'larına debi ata (Q = P/(cp·ρ·ΔT))
+    for (auto& [id, node] : m_network.GetNodeMap()) {
+        if (node.type != NodeType::Radiator) continue;
+        double P_W = node.heatPower_kW * 1000.0;
+        if (P_W < 1.0) P_W = 1000.0; // varsayılan 1 kW
+        double m_flow_kgs = P_W / (cp_water * dT_K);    // kg/s
+        node.heatFlow_Ls  = m_flow_kgs / rho_water * 1000.0; // l/s
+        node.flowRate_m3s = m_flow_kgs / rho_water;
+    }
+
+    // 2 — Kümülatif debi: Heating + HeatingReturn edge'leri
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    std::function<double(uint32_t, uint32_t, EdgeType)> dfsH =
+        [&](uint32_t nid, uint32_t parent, EdgeType et) -> double {
+        double total = 0.0;
+        auto nit = nodeMap.find(nid);
+        if (nit != nodeMap.end() && nit->second.type == NodeType::Radiator)
+            total += nit->second.flowRate_m3s;
+        for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+            auto* e = m_network.GetEdge(eid);
+            if (!e || e->type != et) continue;
+            uint32_t nb = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+            if (nb == parent) continue;
+            double sub = dfsH(nb, nid, et);
+            e->flowRate_m3s = sub;
+            total += sub;
+        }
+        return total;
+    };
+
+    for (auto& [id, node] : nodeMap) {
+        if (node.type == NodeType::Boiler) {
+            dfsH(id, 0, EdgeType::Heating);
+            dfsH(id, 0, EdgeType::HeatingReturn);
+        }
+    }
+
+    // 3 — Her ısıtma edge'i için DN seç + head loss
+    for (auto& [id, edge] : edgeMap) {
+        if (edge.type != EdgeType::Heating && edge.type != EdgeType::HeatingReturn) continue;
+        double Q_Ls = edge.flowRate_m3s * 1000.0;
+        if (Q_Ls < 1e-9) { edge.diameter_mm = 15.0; continue; }
+
+        edge.diameter_mm = Database::Instance().GetHeatingDN(Q_Ls);
+        double D_m = edge.diameter_mm / 1000.0;
+        double A   = M_PI * D_m * D_m / 4.0;
+        edge.velocity_ms  = edge.flowRate_m3s / A;
+        double Re  = rho_water * edge.velocity_ms * D_m / 1e-3;
+        double f   = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
+                                    : HaalandFriction(Re, edge.roughness_mm / edge.diameter_mm);
+        edge.headLoss_m = f * (edge.length_m / D_m) * (edge.velocity_ms * edge.velocity_ms) / (2.0 * 9.81);
+        edge.localLoss_Pa = CalculateLocalLoss(edge);
+        edge.headLoss_m  += edge.localLoss_Pa / (rho_water * 9.81);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  YANGIN / SPRİNKLER HESABI (EN 12845 Yoğunluk-Alan Metodu)
+// ═══════════════════════════════════════════════════════════
+void HydraulicSolver::SolveFire(const std::string& hazardClass) {
+    // EN 12845 Tablo 2: Tasarım yoğunluğu ve alanı
+    struct HazardSpec { double density_mm_min; double area_m2; };
+    std::map<std::string, HazardSpec> specs = {
+        {"LH",  {2.25,  84.0}},
+        {"OH1", {5.00,  72.0}},
+        {"OH2", {5.00, 144.0}},
+        {"OH3", {5.00, 216.0}},
+        {"OH4", {10.0, 360.0}},
+        {"HH",  {12.5, 260.0}}
+    };
+    HazardSpec spec = specs.count(hazardClass) ? specs.at(hazardClass) : specs["OH1"];
+
+    // Toplam sistem debisi Q (l/s) = yoğunluk(mm/min) × alan(m²) / 60000
+    double Q_total_Ls = spec.density_mm_min * spec.area_m2 / 60000.0;
+
+    // Sprinkler başlık sayısını bul
+    int sprCount = 0;
+    for (auto& [id, node] : m_network.GetNodeMap())
+        if (node.type == NodeType::Sprinkler) ++sprCount;
+    if (sprCount == 0) return;
+
+    double Q_per_head_Ls = Q_total_Ls / sprCount;
+    double minP_Pa = 5.0e5; // 5 bar min pompada
+
+    // Sprinkler node'larına debi ata
+    for (auto& [id, node] : m_network.GetNodeMap()) {
+        if (node.type != NodeType::Sprinkler) continue;
+        node.sprinklerFlow_Ls     = Q_per_head_Ls;
+        node.sprinklerPressure_Pa = minP_Pa;
+        node.flowRate_m3s         = Q_per_head_Ls / 1000.0;
+    }
+
+    // Kümülatif debi DFS
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    std::function<double(uint32_t, uint32_t)> dfsF = [&](uint32_t nid, uint32_t parent) -> double {
+        double total = 0.0;
+        auto nit = nodeMap.find(nid);
+        if (nit != nodeMap.end() && nit->second.type == NodeType::Sprinkler)
+            total += nit->second.flowRate_m3s;
+        for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+            auto* e = m_network.GetEdge(eid);
+            if (!e || e->type != EdgeType::FireLine) continue;
+            uint32_t nb = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+            if (nb == parent) continue;
+            double sub = dfsF(nb, nid);
+            e->flowRate_m3s = sub;
+            total += sub;
+        }
+        return total;
+    };
+
+    for (auto& [id, node] : nodeMap)
+        if (node.type == NodeType::FirePump)
+            dfsF(id, 0);
+
+    // DN + head loss hesabı
+    constexpr double rho = 1000.0;
+    for (auto& [id, edge] : edgeMap) {
+        if (edge.type != EdgeType::FireLine) continue;
+        double Q_Ls = edge.flowRate_m3s * 1000.0;
+        if (Q_Ls < 1e-9) { edge.diameter_mm = 25.0; continue; }
+        edge.diameter_mm = Database::Instance().GetFireDN(Q_Ls);
+        double D_m = edge.diameter_mm / 1000.0;
+        double A   = M_PI * D_m * D_m / 4.0;
+        edge.velocity_ms = edge.flowRate_m3s / A;
+        double Re  = rho * edge.velocity_ms * D_m / 1e-3;
+        double f   = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
+                                    : HaalandFriction(Re, edge.roughness_mm / edge.diameter_mm);
+        edge.headLoss_m = f * (edge.length_m / D_m) * (edge.velocity_ms * edge.velocity_ms) / (2.0 * 9.81);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 //  KRİTİK DEVRE ANALİZİ
 // ═══════════════════════════════════════════════════════════
 
