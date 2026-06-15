@@ -257,6 +257,15 @@ private slots:
     void OnYagmurAlani();
     void FinishPolyArea();   ///< Enter tuşuyla polygon kapatıp alan+yağmur hesabı
 
+    // Otomatik Ölçülendirme — seçili borulara DN+uzunluk Dimension entity
+    void OnAutoOlculendir();
+
+    // Basınç Bölgesi Yönetimi — zona göre farklı kaynak + bölge bazlı kritik yol
+    void OnBaskiBolgesi();
+
+    // Üretici Katalog — Wavin/Valsir/Henco boru veritabanı
+    void OnUreticiKatalog();
+
     // Birleşik Yerleştirme Modu — PlaceFixture bitince otomatik BAGLA moduna gir
     void OnBirleskMod();
 
@@ -457,6 +466,14 @@ private:
     // LAYISO — izole önceki katman görünürlük durumu (LAYUNISO için geri yükleme)
     bool m_layisoActive = false;
     std::unordered_map<std::string, bool> m_preIsoVisibility; // layer name → was visible
+    // LAYERSTATE — adlı katman anlık görüntüleri
+    struct LayerSnapshot {
+        std::string name;
+        std::unordered_map<std::string, bool> visibility; // layer → visible
+        std::unordered_map<std::string, bool> locked;     // layer → locked
+        std::unordered_map<std::string, bool> frozen;     // layer → frozen
+    };
+    std::vector<LayerSnapshot> m_layerStates;
     QString m_moveToLayerTarget; // OnMoveToLayer için hedef katman adı
 
     // Uygulama Katman Görünürlüğü — MEP katmanlarını bağımsız göster/gizle
@@ -554,6 +571,9 @@ private:
     void OnPurge();      ///< Kullanılmayan katman/blok temizle
     void OnSelectByLayer(const QString& layerName);
     void OnMoveToLayer();///< Seçili entity'leri başka katmana taşı
+    void OnLayerStateSave();   ///< LAYERSTATE — adlı anlık görüntü kaydet
+    void OnLayerStateRestore();///< LAYERSTATE — anlık görüntüyü geri yükle
+    void OnLayerStateList();   ///< Kayıtlı durumları listele
     // Renderer layer map + CAD dirty flag + text overlay tek çağrıyla yenile
     void InvalidateRenderer();
     // EntityId->ptr ve snap flat-list cache'lerini yenile (import/delete sonrası çağır)

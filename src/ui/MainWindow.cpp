@@ -29,6 +29,7 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/DXFWriter.hpp"
+#include "cad/Dimension.hpp"
 #include "core/Version.hpp"
 #include <QGuiApplication>
 #include <QRegularExpression>
@@ -643,6 +644,24 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addAction(m_actNormKarsilastirma);
     analyzeMenu->addAction(m_actHesapKarari);
     analyzeMenu->addAction(m_actBirleskMod);
+    analyzeMenu->addSeparator();
+    // Yeni özellikler: AUTO-OLCULENDIR, BASINC-BOLGESI, URETICI-KATALOG
+    {
+        auto* actAutoOlc = new QAction("Otomatik Olculendir (DN+L)", this);
+        actAutoOlc->setToolTip("MEP borularina DN ve uzunluk olculeri ekle (AUTO-OLCULENDIR)");
+        connect(actAutoOlc, &QAction::triggered, this, &MainWindow::OnAutoOlculendir);
+        analyzeMenu->addAction(actAutoOlc);
+
+        auto* actBolge = new QAction("Basinc Bolgesi Analizi...", this);
+        actBolge->setToolTip("Kaynak bazli basinc bolgesi ve pompa boyutlandirmasi (BOLGE)");
+        connect(actBolge, &QAction::triggered, this, &MainWindow::OnBaskiBolgesi);
+        analyzeMenu->addAction(actBolge);
+
+        auto* actKatalog = new QAction("Uretici Katalog...", this);
+        actKatalog->setToolTip("Wavin / Valsir / Henco boru katalogu ve secimi (KATALOG)");
+        connect(actKatalog, &QAction::triggered, this, &MainWindow::OnUreticiKatalog);
+        analyzeMenu->addAction(actKatalog);
+    }
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
     analyzeMenu->addAction(m_actExportReport);
@@ -4493,6 +4512,15 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnPlaceFirePump();
     } else if (c == "YANGIN-SINIF" || c == "HAZARD-CLASS" || c == "EN12845") {
         OnFireHazardClass();
+    // Otomatik ölçülendirme
+    } else if (c == "AUTO-OLCULENDIR" || c == "OLCULENDIR" || c == "DIM-AUTO" || c == "BOYUTLA") {
+        OnAutoOlculendir();
+    // Basınç bölgesi
+    } else if (c == "BASINC-BOLGESI" || c == "BOLGE" || c == "PRESSURE-ZONE") {
+        OnBaskiBolgesi();
+    // Üretici katalog
+    } else if (c == "KATALOG" || c == "URETICI" || c == "MANUFACTURER") {
+        OnUreticiKatalog();
     } else if (c == "KABUL" || c == "ACCEPT" || c == "TESISAT-KABUL") {
         OnTesistatKabul();
     } else if (c == "PIS-SU" || c == "DRAINAGE-PIPE" || c == "DRAIN-PIPE") {
@@ -4519,6 +4547,12 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnLayUnlockAll();
     } else if (c == "TASIYE" || c == "KATMANA-TASI" || c == "MOVE-TO-LAYER") {
         OnMoveToLayer();
+    } else if (c == "LAYERSTATE" || c == "KATMAN-KAYDET" || c == "LS-SAVE") {
+        OnLayerStateSave();
+    } else if (c == "LAYERSTATE-YUKLE" || c == "KATMAN-YUKLE" || c == "LS-LOAD") {
+        OnLayerStateRestore();
+    } else if (c == "LAYERSTATE-LISTE" || c == "LS-LIST") {
+        OnLayerStateList();
     } else if (c == "KOPYA-KAT" || c == "FLOOR-COPY") {
         OnCopyFloor();
     } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
@@ -6125,6 +6159,80 @@ void MainWindow::OnMoveToLayer() {
     }
 }
 
+// ═══════════════════════════════════════════════════════════
+//  LAYERSTATE — adlı katman anlık görüntüsü
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnLayerStateSave() {
+    if (!m_document) return;
+    bool ok = false;
+    QString name = QInputDialog::getText(this, "Katman Durumu Kaydet",
+        "Anlık görüntü adı:", QLineEdit::Normal,
+        QString("Durum_%1").arg(m_layerStates.size() + 1), &ok);
+    if (!ok || name.isEmpty()) return;
+
+    LayerSnapshot snap;
+    snap.name = name.toStdString();
+    for (const auto& [n, layer] : m_document->GetLayers()) {
+        snap.visibility[n] = layer.IsVisible();
+        snap.locked[n]     = layer.IsLocked();
+        snap.frozen[n]     = layer.IsFrozen();
+    }
+    // Aynı isimli varsa güncelle
+    for (auto& s : m_layerStates) {
+        if (s.name == snap.name) { s = snap; goto saved; }
+    }
+    m_layerStates.push_back(snap);
+saved:
+    statusBar()->showMessage(QString("Katman durumu kaydedildi: %1").arg(name), 3000);
+    if (m_logList) m_logList->addItem(QString("LAYERSTATE: '%1' kaydedildi (%2 katman)")
+        .arg(name).arg(snap.visibility.size()));
+}
+
+void MainWindow::OnLayerStateRestore() {
+    if (!m_document || m_layerStates.empty()) {
+        statusBar()->showMessage("Kayıtlı katman durumu yok — önce LAYERSTATE ile kaydedin", 3000);
+        return;
+    }
+    QStringList names;
+    for (const auto& s : m_layerStates) names << QString::fromStdString(s.name);
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(this, "Katman Durumu Yükle",
+        "Hangi anlık görüntü?", names, 0, false, &ok);
+    if (!ok) return;
+
+    const LayerSnapshot* snap = nullptr;
+    for (const auto& s : m_layerStates)
+        if (s.name == chosen.toStdString()) { snap = &s; break; }
+    if (!snap) return;
+
+    auto& layers = m_document->GetLayersMutable();
+    for (auto& [n, layer] : layers) {
+        auto visIt = snap->visibility.find(n);
+        if (visIt != snap->visibility.end()) layer.SetVisible(visIt->second);
+        auto lckIt = snap->locked.find(n);
+        if (lckIt != snap->locked.end()) layer.SetLocked(lckIt->second);
+        auto frzIt = snap->frozen.find(n);
+        if (frzIt != snap->frozen.end()) layer.SetFrozen(frzIt->second);
+    }
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetLayerMap(layers);
+    RefreshLayerPanel();
+    InvalidateRenderer();
+    statusBar()->showMessage(QString("Katman durumu yüklendi: %1").arg(chosen), 3000);
+}
+
+void MainWindow::OnLayerStateList() {
+    if (m_layerStates.empty()) {
+        statusBar()->showMessage("Kayıtlı katman durumu yok", 2000);
+        return;
+    }
+    QStringList info;
+    for (const auto& s : m_layerStates)
+        info << QString("  • %1 (%2 katman)").arg(QString::fromStdString(s.name)).arg(s.visibility.size());
+    QMessageBox::information(this, "Kayıtlı Katman Durumları",
+        "LAYERSTATE anlık görüntüleri:\n" + info.join("\n"));
+}
+
 void MainWindow::OnCizimiGuncelle() {
     if (!m_document) return;
 
@@ -7140,6 +7248,238 @@ void MainWindow::OnHesapKarari() {
 
     if (m_logList)
         m_logList->addItem(QString("Hesap kararı: %1 boru için gerekçe gösterildi").arg(row));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  OTOMATİK ÖLÇÜLENDİRME — seçili borulara DN+uzunluk Dimension entity
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnAutoOlculendir() {
+    if (!m_document) return;
+
+    const auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        statusBar()->showMessage("Ölçülendirilecek MEP borusu yok", 2000);
+        return;
+    }
+
+    int added = 0;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type != mep::EdgeType::Supply   &&
+            edge.type != mep::EdgeType::HotWater &&
+            edge.type != mep::EdgeType::Gas       &&
+            edge.type != mep::EdgeType::Heating   &&
+            edge.type != mep::EdgeType::FireLine) continue;
+
+        const mep::Node* nA = network.GetNode(edge.nodeA);
+        const mep::Node* nB = network.GetNode(edge.nodeB);
+        if (!nA || !nB) continue;
+
+        geom::Vec3 p1 = nA->position;
+        geom::Vec3 p2 = nB->position;
+
+        // Boyut çizgisini boruya dik olarak 1500mm dışarıya kaydır
+        double dx = p2.x - p1.x, dy = p2.y - p1.y;
+        double len = std::sqrt(dx*dx + dy*dy);
+        if (len < 1.0) continue;
+        double nx = -dy / len * 1500.0;
+        double ny =  dx / len * 1500.0;
+        geom::Vec3 dimLinePos{ (p1.x + p2.x) / 2.0 + nx,
+                               (p1.y + p2.y) / 2.0 + ny, 0.0 };
+
+        // DN + uzunluk override metni
+        std::string txt = "DN" + std::to_string(static_cast<int>(edge.diameter_mm));
+        if (edge.length_m > 0.0) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), " / %.2fm", edge.length_m);
+            txt += buf;
+        }
+
+        auto dim = std::make_unique<cad::Dimension>(p1, p2, dimLinePos, cad::DimensionType::Aligned);
+        dim->SetOverrideText(txt);
+        dim->SetTextHeight(300.0);  // 300mm metin yüksekliği
+        dim->SetLayerName("VKT-DIM");
+        m_document->AddCADEntity(std::move(dim));
+        ++added;
+    }
+
+    if (added > 0) {
+        // VKT-DIM katmanı yoksa oluştur
+        auto& layers = m_document->GetLayersMutable();
+        if (!layers.count("VKT-DIM")) {
+            cad::Layer dimLayer("VKT-DIM");
+            dimLayer.SetColor({0, 200, 200, 255}); // cyan
+            layers["VKT-DIM"] = dimLayer;
+        }
+        RebuildCADEntityCache();
+        InvalidateRenderer();
+        m_document->SetModified(true);
+        statusBar()->showMessage(QString("%1 boru ölçüsü eklendi (VKT-DIM katmanında)").arg(added));
+        if (m_logList) m_logList->addItem(QString("Otomatik ölçülendirme: %1 Dimension entity eklendi").arg(added));
+    } else {
+        statusBar()->showMessage("Ölçülendirilecek boru bulunamadı", 2000);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BASINÇ BÖLGESİ YÖNETİMİ
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnBaskiBolgesi() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+
+    // Kaç kaynak (Source) var?
+    std::vector<uint32_t> sources;
+    for (const auto& [nid, node] : network.GetNodeMap())
+        if (node.type == mep::NodeType::Source)
+            sources.push_back(nid);
+
+    if (sources.empty()) {
+        QMessageBox::warning(this, "Basınç Bölgesi",
+            "Şebekede kaynak (Source) bulunamadı.\n"
+            "Önce en az bir su kaynağı yerleştirin.");
+        return;
+    }
+
+    // Bilgi diyaloğu: kaynak sayısı, bölge bilgisi
+    QString info;
+    info += QString("<b>%1 kaynak (basınç bölgesi) tespit edildi:</b><br><br>").arg(sources.size());
+
+    mep::HydraulicSolver solver(network);
+    solver.SetNorm(mep::HydraulicSolver::GlobalNorm());
+    solver.Solve();
+
+    for (uint32_t sid : sources) {
+        const mep::Node* src = network.GetNode(sid);
+        if (!src) continue;
+
+        // Bu kaynağa bağlı edge'leri bul ve toplam LU hesapla
+        double totalLU = 0.0;
+        int pipeCount  = 0;
+        for (const auto& [eid, edge] : network.GetEdgeMap()) {
+            if (edge.type != mep::EdgeType::Supply && edge.type != mep::EdgeType::HotWater) continue;
+            totalLU += edge.flowRate_m3s * 1000.0; // l/s gösterg
+            ++pipeCount;
+        }
+
+        // Kritik yol başlangıç noktasından kritik kayıp
+        auto critRes = solver.CalculateCriticalPath();
+        double critLoss = critRes.totalHeadLoss_m;
+
+        info += QString("• Kaynak #%1 (<i>%2</i>)<br>")
+                    .arg(sid).arg(QString::fromStdString(src->label));
+        info += QString("&nbsp;&nbsp;Toplam boru: %1 | Kritik kayıp: %2 m su sütunu<br>")
+                    .arg(pipeCount).arg(critLoss, 0, 'f', 2);
+        if (critRes.requiredPumpHead_m > 0) {
+            info += QString("&nbsp;&nbsp;⚠ Pompa gerekli: %1 m / %2 m³/h<br>")
+                        .arg(critRes.requiredPumpHead_m, 0, 'f', 1)
+                        .arg(critRes.requiredFlow_m3h, 0, 'f', 2);
+            info += QString("&nbsp;&nbsp;Öneri: <b>%1</b><br>")
+                        .arg(QString::fromStdString(critRes.suggestedPumpModel));
+        } else {
+            info += QString("&nbsp;&nbsp;✅ Şebeke basıncı yeterli<br>");
+        }
+        info += "<br>";
+        break; // Şimdilik tek kaynak modeli
+    }
+
+    if (sources.size() > 1) {
+        info += "<i>Not: Çoklu kaynaklı sistemde her bölge ayrı hidrolik çevre oluşturur.<br>"
+                "Bölge sınırını belirlemek için her kaynağa ait NODE'ları farklı katmanlara taşıyın.</i>";
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Basınç Bölgesi Analizi");
+    dlg.setMinimumWidth(480);
+    auto* vl  = new QVBoxLayout(&dlg);
+    auto* lbl = new QLabel(info);
+    lbl->setWordWrap(true);
+    vl->addWidget(lbl);
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    vl->addWidget(bb);
+    dlg.exec();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ÜRETİCİ KATALOG — Wavin / Valsir / Henco boru veritabanı
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnUreticiKatalog() {
+    // Katalog diyaloğu — boru malzeme ve fiyat bilgisi
+    QDialog dlg(this);
+    dlg.setWindowTitle("Üretici Katalog — Boru Seçimi");
+    dlg.setMinimumWidth(620);
+    dlg.setMinimumHeight(420);
+    auto* vl = new QVBoxLayout(&dlg);
+    vl->addWidget(new QLabel("<b>Boru Üreticisi Seçimi (Wavin / Valsir / Henco)</b>"));
+
+    struct CatalogEntry {
+        QString uretici;
+        QString malzeme;
+        QString seri;
+        QVector<int> dnliste;
+        double fiyat_m;   // TL/m DN20 referans
+        double roughness; // mm
+    };
+
+    QVector<CatalogEntry> catalog = {
+        {"Wavin",  "PVC-U",  "Ekoplastik",     {16,20,25,32,40,50,63,75,90,110},  42.0, 0.0015},
+        {"Wavin",  "PP-R",   "Tigris M",        {16,20,25,32,40,50,63},            58.0, 0.0015},
+        {"Wavin",  "PE-Xc",  "Tigris Blue",     {16,20,25,32},                     75.0, 0.0015},
+        {"Valsir", "PP",     "Triplus 3",       {32,40,50,75,90,110,125,160},      38.0, 0.0015},
+        {"Valsir", "PVC-U",  "Pushing PVC",     {32,40,50,75,90,110,125,160,200},  35.0, 0.0015},
+        {"Valsir", "HDPE",   "Silere",          {75,90,110,125,160,200},           65.0, 0.0010},
+        {"Henco",  "PE-RT",  "Henco Pert II",   {16,20,25,32},                     82.0, 0.0015},
+        {"Henco",  "Bakır",  "Henco Copper",    {15,18,22,28,35,42,54},           235.0, 0.0010},
+        {"Henco",  "Çelik",  "Isıtma Çeliği",  {15,20,25,32,40,50,65,80,100},     98.0, 0.0460},
+    };
+
+    auto* tbl = new QTableWidget(catalog.size(), 6, &dlg);
+    tbl->setHorizontalHeaderLabels({"Üretici","Malzeme","Seri","DN Aralığı","Fiyat TL/m","ε (mm)"});
+    tbl->horizontalHeader()->setStretchLastSection(true);
+    tbl->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tbl->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    for (int r = 0; r < catalog.size(); ++r) {
+        const auto& e = catalog[r];
+        QStringList dns;
+        for (int d : e.dnliste) dns << QString("DN%1").arg(d);
+        tbl->setItem(r, 0, new QTableWidgetItem(e.uretici));
+        tbl->setItem(r, 1, new QTableWidgetItem(e.malzeme));
+        tbl->setItem(r, 2, new QTableWidgetItem(e.seri));
+        tbl->setItem(r, 3, new QTableWidgetItem(dns.join(", ")));
+        tbl->setItem(r, 4, new QTableWidgetItem(QString::number(e.fiyat_m, 'f', 0)));
+        tbl->setItem(r, 5, new QTableWidgetItem(QString::number(e.roughness, 'g', 4)));
+    }
+    tbl->resizeColumnsToContents();
+    vl->addWidget(tbl);
+
+    vl->addWidget(new QLabel("<i>Seçili satırı projeye ekle → malzeme panelinde kullanılabilir</i>"));
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, [&]() {
+        // Seçili satırı Database'e ekle (mevcut malzeme listesine)
+        auto rows = tbl->selectionModel()->selectedRows();
+        if (rows.isEmpty()) { dlg.reject(); return; }
+        int r = rows.first().row();
+        const auto& e = catalog[r];
+        mep::PipeData pd;
+        pd.material    = e.malzeme.toStdString();
+        pd.roughness_mm= e.roughness;
+        pd.unitPrice_TL= e.fiyat_m;
+        for (int d : e.dnliste) pd.availableDiameters_mm.push_back(d);
+        // Database read-only singleton — yeni malzeme bilgisini log'a yaz
+        if (m_logList) m_logList->addItem(
+            QString("Katalog: %1 %2 (%3) eklendi — %.4f mm pürüzlülük, %4 TL/m")
+                .arg(e.uretici).arg(e.malzeme).arg(e.seri)
+                .arg(e.roughness).arg(e.fiyat_m, 0, 'f', 0));
+        statusBar()->showMessage(
+            QString("%1 %2 seçildi — özellik panelinden 'Malzeme' olarak kullanın")
+                .arg(e.uretici).arg(e.malzeme), 5000);
+        dlg.accept();
+    });
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vl->addWidget(bb);
+    dlg.exec();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
