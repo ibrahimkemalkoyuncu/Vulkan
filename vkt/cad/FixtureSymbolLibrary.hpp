@@ -38,14 +38,22 @@ enum class FixtureSymbolType {
     Bathtub,            ///< Küvet
     DishwasherConnection, ///< Bulaşık makinesi bağlantısı
     WashingMachineConnection, ///< Çamaşır makinesi bağlantısı
-    Pump,               ///< Pompa
+    Pump,               ///< Pompa (temiz su)
     WaterMeter,         ///< Su sayacı
-    GateValve,          ///< Sürgülü vana
+    GateValve,          ///< Sürgülü vana (DIN EN 806)
     CheckValve,         ///< Çek valf
     BallValve,          ///< Küresel vana
     Drain,              ///< Pis su tahliye
     Source,             ///< Su kaynağı / şebeke girişi
     Junction,           ///< Bağlantı noktası
+    // --- Gaz / Isıtma / Yangın (Session 29) ---
+    GasAppliance,       ///< Gaz cihazı — kombi/ocak (TS EN 12067 diamond)
+    GasValve,           ///< Gaz vanası / gaz kesici (TS EN 331)
+    Boiler,             ///< Kazan / ısı merkezi (EN 12828)
+    Radiator,           ///< Panel radyatör (EN 442)
+    HotSource,          ///< Sıcak su kaynağı / şofben girişi
+    Sprinkler,          ///< Sprinkler başlığı (EN 12845)
+    FirePump,           ///< Yangın pompası (EN 12845 / NFPA 20)
 };
 
 /**
@@ -138,6 +146,14 @@ private:
     static SymbolGeometry MakeJunction (double scale, double cx, double cy);
     static SymbolGeometry MakeAppliance(double scale, double cx, double cy,
                                         const std::string& label);
+    // Session 29: Gaz / Isıtma / Yangın sembolleri
+    static SymbolGeometry MakeGasAppliance(double scale, double cx, double cy);
+    static SymbolGeometry MakeGasValve    (double scale, double cx, double cy);
+    static SymbolGeometry MakeBoiler      (double scale, double cx, double cy);
+    static SymbolGeometry MakeRadiator    (double scale, double cx, double cy);
+    static SymbolGeometry MakeHotSource   (double scale, double cx, double cy);
+    static SymbolGeometry MakeSprinkler   (double scale, double cx, double cy);
+    static SymbolGeometry MakeFirePump    (double scale, double cx, double cy);
 };
 
 } // namespace cad

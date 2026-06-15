@@ -491,6 +491,10 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Üretici Katalog** — `OnUreticiKatalog()`: Wavin/Valsir/Henco 9 ürün grubu (PVC-U/PP-R/PE-Xc/PP/HDPE/PE-RT/Bakır/Çelik); fiyat + pürüzlülük tablosu; `KATALOG`/`URETICI` komutu
 - **Document::AddCADEntity()** — inline helper `m_cadEntities.push_back(std::move(entity))`
 - **132/132 test geçiyor** (tüm modüller dahil)
+- **Sembol kütüphanesi genişletme (Session 30)** — `FixtureSymbolType` enum'a 7 yeni tip eklendi: `GasAppliance` (TS EN 12067 diamond + alev), `GasValve` (butterfly disk + dik kol), `Boiler` (EN 12828 dikdörtgen + eşanjör çizgileri + alev), `Radiator` (EN 442 iki bant + 7 fin), `HotSource` (kaynak + dalgalı ısı yayları), `Sprinkler` (EN 12845 çapraz kol + 8 su ışını), `FirePump` (çift halka + dış yangın işaretleri); `FromLabel()` gaz/ısıtma/yangın eşleştirmeleri eklendi
+- **Mevcut semboller iyileştirildi** — Lavabo: iki yarı daire ile gerçek eliptik havuz + musluk noktaları; WC: D-şekli gövde + rezervuar; Duş: 8 yönlü yağmurbaşı ışınları + köşe kapı yayı; Küvet: musluk çifti + büyütülmüş iç oval
+- **Otomatik ölçülendirme anti-overlap (Session 30)** — `OnAutoOlculendir()` yeniden yazıldı: paralel boru grupları 15° açı slot'larına ayrılır; yakın borularda stacking (1500→3000→4500mm); mevcut VKT-DIM silme dialog; etiketlere debi (L/s) eklendi; `Document::RemoveCADEntitiesByLayer()` + `GetCADEntitiesMutable()` yeni helper'lar
+- **Document::RemoveCADEntitiesByLayer()** + **GetCADEntitiesMutable()** — Document'a inline yardımcılar eklendi
 
 ### Devam Eden
 

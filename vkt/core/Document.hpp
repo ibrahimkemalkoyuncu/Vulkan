@@ -58,7 +58,14 @@ public:
     // CAD entity erişimi (arka plan çizimi)
     void SetCADEntities(std::vector<std::unique_ptr<cad::Entity>> entities);
     const std::vector<std::unique_ptr<cad::Entity>>& GetCADEntities() const { return m_cadEntities; }
+    std::vector<std::unique_ptr<cad::Entity>>& GetCADEntitiesMutable() { return m_cadEntities; }
     void AddCADEntity(std::unique_ptr<cad::Entity> entity) { m_cadEntities.push_back(std::move(entity)); }
+    void RemoveCADEntitiesByLayer(const std::string& layerName) {
+        m_cadEntities.erase(std::remove_if(m_cadEntities.begin(), m_cadEntities.end(),
+            [&layerName](const std::unique_ptr<cad::Entity>& e) {
+                return e && e->GetLayerName() == layerName;
+            }), m_cadEntities.end());
+    }
     void GetCADExtents(geom::Vec3& outMin, geom::Vec3& outMax) const;
 
     // Koordinat normalizasyonu: centroid orijinden uzaksa tüm entity'leri kaydır

@@ -7251,7 +7251,7 @@ void MainWindow::OnHesapKarari() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  OTOMATİK ÖLÇÜLENDİRME — seçili borulara DN+uzunluk Dimension entity
+//  OTOMATİK ÖLÇÜLENDİRME — paralel boru stacking + anti-overlap
 // ═══════════════════════════════════════════════════════════
 void MainWindow::OnAutoOlculendir() {
     if (!m_document) return;
@@ -7262,7 +7262,38 @@ void MainWindow::OnAutoOlculendir() {
         return;
     }
 
-    int added = 0;
+    // Mevcut VKT-DIM ölçülerini temizle mi?
+    bool hasDims = false;
+    for (const auto& ent : m_document->GetCADEntities()) {
+        if (ent && ent->GetLayerName() == "VKT-DIM") { hasDims = true; break; }
+    }
+    if (hasDims) {
+        auto btn = QMessageBox::question(this, "Otomatik Ölçülendirme",
+            "Mevcut VKT-DIM ölçüleri bulundu.\n"
+            "Sil ve yeniden oluştur?",
+            QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+        if (btn == QMessageBox::Cancel) return;
+        if (btn == QMessageBox::Yes) {
+            m_document->RemoveCADEntitiesByLayer("VKT-DIM");
+        }
+    }
+
+    // Ölçülendirilecek her kenar için hesap bilgisi
+    struct DimInfo {
+        uint32_t  edgeId;
+        double    midX, midY;
+        double    nx, ny;      // birim normal (boruya dik)
+        int       angleSlot;   // 15° adımlı quantize
+        int       offsetLevel; // kaçıncı offset sırası (0=1500, 1=3000, ...)
+    };
+
+    static constexpr double BASE_OFFSET  = 1500.0;  // ilk ölçü ofseti (mm)
+    static constexpr double NEARBY_PIPE  = 3000.0;  // bu mesafedeki paralel borular stack
+    static constexpr double PI_L = 3.14159265358979323846;
+
+    std::vector<DimInfo> infos;
+    infos.reserve(network.GetEdgeMap().size());
+
     for (const auto& [eid, edge] : network.GetEdgeMap()) {
         if (edge.type != mep::EdgeType::Supply   &&
             edge.type != mep::EdgeType::HotWater &&
@@ -7274,36 +7305,86 @@ void MainWindow::OnAutoOlculendir() {
         const mep::Node* nB = network.GetNode(edge.nodeB);
         if (!nA || !nB) continue;
 
-        geom::Vec3 p1 = nA->position;
-        geom::Vec3 p2 = nB->position;
-
-        // Boyut çizgisini boruya dik olarak 1500mm dışarıya kaydır
-        double dx = p2.x - p1.x, dy = p2.y - p1.y;
+        double dx = nB->position.x - nA->position.x;
+        double dy = nB->position.y - nA->position.y;
         double len = std::sqrt(dx*dx + dy*dy);
         if (len < 1.0) continue;
-        double nx = -dy / len * 1500.0;
-        double ny =  dx / len * 1500.0;
-        geom::Vec3 dimLinePos{ (p1.x + p2.x) / 2.0 + nx,
-                               (p1.y + p2.y) / 2.0 + ny, 0.0 };
 
-        // DN + uzunluk override metni
+        // Boru açısını [0,180) aralığına normalize et (karşılıklı borular aynı slot)
+        double ang = std::atan2(dy, dx) * 180.0 / PI_L;
+        if (ang < 0) ang += 180.0;
+
+        DimInfo di;
+        di.edgeId = eid;
+        di.midX = (nA->position.x + nB->position.x) / 2.0;
+        di.midY = (nA->position.y + nB->position.y) / 2.0;
+        di.nx   = -dy / len;   // normal (sola dik)
+        di.ny   =  dx / len;
+        di.angleSlot  = static_cast<int>(std::round(ang / 15.0)) % 12;
+        di.offsetLevel = 0;
+        infos.push_back(di);
+    }
+
+    // Anti-overlap: paralel ve yakın borulara artan offset seviyesi ata
+    for (size_t i = 0; i < infos.size(); ++i) {
+        int level = 0;
+        bool conflict = true;
+        while (conflict) {
+            conflict = false;
+            for (size_t j = 0; j < i; ++j) {
+                if (infos[j].angleSlot   != infos[i].angleSlot)   continue;
+                if (infos[j].offsetLevel != level)                 continue;
+                double ddx = infos[j].midX - infos[i].midX;
+                double ddy = infos[j].midY - infos[i].midY;
+                // Normal eksen boyunca mesafe (perpendikler ayrım)
+                double projN = std::abs(ddx * infos[i].nx + ddy * infos[i].ny);
+                // Boru ekseni boyunca mesafe
+                double projP = std::abs(ddx * infos[i].ny + ddy * (-infos[i].nx));
+                if (projN < 2 * BASE_OFFSET && projP < NEARBY_PIPE) {
+                    conflict = true;
+                    ++level;
+                    break;
+                }
+            }
+        }
+        infos[i].offsetLevel = level;
+    }
+
+    // Dimension entity'leri oluştur
+    int added = 0;
+    for (const auto& di : infos) {
+        const auto& edge = network.GetEdgeMap().at(di.edgeId);
+        const mep::Node* nA = network.GetNode(edge.nodeA);
+        const mep::Node* nB = network.GetNode(edge.nodeB);
+        if (!nA || !nB) continue;
+
+        double offset = (di.offsetLevel + 1) * BASE_OFFSET;
+        geom::Vec3 dimLinePos{ di.midX + di.nx * offset,
+                               di.midY + di.ny * offset, 0.0 };
+
         std::string txt = "DN" + std::to_string(static_cast<int>(edge.diameter_mm));
         if (edge.length_m > 0.0) {
             char buf[32];
             std::snprintf(buf, sizeof(buf), " / %.2fm", edge.length_m);
             txt += buf;
         }
+        // Debi varsa ekle (m³/s → l/s dönüşümü)
+        if (edge.flowRate_m3s > 0.0) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), " | %.2fL/s", edge.flowRate_m3s * 1000.0);
+            txt += buf;
+        }
 
-        auto dim = std::make_unique<cad::Dimension>(p1, p2, dimLinePos, cad::DimensionType::Aligned);
+        auto dim = std::make_unique<cad::Dimension>(
+            nA->position, nB->position, dimLinePos, cad::DimensionType::Aligned);
         dim->SetOverrideText(txt);
-        dim->SetTextHeight(300.0);  // 300mm metin yüksekliği
+        dim->SetTextHeight(300.0);
         dim->SetLayerName("VKT-DIM");
         m_document->AddCADEntity(std::move(dim));
         ++added;
     }
 
     if (added > 0) {
-        // VKT-DIM katmanı yoksa oluştur
         auto& layers = m_document->GetLayersMutable();
         if (!layers.count("VKT-DIM")) {
             cad::Layer dimLayer("VKT-DIM");
@@ -7313,8 +7394,14 @@ void MainWindow::OnAutoOlculendir() {
         RebuildCADEntityCache();
         InvalidateRenderer();
         m_document->SetModified(true);
-        statusBar()->showMessage(QString("%1 boru ölçüsü eklendi (VKT-DIM katmanında)").arg(added));
-        if (m_logList) m_logList->addItem(QString("Otomatik ölçülendirme: %1 Dimension entity eklendi").arg(added));
+        int maxLevel = 0;
+        for (const auto& di : infos) maxLevel = std::max(maxLevel, di.offsetLevel);
+        statusBar()->showMessage(
+            QString("%1 boru ölçüsü eklendi (maks. %2 offset seviyesi — VKT-DIM)")
+                .arg(added).arg(maxLevel + 1));
+        if (m_logList) m_logList->addItem(
+            QString("Otomatik ölçülendirme: %1 Dimension, %2 stacking seviyesi")
+                .arg(added).arg(maxLevel + 1));
     } else {
         statusBar()->showMessage("Ölçülendirilecek boru bulunamadı", 2000);
     }

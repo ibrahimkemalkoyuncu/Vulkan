@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file FixtureSymbolLibrary.cpp
  * @brief Tesisat armatür sembol kütüphanesi — DIN/ISO plan sembolleri
  *
@@ -63,6 +63,21 @@ void FixtureSymbolLibrary::RegisterAll() {
         [](double s, double cx, double cy) { return MakeAppliance(s, cx, cy, "BM"); };
     m_factories[static_cast<int>(FixtureSymbolType::WashingMachineConnection)] =
         [](double s, double cx, double cy) { return MakeAppliance(s, cx, cy, "CM"); };
+    // Gaz / Isitma / Yangin
+    m_factories[static_cast<int>(FixtureSymbolType::GasAppliance)] =
+        [](double s, double cx, double cy) { return MakeGasAppliance(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::GasValve)] =
+        [](double s, double cx, double cy) { return MakeGasValve(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::Boiler)] =
+        [](double s, double cx, double cy) { return MakeBoiler(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::Radiator)] =
+        [](double s, double cx, double cy) { return MakeRadiator(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::HotSource)] =
+        [](double s, double cx, double cy) { return MakeHotSource(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::Sprinkler)] =
+        [](double s, double cx, double cy) { return MakeSprinkler(s, cx, cy); };
+    m_factories[static_cast<int>(FixtureSymbolType::FirePump)] =
+        [](double s, double cx, double cy) { return MakeFirePump(s, cx, cy); };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -84,236 +99,259 @@ FixtureSymbolType FixtureSymbolLibrary::FromLabel(const std::string& label) {
     std::string s = label;
     std::transform(s.begin(), s.end(), s.begin(), ::tolower);
 
-    if (s.find("lavabo") != std::string::npos ||
+    if (s.find("lavabo")    != std::string::npos ||
         s.find("washbasin") != std::string::npos ||
-        s.find("sink") != std::string::npos)        return FixtureSymbolType::Washbasin;
-    if (s.find("wc") != std::string::npos ||
-        s.find("klozet") != std::string::npos ||
-        s.find("toilet") != std::string::npos)      return FixtureSymbolType::WC;
-    if (s.find("duş") != std::string::npos ||
-        s.find("dus") != std::string::npos ||
-        s.find("shower") != std::string::npos)      return FixtureSymbolType::Shower;
-    if (s.find("küvet") != std::string::npos ||
-        s.find("kuvet") != std::string::npos ||
-        s.find("bathtub") != std::string::npos)     return FixtureSymbolType::Bathtub;
-    if (s.find("pompa") != std::string::npos ||
-        s.find("pump") != std::string::npos)        return FixtureSymbolType::Pump;
-    if (s.find("sayaç") != std::string::npos ||
-        s.find("sayac") != std::string::npos ||
-        s.find("meter") != std::string::npos)       return FixtureSymbolType::WaterMeter;
-    if (s.find("tahliye") != std::string::npos ||
-        s.find("drain") != std::string::npos)       return FixtureSymbolType::Drain;
-    if (s.find("kaynak") != std::string::npos ||
-        s.find("source") != std::string::npos)      return FixtureSymbolType::Source;
-    if (s.find("bulaşık") != std::string::npos ||
-        s.find("bulasik") != std::string::npos)     return FixtureSymbolType::DishwasherConnection;
-    if (s.find("çamaşır") != std::string::npos ||
-        s.find("camasir") != std::string::npos)     return FixtureSymbolType::WashingMachineConnection;
+        s.find("sink")      != std::string::npos)   return FixtureSymbolType::Washbasin;
+    if (s.find("wc")        != std::string::npos ||
+        s.find("klozet")    != std::string::npos ||
+        s.find("toilet")    != std::string::npos)   return FixtureSymbolType::WC;
+    if (s.find("dus")       != std::string::npos ||
+        s.find("shower")    != std::string::npos)   return FixtureSymbolType::Shower;
+    if (s.find("kuvet")     != std::string::npos ||
+        s.find("bathtub")   != std::string::npos)   return FixtureSymbolType::Bathtub;
+    if (s.find("pompa")     != std::string::npos ||
+        s.find("pump")      != std::string::npos)   return FixtureSymbolType::Pump;
+    if (s.find("sayac")     != std::string::npos ||
+        s.find("meter")     != std::string::npos)   return FixtureSymbolType::WaterMeter;
+    if (s.find("tahliye")   != std::string::npos ||
+        s.find("drain")     != std::string::npos)   return FixtureSymbolType::Drain;
+    if (s.find("kaynak")    != std::string::npos ||
+        s.find("source")    != std::string::npos)   return FixtureSymbolType::Source;
+    if (s.find("bulasik")   != std::string::npos)   return FixtureSymbolType::DishwasherConnection;
+    if (s.find("camasir")   != std::string::npos)   return FixtureSymbolType::WashingMachineConnection;
+    if (s.find("kazan")     != std::string::npos ||
+        s.find("boiler")    != std::string::npos)   return FixtureSymbolType::Boiler;
+    if (s.find("radyator")  != std::string::npos ||
+        s.find("radiator")  != std::string::npos)   return FixtureSymbolType::Radiator;
+    if (s.find("sprinkler") != std::string::npos)   return FixtureSymbolType::Sprinkler;
+    if (s.find("yangin")    != std::string::npos ||
+        s.find("fire")      != std::string::npos)   return FixtureSymbolType::FirePump;
+    if (s.find("gaz")       != std::string::npos ||
+        s.find("kombi")     != std::string::npos ||
+        s.find("ocak")      != std::string::npos)   return FixtureSymbolType::GasAppliance;
 
     return FixtureSymbolType::Junction;
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SEMBOL FABRİKALARI
-//  Tüm koordinatlar: merkez (cx,cy), boyut scale×100mm
+//  SEMBOL FABRIKALARI
+//  Tum koordinatlar: merkez (cx,cy), boyut scale*100mm
 // ═══════════════════════════════════════════════════════════
 
-// Yardımcı: scale uygulayarak koordinat dönüştür
 static inline double S(double v, double scale) { return v * scale; }
 
+// --- Lavabo (DIN 1986 / ISO 6309) ---
+// Dikdortgen govde + eliptik ic havuz + musluk isaretleri + tahliye
 SymbolGeometry FixtureSymbolLibrary::MakeWashbasin(double scale,
                                                     double cx, double cy) {
-    // DIN 1986 lavabo: dikdörtgen gövde + oval iç havuz + iki musluk noktası
     SymbolGeometry g;
     g.label = "Lv";
 
-    double hw = S(40, scale);  // yarı genişlik
-    double hh = S(30, scale);  // yarı yükseklik
-    double tw = S(5,  scale);  // duvar kalınlığı
+    double hw = S(40, scale);
+    double hh = S(30, scale);
 
-    // Dış dikdörtgen
+    // Dis dikdortgen (lavabo govdesi)
     g.rects.push_back({cx - hw, cy - hh, hw*2, hh*2});
-    // İç oval (havuz)
-    g.circles.push_back({cx, cy + S(5, scale), S(22, scale)});
-    // Tahliye deliği
-    g.circles.push_back({cx, cy + S(5, scale), S(4, scale)});
-    // Boru bağlantısı (alt orta)
-    g.connections.push_back({cx, cy - hh, "Su"});
 
+    // Ic eliptik havuz -- iki yari daire ile elips yaklasimi
+    double basinRx = S(28, scale);
+    double basinRy = S(18, scale);
+    double basinCy = cy + S(4, scale);
+    g.arcs.push_back({cx, basinCy, basinRx, 0, 180});
+    g.arcs.push_back({cx, basinCy + S(5, scale) * (basinRx - basinRy) / basinRx,
+                      basinRy, 180, 360});
+
+    // Tahliye deligi (merkez)
+    g.circles.push_back({cx, basinCy, S(3.5, scale)});
+
+    // On kenar kalinligi
+    g.lines.push_back({cx - hw + S(5, scale), cy - hh,
+                       cx + hw - S(5, scale), cy - hh});
+
+    // Musluk isaretleri (iki kucuk daire, ust kenara yakin)
+    g.circles.push_back({cx - S(12, scale), cy + S(20, scale), S(3, scale)});
+    g.circles.push_back({cx + S(12, scale), cy + S(20, scale), S(3, scale)});
+
+    g.connections.push_back({cx, cy - hh, "Su"});
     return g;
 }
 
+// --- WC / Klozet (DIN 1986) ---
 SymbolGeometry FixtureSymbolLibrary::MakeWC(double scale,
                                              double cx, double cy) {
-    // DIN 1986 klozet: D şekli gövde + iç oval + rezervuar
     SymbolGeometry g;
     g.label = "WC";
 
     double hw = S(30, scale);
-    double hh = S(45, scale);
+    double bodyTop = cy + S(18, scale);
+    double bodyBot = cy - S(35, scale);
 
-    // Rezervuar (üst)
-    g.rects.push_back({cx - hw, cy + S(20, scale), hw*2, S(25, scale)});
+    // Rezervuar (dikdortgen, ustte)
+    g.rects.push_back({cx - hw, bodyTop, hw*2, S(27, scale)});
 
-    // Ana gövde (yuvarlak ön + düz arka) — arc + lines ile
-    // Arka çizgi
-    g.lines.push_back({cx - hw, cy + S(20, scale), cx - hw, cy - S(25, scale)});
-    g.lines.push_back({cx + hw, cy + S(20, scale), cx + hw, cy - S(25, scale)});
-    // Alt yay (ön)
-    g.arcs.push_back({cx, cy - S(25, scale), hw, 180, 360});
+    // Govde: iki yan cizgi + alt yari daire (D sekli)
+    g.lines.push_back({cx - hw, bodyTop, cx - hw, bodyBot});
+    g.lines.push_back({cx + hw, bodyTop, cx + hw, bodyBot});
+    g.arcs.push_back({cx, bodyBot, hw, 180, 360});
 
-    // İç oval (oturma yeri)
-    g.circles.push_back({cx, cy - S(5, scale), S(20, scale)});
+    // Oturma yeri (ic oval)
+    double seatRx = S(22, scale);
+    double seatMid = (bodyTop + bodyBot) / 2.0 - S(5, scale);
+    g.arcs.push_back({cx, seatMid, seatRx, 0, 180});
+    g.arcs.push_back({cx, seatMid + S(4, scale), S(16, scale), 180, 360});
 
-    g.connections.push_back({cx, cy + hh, "Su"});
-    g.connections.push_back({cx, cy - hh, "Pis"});
+    g.connections.push_back({cx, bodyTop + S(27, scale), "Su"});
+    g.connections.push_back({cx, bodyBot, "Pis"});
     return g;
 }
 
+// --- Dus (DIN 1986) ---
 SymbolGeometry FixtureSymbolLibrary::MakeShower(double scale,
                                                  double cx, double cy) {
-    // DIN 1986 duş: kare tekne + köşe eğimi + yağmurbaşı sembolü
     SymbolGeometry g;
-    g.label = "Dş";
+    g.label = "Ds";
 
     double hw = S(40, scale);
 
-    // Dış kare
     g.rects.push_back({cx - hw, cy - hw, hw*2, hw*2});
-    // Köşe eğimi (sol üst)
-    g.arcs.push_back({cx - hw, cy + hw, S(25, scale), 270, 360});
-    // Yağmurbaşı (merkez daire)
-    g.circles.push_back({cx - S(15, scale), cy + S(15, scale), S(10, scale)});
-    // Tahliye (merkez)
-    g.circles.push_back({cx + S(10, scale), cy - S(10, scale), S(4, scale)});
+    g.arcs.push_back({cx - hw, cy + hw, S(28, scale), 270, 360});
+
+    // Yagmurbasi sembolü (sol ust bolgede: daire + 8 yon isini)
+    double shx = cx - S(18, scale);
+    double shy = cy + S(18, scale);
+    g.circles.push_back({shx, shy, S(8, scale)});
+    for (int i = 0; i < 8; ++i) {
+        double ang = i * PI / 4.0;
+        double r1 = S(10, scale), r2 = S(14, scale);
+        g.lines.push_back({shx + r1 * std::cos(ang), shy + r1 * std::sin(ang),
+                           shx + r2 * std::cos(ang), shy + r2 * std::sin(ang)});
+    }
+
+    // Tahliye: capraz cizgiler sag alt
+    double dx = cx + S(18, scale), dy = cy - S(18, scale);
+    double dd = S(8, scale);
+    g.lines.push_back({dx - dd, dy, dx + dd, dy});
+    g.lines.push_back({dx, dy - dd, dx, dy + dd});
+    g.circles.push_back({dx, dy, S(4, scale)});
 
     g.connections.push_back({cx, cy - hw, "Su"});
-    g.connections.push_back({cx + S(10, scale), cy - S(10, scale), "Pis"});
+    g.connections.push_back({dx, cy - hw, "Pis"});
     return g;
 }
 
+// --- Kuvet (DIN 1986) ---
 SymbolGeometry FixtureSymbolLibrary::MakeBathtub(double scale,
                                                    double cx, double cy) {
-    // DIN 1986 küvet: uzun dikdörtgen + iç oval
     SymbolGeometry g;
     g.label = "Kv";
 
     double hw = S(50, scale);
     double hh = S(25, scale);
 
-    // Dış dikdörtgen
     g.rects.push_back({cx - hw, cy - hh, hw*2, hh*2});
-    // İç oval
-    g.arcs.push_back({cx, cy, S(35, scale), 0, 360});
-    // Tahliye deliği
-    g.circles.push_back({cx + S(35, scale), cy, S(4, scale)});
+    g.arcs.push_back({cx - S(8, scale), cy, S(36, scale), 0, 360});
+    g.circles.push_back({cx + S(36, scale), cy, S(4, scale)});
+
+    // Musluk (sol ucta)
+    g.circles.push_back({cx - hw + S(8, scale), cy - S(8, scale), S(3, scale)});
+    g.circles.push_back({cx - hw + S(8, scale), cy + S(8, scale), S(3, scale)});
 
     g.connections.push_back({cx - hw, cy, "Su"});
-    g.connections.push_back({cx + S(35, scale), cy - hh, "Pis"});
+    g.connections.push_back({cx + S(36, scale), cy - hh, "Pis"});
     return g;
 }
 
+// --- Pompa (DIN EN ISO 10628-2) ---
 SymbolGeometry FixtureSymbolLibrary::MakePump(double scale,
                                                double cx, double cy) {
-    // DIN EN ISO 10628 pompa: daire + üçgen (impeller)
     SymbolGeometry g;
     g.label = "P";
 
-    double r = S(30, scale);
+    double r = S(28, scale);
     g.circles.push_back({cx, cy, r});
 
-    // İmpeller ok (saat 3 yönünde üçgen)
     double tx = S(15, scale);
     g.lines.push_back({cx,      cy,      cx + tx, cy - tx});
     g.lines.push_back({cx + tx, cy - tx, cx + tx, cy + tx});
     g.lines.push_back({cx + tx, cy + tx, cx,      cy});
 
-    g.connections.push_back({cx - r, cy, "Giriş"});
-    g.connections.push_back({cx + r, cy, "Çıkış"});
+    g.connections.push_back({cx - r, cy, "Giris"});
+    g.connections.push_back({cx + r, cy, "Cikis"});
     return g;
 }
 
+// --- Surgulu Vana (DIN EN 806) ---
 SymbolGeometry FixtureSymbolLibrary::MakeGateValve(double scale,
                                                     double cx, double cy) {
-    // DIN EN 806 sürgülü vana: iki üçgen karşılıklı + yatay boru
     SymbolGeometry g;
     g.label = "SV";
 
     double hw = S(20, scale);
     double hh = S(15, scale);
 
-    // Boru hattı
     g.lines.push_back({cx - S(40, scale), cy, cx - hw, cy});
     g.lines.push_back({cx + hw, cy, cx + S(40, scale), cy});
 
-    // Sol üçgen
     g.lines.push_back({cx - hw, cy - hh, cx - hw, cy + hh});
     g.lines.push_back({cx - hw, cy - hh, cx,       cy});
     g.lines.push_back({cx - hw, cy + hh, cx,       cy});
 
-    // Sağ üçgen
     g.lines.push_back({cx + hw, cy - hh, cx + hw, cy + hh});
     g.lines.push_back({cx + hw, cy - hh, cx,       cy});
     g.lines.push_back({cx + hw, cy + hh, cx,       cy});
 
-    // Mil (vana kolu)
     g.lines.push_back({cx, cy, cx, cy + S(25, scale)});
-    g.lines.push_back({cx - S(8, scale), cy + S(25, scale),
-                        cx + S(8, scale), cy + S(25, scale)});
+    g.lines.push_back({cx - S(10, scale), cy + S(25, scale),
+                        cx + S(10, scale), cy + S(25, scale)});
 
     g.connections.push_back({cx - S(40, scale), cy, "A"});
     g.connections.push_back({cx + S(40, scale), cy, "B"});
     return g;
 }
 
+// --- Cek Valf ---
 SymbolGeometry FixtureSymbolLibrary::MakeCheckValve(double scale,
                                                      double cx, double cy) {
-    // Çek valf: daire + ok işareti (tek yön)
     SymbolGeometry g;
-    g.label = "ÇV";
+    g.label = "CV";
 
     double r = S(15, scale);
     g.circles.push_back({cx, cy, r});
 
-    // Boru hattı
     g.lines.push_back({cx - S(40, scale), cy, cx - r, cy});
     g.lines.push_back({cx + r, cy, cx + S(40, scale), cy});
 
-    // Ok (daire içinde dikey çizgi + ok ucu)
-    g.lines.push_back({cx, cy - r, cx, cy + r});  // kapak çizgisi
-    // Ok ucu (sağa doğru akış)
+    g.lines.push_back({cx, cy - r, cx, cy + r});
     g.lines.push_back({cx - S(8, scale), cy - S(6, scale), cx, cy});
     g.lines.push_back({cx - S(8, scale), cy + S(6, scale), cx, cy});
 
-    g.connections.push_back({cx - S(40, scale), cy, "Giriş"});
-    g.connections.push_back({cx + S(40, scale), cy, "Çıkış"});
+    g.connections.push_back({cx - S(40, scale), cy, "Giris"});
+    g.connections.push_back({cx + S(40, scale), cy, "Cikis"});
     return g;
 }
 
+// --- Kuresel Vana ---
 SymbolGeometry FixtureSymbolLibrary::MakeBallValve(double scale,
                                                     double cx, double cy) {
-    // Küresel vana: daire + çizgi (açık/kapalı pozisyon)
     SymbolGeometry g;
     g.label = "KV";
 
     double r = S(15, scale);
     g.circles.push_back({cx, cy, r});
 
-    // Boru hattı
     g.lines.push_back({cx - S(40, scale), cy, cx - r, cy});
     g.lines.push_back({cx + r, cy, cx + S(40, scale), cy});
 
-    // Kol (açık = yatay = boru hattıyla hizalı)
-    g.lines.push_back({cx, cy - r, cx, cy + r + S(10, scale)});
+    g.lines.push_back({cx, cy + r, cx, cy + r + S(12, scale)});
 
     g.connections.push_back({cx - S(40, scale), cy, "A"});
     g.connections.push_back({cx + S(40, scale), cy, "B"});
     return g;
 }
 
+// --- Su Sayaci ---
 SymbolGeometry FixtureSymbolLibrary::MakeWaterMeter(double scale,
                                                      double cx, double cy) {
-    // Su sayacı: dikdörtgen + "m³" etiketi + boru hattı
     SymbolGeometry g;
     g.label = "M";
 
@@ -322,24 +360,22 @@ SymbolGeometry FixtureSymbolLibrary::MakeWaterMeter(double scale,
 
     g.rects.push_back({cx - hw, cy - hh, hw*2, hh*2});
 
-    // Boru hattı
     g.lines.push_back({cx - S(40, scale), cy, cx - hw, cy});
     g.lines.push_back({cx + hw, cy, cx + S(40, scale), cy});
 
-    // Merkez ölçek işaretleri
     for (int i = -2; i <= 2; ++i) {
         double tx = cx + i * S(8, scale);
         g.lines.push_back({tx, cy - hh + S(3, scale), tx, cy - S(3, scale)});
     }
 
-    g.connections.push_back({cx - S(40, scale), cy, "Giriş"});
-    g.connections.push_back({cx + S(40, scale), cy, "Çıkış"});
+    g.connections.push_back({cx - S(40, scale), cy, "Giris"});
+    g.connections.push_back({cx + S(40, scale), cy, "Cikis"});
     return g;
 }
 
+// --- Pis Su Tahliye ---
 SymbolGeometry FixtureSymbolLibrary::MakeDrain(double scale,
                                                 double cx, double cy) {
-    // Pis su tahliye: daire içinde X
     SymbolGeometry g;
     g.label = "T";
 
@@ -354,30 +390,28 @@ SymbolGeometry FixtureSymbolLibrary::MakeDrain(double scale,
     return g;
 }
 
+// --- Sebeke Girisi / Kaynak ---
 SymbolGeometry FixtureSymbolLibrary::MakeSource(double scale,
                                                  double cx, double cy) {
-    // Şebeke girişi: üçgen + daire
     SymbolGeometry g;
-    g.label = "Ş";
+    g.label = "S";
 
     double r = S(15, scale);
     g.circles.push_back({cx, cy, r});
 
-    // Ok (sağa doğru besleme)
-    double aw = S(20, scale);
     g.lines.push_back({cx - S(40, scale), cy, cx - r, cy});
     g.lines.push_back({cx - S(40, scale), cy - S(8, scale),
                         cx - S(22, scale), cy});
     g.lines.push_back({cx - S(40, scale), cy + S(8, scale),
                         cx - S(22, scale), cy});
 
-    g.connections.push_back({cx + r, cy, "Çıkış"});
+    g.connections.push_back({cx + r, cy, "Cikis"});
     return g;
 }
 
+// --- Baglanti Noktasi ---
 SymbolGeometry FixtureSymbolLibrary::MakeJunction(double scale,
                                                    double cx, double cy) {
-    // Bağlantı noktası: dolu küçük daire
     SymbolGeometry g;
     g.label = "";
     g.circles.push_back({cx, cy, S(5, scale)});
@@ -385,17 +419,16 @@ SymbolGeometry FixtureSymbolLibrary::MakeJunction(double scale,
     return g;
 }
 
+// --- Beyaz Esya Baglantisi ---
 SymbolGeometry FixtureSymbolLibrary::MakeAppliance(double scale,
                                                     double cx, double cy,
                                                     const std::string& label) {
-    // Beyaz eşya bağlantısı: kare + etiket
     SymbolGeometry g;
     g.label = label;
 
     double hw = S(35, scale);
     g.rects.push_back({cx - hw, cy - hw, hw*2, hw*2});
 
-    // İç çizgi deseni
     g.lines.push_back({cx - hw + S(5, scale), cy,
                         cx + hw - S(5, scale), cy});
     g.lines.push_back({cx, cy - hw + S(5, scale),
@@ -407,7 +440,205 @@ SymbolGeometry FixtureSymbolLibrary::MakeAppliance(double scale,
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ÇIKTI FONKSİYONLARI
+//  GAZ / ISITMA / YANGIN SEMBOLLERI (Session 29)
+// ═══════════════════════════════════════════════════════════
+
+// --- Gaz Cihazi (TS EN 12067 diamond) ---
+SymbolGeometry FixtureSymbolLibrary::MakeGasAppliance(double scale,
+                                                       double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "G";
+
+    double d = S(32, scale);
+
+    // Baklava (diamond) -- 4 kose
+    g.lines.push_back({cx,     cy + d, cx + d, cy});
+    g.lines.push_back({cx + d, cy,     cx,     cy - d});
+    g.lines.push_back({cx,     cy - d, cx - d, cy});
+    g.lines.push_back({cx - d, cy,     cx,     cy + d});
+
+    // Ic kucuk daire (gaz alevi)
+    g.circles.push_back({cx, cy, S(8, scale)});
+
+    // Alev ucu (ust ucgen)
+    double fd = S(5, scale);
+    g.lines.push_back({cx - fd, cy + S(10, scale), cx,     cy + S(18, scale)});
+    g.lines.push_back({cx + fd, cy + S(10, scale), cx,     cy + S(18, scale)});
+    g.lines.push_back({cx - fd, cy + S(10, scale), cx + fd, cy + S(10, scale)});
+
+    g.connections.push_back({cx - d, cy, "Gaz"});
+    return g;
+}
+
+// --- Gaz Vanasi (TS EN 331) ---
+SymbolGeometry FixtureSymbolLibrary::MakeGasValve(double scale,
+                                                    double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "GV";
+
+    double r = S(15, scale);
+    g.circles.push_back({cx, cy, r});
+
+    g.lines.push_back({cx - S(40, scale), cy, cx - r, cy});
+    g.lines.push_back({cx + r, cy, cx + S(40, scale), cy});
+
+    // Kol dik = kapali (guvenlik)
+    g.lines.push_back({cx, cy - r, cx, cy + r + S(12, scale)});
+    g.lines.push_back({cx - S(8, scale), cy + r + S(12, scale),
+                        cx + S(8, scale), cy + r + S(12, scale)});
+
+    // Butterfly disk (X isareti ic)
+    g.lines.push_back({cx - S(10, scale), cy - S(10, scale),
+                        cx + S(10, scale), cy + S(10, scale)});
+    g.lines.push_back({cx + S(10, scale), cy - S(10, scale),
+                        cx - S(10, scale), cy + S(10, scale)});
+
+    g.connections.push_back({cx - S(40, scale), cy, "A"});
+    g.connections.push_back({cx + S(40, scale), cy, "B"});
+    return g;
+}
+
+// --- Kazan / Isi Merkezi (EN 12828) ---
+SymbolGeometry FixtureSymbolLibrary::MakeBoiler(double scale,
+                                                 double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "K";
+
+    double hw = S(35, scale);
+    double hh = S(28, scale);
+
+    g.rects.push_back({cx - hw, cy - hh, hw*2, hh*2});
+
+    // Ic yatay cizgiler (isi esanjor tuplerini temsil eder)
+    for (int i = -1; i <= 1; ++i) {
+        double y = cy + i * S(9, scale);
+        g.lines.push_back({cx - hw + S(8, scale), y,
+                           cx + hw - S(8, scale), y});
+    }
+
+    // Alev sembolu (altta)
+    double fy = cy - hh + S(6, scale);
+    g.lines.push_back({cx - S(8, scale), fy, cx, fy + S(10, scale)});
+    g.lines.push_back({cx + S(8, scale), fy, cx, fy + S(10, scale)});
+
+    g.connections.push_back({cx - hw, cy, "Donus"});
+    g.connections.push_back({cx + hw, cy, "Gidis"});
+    g.connections.push_back({cx, cy - hh, "Yakit"});
+    return g;
+}
+
+// --- Panel Radyator (EN 442) ---
+SymbolGeometry FixtureSymbolLibrary::MakeRadiator(double scale,
+                                                    double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "R";
+
+    double hw = S(45, scale);
+    double hh = S(18, scale);
+    double bh = S(5, scale);
+
+    // Ust bant
+    g.rects.push_back({cx - hw, cy + hh - bh, hw*2, bh});
+    // Alt bant
+    g.rects.push_back({cx - hw, cy - hh, hw*2, bh});
+
+    // Fin cizgileri (7 adet -- EN 442 panel)
+    for (int i = 0; i <= 7; ++i) {
+        double x = cx - hw + i * (hw*2) / 7.0;
+        g.lines.push_back({x, cy - hh, x, cy + hh - bh});
+    }
+
+    g.connections.push_back({cx - hw, cy - hh, "Gidis"});
+    g.connections.push_back({cx + hw, cy - hh, "Donus"});
+    return g;
+}
+
+// --- Sicak Su Kaynagi / Sofben ---
+SymbolGeometry FixtureSymbolLibrary::MakeHotSource(double scale,
+                                                     double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "SS";
+
+    double r = S(16, scale);
+    g.circles.push_back({cx, cy, r});
+
+    g.lines.push_back({cx - S(40, scale), cy, cx - r, cy});
+    g.lines.push_back({cx - S(40, scale), cy - S(8, scale),
+                        cx - S(22, scale), cy});
+    g.lines.push_back({cx - S(40, scale), cy + S(8, scale),
+                        cx - S(22, scale), cy});
+
+    // Dalgali isi cizgisi (3 kucuk yay ustte)
+    for (int i = -1; i <= 1; ++i) {
+        double wx = cx + i * S(7, scale);
+        double wy = cy + r + S(4, scale);
+        g.arcs.push_back({wx, wy, S(4, scale), 0, 180});
+    }
+
+    g.connections.push_back({cx + r, cy, "Sicak"});
+    return g;
+}
+
+// --- Sprinkler Basligi (EN 12845) ---
+SymbolGeometry FixtureSymbolLibrary::MakeSprinkler(double scale,
+                                                     double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "Sp";
+
+    double r = S(14, scale);
+    g.circles.push_back({cx, cy, r});
+
+    // Capraz kol (sprinkler cercevesi)
+    g.lines.push_back({cx - S(22, scale), cy, cx + S(22, scale), cy});
+    g.lines.push_back({cx, cy - S(22, scale), cx, cy + S(22, scale)});
+
+    // Su dagilim isaretleri -- 8 yonde
+    for (int i = 0; i < 8; ++i) {
+        double ang = i * PI / 4.0;
+        double r1 = S(24, scale), r2 = S(30, scale);
+        g.lines.push_back({cx + r1 * std::cos(ang), cy + r1 * std::sin(ang),
+                           cx + r2 * std::cos(ang), cy + r2 * std::sin(ang)});
+    }
+
+    // Merkez nokta (deflekter)
+    g.circles.push_back({cx, cy, S(3, scale)});
+
+    g.connections.push_back({cx, cy + S(22, scale), "YH"});
+    return g;
+}
+
+// --- Yangin Pompasi (EN 12845 / NFPA 20) ---
+SymbolGeometry FixtureSymbolLibrary::MakeFirePump(double scale,
+                                                   double cx, double cy) {
+    SymbolGeometry g;
+    g.label = "YP";
+
+    double outerR = S(34, scale);
+    g.circles.push_back({cx, cy, outerR});
+
+    double r = S(22, scale);
+    g.circles.push_back({cx, cy, r});
+
+    double tx = S(12, scale);
+    g.lines.push_back({cx,      cy,      cx + tx, cy - tx});
+    g.lines.push_back({cx + tx, cy - tx, cx + tx, cy + tx});
+    g.lines.push_back({cx + tx, cy + tx, cx,      cy});
+
+    // Yangin gostergesi: dis halkada 4 isaret
+    for (int i = 0; i < 4; ++i) {
+        double ang = i * PI / 2.0 + PI / 4.0;
+        double r1 = outerR - S(4, scale), r2 = outerR + S(4, scale);
+        g.lines.push_back({cx + r1 * std::cos(ang), cy + r1 * std::sin(ang),
+                           cx + r2 * std::cos(ang), cy + r2 * std::sin(ang)});
+    }
+
+    g.connections.push_back({cx - outerR, cy, "Giris"});
+    g.connections.push_back({cx + outerR, cy, "Cikis"});
+    return g;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CIKTI FONKSIYONLARI
 // ═══════════════════════════════════════════════════════════
 
 std::string FixtureSymbolLibrary::ToSVG(const SymbolGeometry& sym,
@@ -431,7 +662,6 @@ std::string FixtureSymbolLibrary::ToSVG(const SymbolGeometry& sym,
            << "\" x2=\""          << l.x2 << "\" y2=\"" << l.y2 << "\"/>\n";
     }
     for (const auto& a : sym.arcs) {
-        // SVG arc path
         double startRad = a.startDeg * PI / 180.0;
         double endRad   = a.endDeg   * PI / 180.0;
         bool   fullCircle = (std::abs(a.endDeg - a.startDeg) >= 360.0);
@@ -453,7 +683,6 @@ std::string FixtureSymbolLibrary::ToSVG(const SymbolGeometry& sym,
     }
 
     if (!sym.label.empty()) {
-        // Etiket — dolu siyah metin, sembolün üstünde
         ss << "  <text x=\"0\" y=\"-8\""
            << " style=\"font-size:8px;fill:" << color
            << ";stroke:none;text-anchor:middle;\">"
