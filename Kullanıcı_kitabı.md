@@ -2340,4 +2340,185 @@ Bu sayede kayıt sırasında çökme olursa dosya bozulmaz.
 
 ---
 
-*VKT v1.0.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*
+---
+
+## Bölüm 41 — HVAC Soğutma/Isıtma Yük Hesabı
+
+### Soğutma Yük Hesabı (ASHRAE CLTD)
+
+VKT, ASHRAE CLTD (Cooling Load Temperature Difference) yöntemiyle soğutma yükü hesaplar:
+
+| Bileşen | Formül |
+|---------|--------|
+| Duvar/Çatı iletimi | Q = U × A × CLTD |
+| Cam güneş yükü | Q = A × SHGC × 630 W/m² |
+| İç yükler (kişi) | Q = n × 75 W (duyulur) |
+| Aydınlatma | Q = W/m² × A |
+| Havalandırma | Q = 1.2 × V × cp × ΔT |
+
+Analiz menüsünden erişilebilir. Sonuçlar kW cinsinden toplam soğutma kapasitesi verir.
+
+### Psikrometrik Hesap
+
+Hava koşullarını analiz eder:
+- **Kuru termometre** (T_db) ve **bağıl nem** (RH) girişi
+- Hesaplanan: nem oranı (W), entalpi (h), özgül hacim (v), çiğ noktası (T_dp), yaş termometre (T_wb)
+- Buck doyma basıncı denklemi kullanır
+
+### Isı Geri Kazanım (ERV)
+
+- Duyulur ve gizli etkinlik katsayıları ile hesap
+- Geri kazanılan ısı (W) ve nem (g/s) miktarı
+
+---
+
+## Bölüm 42 — Fan Seçimi ve Kanal Boyutlandırma
+
+### Fan Kataloğu
+
+VKT 16 gerçek fan modeli içerir:
+
+| Marka | Modeller |
+|-------|----------|
+| Systemair | K 100M, K 160M, K 250, KVO 100, AW 200E |
+| Rosenberg | DRAD 279-4, DRAD 315-4, ERAB 250 |
+| ebm-papst | R2E 133, R2E 175, R4E 250, R4E 310 |
+
+`SuggestFan()` gerekli debi ve basınca göre en uygun fanı seçer. SFP (Specific Fan Power) değeri ile enerji verimliliği karşılaştırması yapılır.
+
+### Kanal Boyutlandırma
+
+- Dairesel ve dikdörtgen kanal desteği
+- Eşit sürtünme yöntemi (EN 13779)
+- Hidrolik çap hesabı: D_h = 4A/P
+- v_max = 5 m/s sınırı
+
+---
+
+## Bölüm 43 — Grafik Raporlar (Chart)
+
+VKT üç tip SVG grafik üretir:
+
+### Bar Grafik — DN Dağılımı
+Tüm boruların DN bazlı uzunluk toplamını çubuk grafikle gösterir. Her DN farklı renkte.
+
+### Çizgi Grafik — Basınç Profili
+Kritik devre boyunca basınç düşümünü gösterir. X ekseni: devre parçaları, Y ekseni: basınç (mSS).
+
+### Pasta Grafik — Malzeme Dağılımı
+Projede kullanılan boru malzemelerinin yüzdesel dağılımını gösterir.
+
+Grafikler `Analiz` menüsünden veya rapor export sırasında otomatik üretilir. SVG formatında kaydedilebilir.
+
+---
+
+## Bölüm 44 — DWG Export
+
+### DWG Uyumlu Çıktı
+
+VKT, DXF R2000 formatında DWG uyumlu çıktı üretir:
+
+| Özellik | Destek |
+|---------|--------|
+| HEADER section | ✅ ACADVER AC1015 |
+| TABLES (Layer) | ✅ ACI renk + layer isim |
+| ENTITIES | ✅ LINE/CIRCLE/ARC/POLYLINE/TEXT |
+| BLOCKS | ✅ BlockRegistry'den |
+
+AutoCAD ve diğer CAD programları bu dosyaları doğrudan açabilir.
+
+**Komut:** `Dosya → DWG Olarak Kaydet` veya `EXPORT-DWG`
+
+---
+
+## Bölüm 45 — IFC Import/Export (BIM)
+
+### IFC Import
+
+VKT, IFC STEP format dosyalarını okuyabilir:
+- **IfcWall** → Line entity olarak
+- **IfcSlab** → Döşeme hatları
+- **IfcPipeSegment** → MEP boru
+- **IfcFlowTerminal** → Armatür node
+
+### IFC Export
+
+IFC2x3 SPF formatında temel hiyerarşi:
+- IfcProject → IfcSite → IfcBuilding → IfcBuildingStorey
+- IfcPipeSegment + IfcFlowTerminal
+
+---
+
+## Bölüm 46 — Çakışma Tespiti ve Çözüm Önerisi
+
+### GPU Clash Detection
+
+Vulkan compute shader ile gerçek zamanlı 3D çakışma analizi. SSBO + atomic counter ile hızlı tespit.
+
+### Çözüm Önerisi
+
+Her çakışma için otomatik çözüm:
+
+| Boru Tipi | Önem | Öneri |
+|-----------|------|-------|
+| Yangın hattı | 1.0 (Kritik) | Diğer boruyu kaydır |
+| Gaz hattı | 0.9 | Z+ offset |
+| Pis su | 0.8 | Eğim koruyarak kaydır |
+| Temiz su | 0.5 | Minimum 50mm clearance |
+
+---
+
+## Bölüm 47 — Fence ve Polygon Seçimi
+
+### Fence Seçimi
+
+AutoCAD benzeri fence (çit) seçimi — polyline çizen kullanıcı, kesişen tüm entity'leri seçer.
+
+### Polygon Seçimi
+
+- **WPolygon**: Poligon içinde tamamen kalan entity'ler
+- **CPolygon**: Poligon ile kesişen veya içinde kalan entity'ler (crossing mode)
+
+Ray casting algoritması ile nokta-poligon testi yapılır.
+
+---
+
+## Bölüm 48 — MDI Çoklu Doküman Sistemi
+
+VKT artık birden fazla projeyi sekme (tab) olarak açabilir:
+- Her sekme bağımsız bir doküman
+- Sekmeler arası hızlı geçiş (tıklama veya Ctrl+Tab)
+- Kapatma butonu (değişiklik varsa kayıt sorusu)
+- Sürükle-bırak ile sekme sırası değiştirme
+
+---
+
+## Bölüm 49 — Teknik Şartname Oluşturma
+
+`SpecGenerator` modülü ile HTML formatında teknik şartname:
+
+1. **Boru Malzeme Şartnamesi** — malzeme+DN bazlı gruplama, toplam metraj
+2. **Armatür Çizelgesi** — tip bazlı sayım (Lavabo/WC/Duş/...)
+3. **Pompa/Ekipman Listesi** — önerilen pompa modeli ve kapasiteler
+4. **Mevzuat Uyum Notu** — otomatik olarak kullanılan standartlar listesi (TS EN 806-3, EN 12056-2, vb.)
+
+**Komut:** `Analiz → Teknik Sartname` veya `SARTNAME`
+
+---
+
+## Bölüm 50 — Kat Bazlı Statik Basınç Raporu
+
+Her kat için hesaplanan değerler:
+
+| Sütun | Açıklama |
+|-------|----------|
+| Kat | Kat numarası ve ismi |
+| Kot (m) | Zemin referansına göre yükseklik |
+| Statik Basınç (mSS) | ρ × g × h |
+| Sürtünme Kaybı (mSS) | Darcy-Weisbach toplam |
+| Gerekli Basınç (mSS) | Statik + sürtünme + min fixture |
+| Node/Edge Sayısı | O kattaki MEP elemanları |
+
+---
+
+*VKT v1.0.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 · ASHRAE · EN 12831 · EN 12845 · EN 15665 · IEC 60364 · TS EN 1775 uyumlu*

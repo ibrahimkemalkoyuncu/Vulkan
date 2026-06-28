@@ -520,6 +520,25 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Thread safety guard'ları** — entity mutation öncesi `WaitForCADBuild()` çağrıları (OnOffset, OnPaste, context menü Delete)
 - **DeleteCADEntitiesCommand StashRemoved** — silinen entity'ler command'a aktarılıyor; Undo/Redo roundtrip doğrulandı
 - **9 entegrasyon testi** — duct rectangular roundtrip, HVAC node types roundtrip, solver error/warning reporting, DeleteCADEntities undo/redo, AddCADEntities undo/redo, atomic save, Edge IsRectangularDuct, AddEdge Duct defaults; **165/165 test geçiyor**
+- **MainWindow refactor (Session 34)** — 9451→5171 satır; 3 ayrı dosya: `MainWindow_Analysis.cpp` (3116 satır, 39 metot), `MainWindow_CADEdit.cpp` (836 satır, 12 metot), `MainWindow_Layer.cpp` (472 satır, 13 metot)
+- **Tesisat hesap motoru 10/10 (Session 34)** — Colebrook-White iterasyon (Haaland başlangıç); geçiş bölgesi Re 2300-4000 interpolasyonu; sıcaklığa bağlı viskozite (Korosi) + yoğunluk (IAPWS-IF97); boru yaşlanma 7 malzeme (Çelik/Galvaniz/Dökme/Bakır/Paslanmaz/Beton/Plastik); DN-bağımlı fitting K değerleri (12 DN step, ASHRAE/Idelchik); DIN 1988-300 tam formül Q=a·FU^b-c (6 bina tipi); WC min DN100 kuralı; drenaj 16 DN boyutu; Newton-Raphson adaptive relaxation + yakınsama uyarısı
+- **Hidrofor interaktif katalog (Session 34)** — marka/kategori filtreli pompa tablosu; 30 model; uygun en küçük pompa yeşil vurgulu; PumpData brand/category alanları
+- **Hesap föyü genişletme (Session 34)** — soğuk su/sıcak su/diğer ayrı bölümler; 11 sütun (Boy/Q_nom/Q_hes/DN hesap/Seçilen DN/v/ΔH); DN değişince satırda v ve ΔH anında yenilenir
+- **Kolon şeması GenerateAuto (Session 34)** — topoloji tabanlı otomatik oluşturma seçeneği
+- **HVAC soğutma yük hesabı (Session 34)** — ASHRAE CLTD: duvar/çatı iletimi, cam güneş yükü (SHGC), iç yükler, havalandırma yükü
+- **Psikrometrik hesap (Session 34)** — Buck doyma basıncı, nem oranı, entalpi, çiğ noktası (Newton-Raphson), yaş termometre (Stull 2011)
+- **ERV ısı geri kazanım (Session 34)** — duyulur+gizli etkinlik modeli
+- **Fan kataloğu (Session 34)** — 16 model (Systemair/Rosenberg/ebm-papst); SuggestFan() debi+basınç bazlı
+- **Oda tipi kütüphanesi (Session 34)** — 18 oda tipi (konut/ticari/hastane/okul/endüstri); ACH, aydınlatma/ekipman yoğunluğu, sıcaklık/nem setpoint
+- **Kat bazlı statik basınç raporu (Session 34)** — FloorPressureResult: statik basınç, sürtünme kaybı, gerekli basınç, node/edge sayısı
+- **SpecGenerator teknik şartname (Session 34)** — HTML format; boru malzeme/armatür/pompa/uyum bölümleri
+- **ChartGenerator grafik raporlar (Session 34)** — Bar (DN dağılımı), Line (basınç profili), Pie (malzeme dağılımı) SVG
+- **DWGWriter export (Session 34)** — DXF R2000 uyumlu; HEADER+TABLES+ENTITIES; Line/Circle/Arc/Polyline/Text
+- **IFC import (Session 34)** — STEP parser; IfcWall/Slab/PipeSegment/FlowTerminal tanıma
+- **Clash çözüm önerisi (Session 34)** — severity bazlı (yangın=1.0, gaz=0.9, pis su=0.8, temiz su=0.5); Z-offset + 50mm clearance
+- **Fence/Polygon selection (Session 34)** — polyline crossing test + WPolygon/CPolygon ray casting
+- **MDI QTabWidget (Session 34)** — closable/movable document tabs
+- **201/201 test geçiyor** (Session 34 sonu)
 
 ### Devam Eden
 
