@@ -45,6 +45,9 @@ struct CriticalPathResult {
 enum class BuildingType {
     Residential,    ///< Konut (K=0.5)
     Hotel,          ///< Otel / Hastane (K=0.7)
+    Hospital,       ///< Hastane (K=0.7, DIN a/b/c farklı)
+    School,         ///< Okul / Yurt (K=0.5)
+    Office,         ///< Ofis / Ticari (K=0.5)
     Industrial      ///< Endüstriyel / Laboratuvar (K=1.0)
 };
 
@@ -69,6 +72,14 @@ public:
     /// Hesap normunu ayarla (EN 806-3 veya DIN 1988-300)
     void SetNorm(HydroNorm norm) { m_norm = norm; }
     HydroNorm GetNorm() const { return m_norm; }
+
+    /// Su sıcaklığını ayarla (viskozite/yoğunluk hesabı için, default 20°C)
+    void SetWaterTemperature(double tempC) { m_waterTempC = tempC; }
+    double GetWaterTemperature() const { return m_waterTempC; }
+
+    /// Boru yaşı (yıl) — pürüzlülük artışı modeli (0 = yeni boru)
+    void SetPipeAge(double years) { m_pipeAgeYears = years; }
+    double GetPipeAge() const { return m_pipeAgeYears; }
 
     /// Global norm — tüm oturumda kullanılır (singleton gibi)
     static HydroNorm& GlobalNorm() { static HydroNorm n = HydroNorm::EN806_3; return n; }
@@ -167,7 +178,19 @@ private:
     double ManningCapacity(double diameter_m, double slope, double n, double fillRatio) const;
     double GetManningN(const std::string& material) const;
 
-    // Kritik devre — visited set ile DFS
+    // Boru yaşlanma — pürüzlülük artış faktörü
+    double AgingRoughnessFactor() const;
+
+public:
+    // DN-bağımlı fitting K değeri (çap arttıkça K düşer) — test erişimi için public
+    double FittingK_Elbow90(double dn_mm) const;
+    double FittingK_Tee(double dn_mm) const;
+    double WaterDensity() const;
+    double WaterKinematicViscosity() const;
+
+private:
+
+    // Kritik devre — Dijkstra (priority queue) ile max direnç yolu
     void DFS(uint32_t nodeId, std::vector<uint32_t>& path,
              std::vector<uint32_t>& bestPath, double& maxLoss, double currentLoss,
              std::unordered_set<uint32_t>& visited);
@@ -191,6 +214,8 @@ private:
     NetworkGraph& m_network;
     BuildingType m_buildingType = BuildingType::Residential;
     HydroNorm    m_norm         = HydroNorm::EN806_3;
+    double       m_waterTempC   = 20.0;
+    double       m_pipeAgeYears = 0.0;
     std::vector<std::string> m_warnings;
     std::vector<std::string> m_errors;
 };

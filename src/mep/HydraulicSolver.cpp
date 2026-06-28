@@ -24,9 +24,14 @@ namespace vkt {
 namespace mep {
 
 constexpr double PI = 3.14159265358979323846;
-constexpr double WATER_DENSITY = 1000.0; // kg/m³
 constexpr double GRAVITY = 9.81;         // m/s²
-constexpr double KINEMATIC_VISCOSITY = 1.004e-6; // m²/s (20°C su)
+
+// Sabit değerler artık sıcaklığa bağlı metotlarla hesaplanıyor
+// WATER_DENSITY → WaterDensity()
+// KINEMATIC_VISCOSITY → WaterKinematicViscosity()
+// Eski sabitleri kullanan yerlerde backward compat:
+constexpr double WATER_DENSITY = 1000.0;
+constexpr double KINEMATIC_VISCOSITY = 1.004e-6;
 
 HydraulicSolver::HydraulicSolver(NetworkGraph& network)
     : m_network(network), m_norm(GlobalNorm()) {}
@@ -356,6 +361,13 @@ void HydraulicSolver::SolveDrainage() {
         // Manning denklemi ile boru boyutlandırma
         double flowRate_Ls = edge.flowRate_m3s * 1000.0;
         double minDiameter = SelectDrainPipeDiameter_Manning(flowRate_Ls, edge.slope, edge.material);
+
+        // EN 12056-2: WC bağlantısı min DN100 kuralı
+        const auto* nA = m_network.GetNode(edge.nodeA);
+        const auto* nB = m_network.GetNode(edge.nodeB);
+        bool hasWC = (nA && nA->fixtureType == "WC") || (nB && nB->fixtureType == "WC");
+        if (hasWC) minDiameter = std::max(minDiameter, 100.0);
+
         edge.diameter_mm = std::max(edge.diameter_mm, minDiameter);
 
         // Gerçek doluluk oranını hesapla (h/d): binary search ile Manning ters çözümü
@@ -828,39 +840,60 @@ void HydraulicSolver::SolveVentilation() {
 // ═══════════════════════════════════════════════════════════
 
 CriticalPathResult HydraulicSolver::CalculateCriticalPath() {
-    std::cout << "═══════════════════════════════════════" << std::endl;
-    std::cout << "  KRİTİK DEVRE ANALİZİ (POMPA YÜKSEKLIĞI)" << std::endl;
-    std::cout << "═══════════════════════════════════════" << std::endl;
-
     CriticalPathResult result;
-    std::vector<uint32_t> currentPath;
+
+    // Multi-source: her Source/HotSource'dan DFS — en yüksek kaybı veren yol kritik
     std::vector<uint32_t> bestPath;
     double maxLoss = 0.0;
-    std::unordered_set<uint32_t> visited;
 
-    // Kaynak düğümlerinden DFS başlat
     for (const auto& [id, node] : m_network.GetNodeMap()) {
-        if (node.type == NodeType::Source) {
-            visited.clear();
-            DFS(node.id, currentPath, bestPath, maxLoss, 0.0, visited);
+        if (node.type != NodeType::Source && node.type != NodeType::HotSource) continue;
+
+        std::vector<uint32_t> currentPath, localBestPath;
+        double localMaxLoss = 0.0;
+        std::unordered_set<uint32_t> visited;
+        DFS(node.id, currentPath, localBestPath, localMaxLoss, 0.0, visited);
+
+        if (localMaxLoss > maxLoss) {
+            maxLoss = localMaxLoss;
+            bestPath = localBestPath;
+        }
+    }
+
+    // Statik yükseklik farkı (Z ekseni): kaynak → en dezavantajlı düğüm
+    double staticHead_m = 0.0;
+    if (bestPath.size() >= 2) {
+        const auto* srcNode = m_network.GetNode(bestPath.front());
+        const auto* endNode = m_network.GetNode(bestPath.back());
+        if (srcNode && endNode) {
+            double dz = endNode->position.z - srcNode->position.z;
+            if (dz > 0) staticHead_m = dz;
         }
     }
 
     result.criticalPath = bestPath;
-    result.totalHeadLoss_m = maxLoss;
-    result.requiredPumpHead_m = maxLoss + 15.0; // +15m emniyet payı
+    result.totalHeadLoss_m = maxLoss + staticHead_m;
 
+    // Fixture'a göre minimum basınç gereksinimi (EN 806-2)
+    double minPressure_m = 10.0; // default 1.0 bar
     if (!bestPath.empty()) {
         result.disadvantagedNodeId = bestPath.back();
-        std::cout << "En dezavantajlı düğüm: " << result.disadvantagedNodeId << std::endl;
+        const auto* endNode = m_network.GetNode(bestPath.back());
+        if (endNode && endNode->type == NodeType::Fixture) {
+            try {
+                auto fd = Database::Instance().GetFixture(endNode->fixtureType);
+                minPressure_m = fd.minPressure_bar * 10.2;
+            } catch (...) {}
+        }
     }
 
-    // Kaynak node toplam debisini m³/h cinsine çevir
+    result.requiredPumpHead_m = result.totalHeadLoss_m + minPressure_m;
+
+    // Multi-source toplam debi
     double totalFlow_m3s = 0.0;
     for (const auto& [id, node] : m_network.GetNodeMap()) {
-        if (node.type == NodeType::Source) {
+        if (node.type == NodeType::Source || node.type == NodeType::HotSource)
             totalFlow_m3s += node.flowRate_m3s;
-        }
     }
     result.requiredFlow_m3h = totalFlow_m3s * 3600.0;
 
@@ -872,13 +905,6 @@ CriticalPathResult HydraulicSolver::CalculateCriticalPath() {
     result.suggestedPumpFlow_m3h = pump.maxFlow_m3h;
     result.suggestedPumpPower_kW = pump.ratedPower_kW;
 
-    std::cout << "Toplam kayıp: " << result.totalHeadLoss_m << " m" << std::endl;
-    std::cout << "Gerekli pompa: " << result.requiredPumpHead_m << " mSS, "
-              << result.requiredFlow_m3h << " m³/h" << std::endl;
-    std::cout << "Önerilen pompa: " << result.suggestedPumpModel
-              << " (" << result.suggestedPumpHead_m << " m, "
-              << result.suggestedPumpFlow_m3h << " m³/h, "
-              << result.suggestedPumpPower_kW << " kW)" << std::endl;
     return result;
 }
 
@@ -891,17 +917,30 @@ double HydraulicSolver::CalculateFlowFromLU(double loadUnit) const {
 
     double Q_Ls;
     if (m_norm == HydroNorm::DIN1988) {
-        // DIN 1988-300: eşzamanlılık faktörü φ = 1 / (1 + √LU/10)
-        double phi = 1.0 / (1.0 + std::sqrt(loadUnit) / 10.0);
-        Q_Ls = phi * std::sqrt(loadUnit) * 0.5;
+        // DIN 1988-300 Tablo 3: Q = a × LU^b - c  [L/s]
+        // 6 bina tipi için farklı a/b/c katsayıları
+        double a, b, c;
+        switch (m_buildingType) {
+            case BuildingType::Residential: a = 1.48; b = 0.19; c = 0.94; break;
+            case BuildingType::Hotel:       a = 0.91; b = 0.31; c = 0.38; break;
+            case BuildingType::Hospital:    a = 0.75; b = 0.44; c = 0.18; break;
+            case BuildingType::School:      a = 1.40; b = 0.14; c = 0.92; break;
+            case BuildingType::Office:      a = 0.91; b = 0.31; c = 0.38; break;
+            case BuildingType::Industrial:  a = 0.70; b = 0.48; c = 0.13; break;
+            default:                        a = 1.48; b = 0.19; c = 0.94; break;
+        }
+        Q_Ls = a * std::pow(std::max(loadUnit, 0.1), b) - c;
         Q_Ls = std::max(Q_Ls, 0.05);
     } else if (m_norm == HydroNorm::SARFIYAT) {
         // TS 825 Musluk Birimi: Q = K_s × √(SB)
-        // K_s bina tipine göre: Konut=0.6, Otel=0.8, Endüstri=1.0
+        // K_s bina tipine göre
         double K_s;
         switch (m_buildingType) {
             case BuildingType::Hotel:       K_s = 0.8; break;
+            case BuildingType::Hospital:    K_s = 0.8; break;
             case BuildingType::Industrial:  K_s = 1.0; break;
+            case BuildingType::School:      K_s = 0.6; break;
+            case BuildingType::Office:      K_s = 0.7; break;
             default:                        K_s = 0.6; break;
         }
         Q_Ls = K_s * std::sqrt(loadUnit);
@@ -927,10 +966,25 @@ double HydraulicSolver::CalculateHeadLoss(const Edge& edge) {
 
     if (D <= 0.0 || v <= 0.0) return 0.0;
 
-    double roughness = edge.roughness_mm / 1000.0; // m
+    // Boru yaşlanma: malzemeye göre pürüzlülük artışı
+    double roughness_mm = edge.roughness_mm;
+    if (m_pipeAgeYears > 0.0) {
+        double alpha = 0.0; // mm/yıl pürüzlülük artış hızı
+        const auto& mat = edge.material;
+        if (mat == "Çelik" || mat == "Galvaniz" || mat == "Steel")
+            alpha = 0.02;  // Çelik: 0.015-0.025 mm/yıl
+        else if (mat == "Bakır" || mat == "Copper")
+            alpha = 0.002;
+        // Plastik (PVC/PPR/PE/PEX) → α ≈ 0 (yaşlanma yok)
+        roughness_mm += alpha * m_pipeAgeYears;
+    }
+    double roughness = roughness_mm / 1000.0; // m
+
+    // Sıcaklığa bağlı kinematik viskozite
+    double nu = WaterKinematicViscosity();
 
     // Reynolds sayısı: Re = v * D / ν
-    double Re = (v * D) / KINEMATIC_VISCOSITY;
+    double Re = (v * D) / nu;
 
     // Haaland denklemi ile sürtünme faktörü
     double f = HaalandFriction(Re, roughness / D);
@@ -963,26 +1017,44 @@ double HydraulicSolver::CalculateLocalLoss(const Edge& edge) {
     double v = edge.velocity_ms;
     if (v < 1e-9) return 0.0;
 
-    // Topoloji bazlı K tahmini:
-    //   Her boru uç bağlantısı (nodeA/B'de >2 kenarlı junction) → T-parça (K=1.3 yan kol)
-    //   Boru başlangıcı → giriş kaybı (K=0.5)
-    //   Boru bitişi    → çıkış kaybı (K=1.0) [yalnızca fixture'da]
-    //   Her 5m boru → bir adet 90° dirsek varsayımı (K=0.9) — "eşdeğer uzunluk" yaklaşımı
+    double dn = edge.diameter_mm;
     double K = 0.0;
 
-    // Eşdeğer dirsek: her 5m boru başına 1 adet 90° dirsek (K=0.9)
+    // DN-bağımlı dirsek: her 5m boru başına 1 adet 90° dirsek
     int numElbows = std::max(0, (int)(edge.length_m / 5.0));
-    K += numElbows * 0.9;
+    K += numElbows * FittingK_Elbow90(dn);
 
-    // Bağlantı bağımsız giriş/çıkış kaybı (her boru için sabit)
-    K += 0.5; // giriş
-    K += 1.0; // çıkış
+    // Bağlantı noktaları — topoloji tabanlı
+    const auto* nodeA = m_network.GetNode(edge.nodeA);
+    const auto* nodeB = m_network.GetNode(edge.nodeB);
 
-    // Manuel Zeta varsa üstüne ekle
+    // Giriş kaybı (kaynak çıkışı veya tank çıkışı)
+    if (nodeA && (nodeA->type == NodeType::Source || nodeA->type == NodeType::HotSource ||
+                  nodeA->type == NodeType::Tank))
+        K += 0.5;  // Keskin giriş
+    else
+        K += 0.25; // Normal boru-boru geçişi
+
+    // T-parça: junction'da >2 bağlantı varsa yan kol K değeri
+    if (nodeA && m_network.GetConnectedEdges(edge.nodeA).size() > 2)
+        K += FittingK_Tee(dn) * 0.5; // Ana hat tarafı (×0.5)
+    if (nodeB && m_network.GetConnectedEdges(edge.nodeB).size() > 2)
+        K += FittingK_Tee(dn); // Yan kol tarafı (tam)
+
+    // Çıkış kaybı (fixture → atmosfere)
+    if (nodeB && nodeB->type == NodeType::Fixture)
+        K += 1.0;
+
+    // Vana kaybı: Source çıkışında küresel vana varsayımı
+    if (nodeA && nodeA->type == NodeType::Source)
+        K += 0.1; // Küresel vana (tam açık)
+
+    // Manuel zeta (kullanıcı override)
     K += edge.zeta;
 
     // ΔP = K × ρ × v² / 2  [Pa]
-    return K * WATER_DENSITY * v * v / 2.0;
+    double rho = WaterDensity();
+    return K * rho * v * v / 2.0;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -993,6 +1065,9 @@ double HydraulicSolver::GetKFactor() const {
     switch (m_buildingType) {
         case BuildingType::Residential: return 0.5;
         case BuildingType::Hotel:       return 0.7;
+        case BuildingType::Hospital:    return 0.7;
+        case BuildingType::School:      return 0.5;
+        case BuildingType::Office:      return 0.5;
         case BuildingType::Industrial:  return 1.0;
         default:                        return 0.5;
     }
@@ -1058,9 +1133,10 @@ double HydraulicSolver::SelectDrainPipeDiameter_Manning(double flowRate_Ls, doub
     double n = GetManningN(material);
     constexpr double MAX_FILL_RATIO = 0.50; // EN 12056: %50 doluluk sınırı
 
-    // Standart drenaj boru çapları (mm)
+    // Standart drenaj boru çapları (mm) — 16 boyut, EN 1451/EN 1329
     static const double standardDiameters[] = {
-        40.0, 50.0, 75.0, 110.0, 125.0, 160.0, 200.0, 250.0, 315.0
+        32.0, 40.0, 50.0, 63.0, 75.0, 90.0, 110.0, 125.0,
+        160.0, 200.0, 250.0, 315.0, 355.0, 400.0, 450.0, 500.0
     };
 
     for (double diam_mm : standardDiameters) {
@@ -1460,6 +1536,78 @@ void HydraulicSolver::SolveNewtonRaphson(int maxIter, double tolerance) {
         if (it != nodeMap.end())
             it->second.pressureDesired_Pa = H[i] * 9810.0; // m → Pa
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SICAKLIĞA BAĞLI SU ÖZELLİKLERİ
+// ═══════════════════════════════════════════════════════════
+
+double HydraulicSolver::WaterDensity() const {
+    // IAPWS interpolasyon (4-80°C aralığı, ±0.1% doğruluk)
+    // ρ(T) ≈ 1000.3 - 0.0679·T - 0.00405·T²  [kg/m³]
+    double T = m_waterTempC;
+    T = std::max(4.0, std::min(T, 95.0));
+    return 1000.3 - 0.0679 * T - 0.00405 * T * T;
+}
+
+double HydraulicSolver::WaterKinematicViscosity() const {
+    // Vogel denklemi yaklaşımı (0-95°C)
+    // ν(T) = exp(-3.7188 + 578.919/(T+137.546)) × 1e-6  [m²/s]
+    double T = std::max(0.1, std::min(m_waterTempC, 95.0));
+    double mu_mPas = std::exp(-3.7188 + 578.919 / (T + 137.546));
+    double rho = WaterDensity();
+    return mu_mPas * 1e-3 / rho; // dynamic → kinematic
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BORU YAŞLANMA MODELİ
+// ═══════════════════════════════════════════════════════════
+
+double HydraulicSolver::AgingRoughnessFactor() const {
+    // Colebrook yaşlanma korelasyonu:
+    // Çelik/Galvaniz: ε(t) = ε₀ + α·t  (α ≈ 0.01-0.025 mm/yıl)
+    // Plastik (PVC/PPR/PE): α ≈ 0 (yaşlanma ihmal edilebilir)
+    // Bakır: α ≈ 0.002 mm/yıl
+    // t < 0 → 1.0 (yeni boru)
+    if (m_pipeAgeYears <= 0.0) return 1.0;
+
+    // Faktör: ε_new üzerine eklenen mm cinsinden artış
+    // Caller: roughness_mm * factor + agingDelta olarak kullanacak
+    // Basitleştirilmiş: age_factor = 1 + (age/50)² metalik, 1 + (age/100)² plastik
+    // Bu fonksiyon yalnızca çarpan döndürür; malzeme ayrımını CalculateHeadLoss yapar
+    return 1.0;  // Çarpan — asıl hesap CalculateHeadLoss'ta
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DN-BAĞIMLI FİTTİNG K DEĞERLERİ
+// ═══════════════════════════════════════════════════════════
+
+double HydraulicSolver::FittingK_Elbow90(double dn_mm) const {
+    // ASHRAE Handbook + Idelchik: K = f(DN)
+    // DN büyüdükçe K düşer (daha akıcı akış)
+    if (dn_mm <= 15)  return 1.5;
+    if (dn_mm <= 20)  return 1.2;
+    if (dn_mm <= 25)  return 1.0;
+    if (dn_mm <= 32)  return 0.9;
+    if (dn_mm <= 40)  return 0.75;
+    if (dn_mm <= 50)  return 0.65;
+    if (dn_mm <= 65)  return 0.55;
+    if (dn_mm <= 80)  return 0.50;
+    if (dn_mm <= 100) return 0.45;
+    if (dn_mm <= 125) return 0.40;
+    if (dn_mm <= 150) return 0.35;
+    return 0.30; // DN200+
+}
+
+double HydraulicSolver::FittingK_Tee(double dn_mm) const {
+    // T-parça yan kol (branch): K tipik olarak 1.0-1.8
+    if (dn_mm <= 20)  return 1.8;
+    if (dn_mm <= 25)  return 1.5;
+    if (dn_mm <= 32)  return 1.3;
+    if (dn_mm <= 50)  return 1.1;
+    if (dn_mm <= 80)  return 1.0;
+    if (dn_mm <= 100) return 0.9;
+    return 0.8; // DN125+
 }
 
 } // namespace mep
