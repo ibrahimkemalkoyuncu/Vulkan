@@ -1861,5 +1861,205 @@ HydraulicSolver::CalculateFloorPressures(const core::FloorManager& fm) const
     return results;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  HVAC GÜRÜLTÜ ANALİZİ (ASHRAE Ch.48)
+// ═══════════════════════════════════════════════════════════
+
+HydraulicSolver::NoiseResult HydraulicSolver::CalculateDuctNoise(
+    double airflow_Ls, double velocity_ms, double ductArea_m2,
+    double roomVolume_m3, double roomAbsorption) const
+{
+    NoiseResult r;
+    if (airflow_Ls <= 0 || velocity_ms <= 0) return r;
+
+    // ASHRAE Handbook: Lw ≈ 10 + 50·log10(v) + 10·log10(A)
+    r.Lw_dB = 10.0 + 50.0 * std::log10(std::max(velocity_ms, 0.1))
+                    + 10.0 * std::log10(std::max(ductArea_m2, 0.001));
+
+    // Oda ses basıncı: Lp = Lw - 10·log10(A_room/Q_room) [dB]
+    // Sabine absorption: A = α × S_room ≈ α × 6 × V^(2/3)
+    double S_room = 6.0 * std::pow(std::max(roomVolume_m3, 1.0), 2.0/3.0);
+    double A_abs = roomAbsorption * S_room;
+    r.Lp_room_dB = r.Lw_dB - 10.0 * std::log10(std::max(A_abs, 0.1) / (4.0 * PI));
+
+    // NC rating (yaklaşık): NC ≈ Lp - 5
+    r.NC_rating = std::max(0.0, r.Lp_room_dB - 5.0);
+
+    if (r.NC_rating <= 25) r.assessment = "Cok iyi (ofis, yatak odasi)";
+    else if (r.NC_rating <= 35) r.assessment = "Kabul edilebilir (genel ofis)";
+    else if (r.NC_rating <= 45) r.assessment = "Yuksek (magaza, lokanta)";
+    else r.assessment = "Cok yuksek — onlem alinmali";
+
+    return r;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BASİT ENERJİ SİMÜLASYONU (Aylık bin-method)
+// ═══════════════════════════════════════════════════════════
+
+HydraulicSolver::AnnualEnergyResult HydraulicSolver::CalculateAnnualEnergy(
+    double floorArea_m2, double envelopeUA_WK, double ventFlow_Ls,
+    int numOccupants, double hotWaterLpd, double heatSP, double coolSP) const
+{
+    AnnualEnergyResult r;
+
+    // Türkiye ortalama aylık sıcaklıklar (İstanbul referans)
+    static const double monthlyTemp[] = {5.3, 5.9, 8.1, 12.4, 17.0, 21.5,
+                                          23.8, 23.5, 19.8, 15.1, 10.6, 7.2};
+
+    double cp_air = 1005.0; // J/(kg·K)
+    double rho_air = 1.2;   // kg/m³
+    double ventW_perK = rho_air * (ventFlow_Ls / 1000.0) * cp_air; // W/K
+
+    for (int m = 0; m < 12; ++m) {
+        double T_out = monthlyTemp[m];
+        double hoursPerMonth = 730.0; // ~365.25*24/12
+
+        // Isıtma
+        double dT_heat = std::max(0.0, heatSP - T_out);
+        double Q_heat_W = (envelopeUA_WK + ventW_perK) * dT_heat;
+        // İç kazanç düşürme: kişi 80W + ekipman 5W/m²
+        double internalGain_W = numOccupants * 80.0 + floorArea_m2 * 5.0;
+        Q_heat_W = std::max(0.0, Q_heat_W - internalGain_W);
+        r.months[m].heating_kWh = Q_heat_W * hoursPerMonth / 1000.0;
+
+        // Soğutma
+        double dT_cool = std::max(0.0, T_out - coolSP);
+        double Q_cool_W = (envelopeUA_WK + ventW_perK) * dT_cool + internalGain_W * 0.5;
+        Q_cool_W = std::max(0.0, Q_cool_W);
+        r.months[m].cooling_kWh = Q_cool_W * hoursPerMonth / 1000.0;
+
+        // Sıcak su: Q = m·cp·ΔT, ΔT = T_hot(60°C) - T_cold(T_out)
+        double dT_hw = 60.0 - std::max(T_out, 5.0);
+        double m_water_kg = numOccupants * hotWaterLpd * 30.0; // aylık
+        r.months[m].hotWater_kWh = m_water_kg * 4.186 * dT_hw / 3600.0;
+
+        // Fan/pompa: toplam yükün %10'u
+        r.months[m].fanPump_kWh = (r.months[m].heating_kWh + r.months[m].cooling_kWh) * 0.10;
+
+        r.months[m].total_kWh = r.months[m].heating_kWh + r.months[m].cooling_kWh
+                               + r.months[m].hotWater_kWh + r.months[m].fanPump_kWh;
+
+        r.annualHeating_kWh += r.months[m].heating_kWh;
+        r.annualCooling_kWh += r.months[m].cooling_kWh;
+        r.annualTotal_kWh   += r.months[m].total_kWh;
+    }
+
+    r.EUI_kWh_m2 = (floorArea_m2 > 0) ? r.annualTotal_kWh / floorArea_m2 : 0;
+    return r;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MEVZUAT UYUM RAPORU
+// ═══════════════════════════════════════════════════════════
+
+std::vector<HydraulicSolver::ComplianceCheck> HydraulicSolver::CheckCompliance() const {
+    std::vector<ComplianceCheck> checks;
+    const auto& nodeMap = m_network.GetNodeMap();
+    const auto& edgeMap = m_network.GetEdgeMap();
+
+    // 1. TS EN 806-2: Min basınç (her fixture'da >= 1.0 bar)
+    {
+        ComplianceCheck c;
+        c.standard = "TS EN 806-2";
+        c.requirement = "Fixture min basinc >= 1.0 bar";
+        c.passed = true;
+        int failCount = 0;
+        for (const auto& [nid, node] : nodeMap) {
+            if (node.type != NodeType::Fixture) continue;
+            if (node.pressureDesired_Pa < 100000.0 && node.pressureDesired_Pa > 0) {
+                c.passed = false;
+                failCount++;
+            }
+        }
+        c.detail = c.passed ? "Tum fixture basinci yeterli"
+                            : (std::to_string(failCount) + " fixture yetersiz basinc");
+        checks.push_back(c);
+    }
+
+    // 2. TS EN 806-3: Max hız <= 2.5 m/s (temiz su)
+    {
+        ComplianceCheck c;
+        c.standard = "TS EN 806-3";
+        c.requirement = "Temiz su max hiz <= 2.5 m/s";
+        c.passed = true;
+        for (const auto& [eid, edge] : edgeMap) {
+            if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
+            if (edge.velocity_ms > 2.5) { c.passed = false; break; }
+        }
+        c.detail = c.passed ? "Tum borularda hiz siniri icinde"
+                            : "Bazi borularda hiz > 2.5 m/s — DN buyutulmeli";
+        checks.push_back(c);
+    }
+
+    // 3. EN 12056-2: Drenaj doluluk <= %50
+    {
+        ComplianceCheck c;
+        c.standard = "EN 12056-2";
+        c.requirement = "Drenaj doluluk h/d <= %50";
+        c.passed = true;
+        for (const auto& [eid, edge] : edgeMap) {
+            if (edge.type != EdgeType::Drainage) continue;
+            if (edge.fillRate > 0.50) { c.passed = false; break; }
+        }
+        c.detail = c.passed ? "Tum drenaj borularinda doluluk siniri icinde"
+                            : "Bazi borularda h/d > %50 — DN buyutulmeli";
+        checks.push_back(c);
+    }
+
+    // 4. TS EN 1775: Gaz max hız <= 2 m/s
+    {
+        bool hasGas = false;
+        ComplianceCheck c;
+        c.standard = "TS EN 1775";
+        c.requirement = "Gaz max hiz <= 2.0 m/s";
+        c.passed = true;
+        for (const auto& [eid, edge] : edgeMap) {
+            if (edge.type != EdgeType::Gas) continue;
+            hasGas = true;
+            if (edge.velocity_ms > 2.0) { c.passed = false; break; }
+        }
+        if (hasGas) {
+            c.detail = c.passed ? "Gaz hizi sinirda" : "Gaz hizi > 2.0 m/s";
+            checks.push_back(c);
+        }
+    }
+
+    // 5. EN 12845: Yangın min basınç 5 bar
+    {
+        bool hasFire = false;
+        ComplianceCheck c;
+        c.standard = "EN 12845";
+        c.requirement = "Yangin hatti min basinc 5 bar";
+        c.passed = true;
+        for (const auto& [eid, edge] : edgeMap) {
+            if (edge.type == EdgeType::FireLine) hasFire = true;
+        }
+        if (hasFire) {
+            c.detail = "Yangin hatti mevcut — basinc kontrolu gerekli";
+            checks.push_back(c);
+        }
+    }
+
+    // 6. WC DN100 kuralı
+    {
+        ComplianceCheck c;
+        c.standard = "EN 12056-2";
+        c.requirement = "WC baglantisi min DN100";
+        c.passed = true;
+        for (const auto& [eid, edge] : edgeMap) {
+            if (edge.type != EdgeType::Drainage) continue;
+            const auto* nA = m_network.GetNode(edge.nodeA);
+            const auto* nB = m_network.GetNode(edge.nodeB);
+            bool hasWC = (nA && nA->fixtureType == "WC") || (nB && nB->fixtureType == "WC");
+            if (hasWC && edge.diameter_mm < 100.0) { c.passed = false; break; }
+        }
+        c.detail = c.passed ? "Tum WC baglantilari DN100+" : "WC baglantisi DN100 altinda";
+        checks.push_back(c);
+    }
+
+    return checks;
+}
+
 } // namespace mep
 } // namespace vkt

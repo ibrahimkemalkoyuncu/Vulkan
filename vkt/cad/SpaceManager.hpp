@@ -268,6 +268,39 @@ public:
      */
     void AssignArchElementsToSpaces(const std::vector<ArchElement>& elements);
 
+    // ==================== OTOMATİK VİTRİFİYE YERLEŞİM ====================
+
+    /**
+     * @struct FixturePlacement
+     * @brief Otomatik fixture yerleşim önerisi
+     */
+    struct FixturePlacement {
+        std::string fixtureType;    ///< "WC", "Lavabo", "Duş", "Küvet" vb.
+        geom::Vec3  position;       ///< Önerilen konum (world)
+        double      rotation_deg = 0; ///< Yön açısı
+        double      loadUnit = 0;   ///< LU değeri
+    };
+
+    /**
+     * @brief Mahal tipine göre gerekli fixture listesi
+     * TS 12514 + FineSANI oda tipi → fixture eşleştirmesi
+     */
+    static std::vector<std::string> GetRequiredFixtures(SpaceType type);
+
+    /**
+     * @brief Otomatik fixture yerleşim önerileri üret
+     * Duvar kenarlarına yakın konumlar, kapıdan uzak, minimum mesafe kuralları
+     * @param space Hedef mahal
+     * @return Yerleşim önerileri listesi
+     */
+    std::vector<FixturePlacement> SuggestFixtureLayout(const Space* space) const;
+
+    /**
+     * @brief Mahal tipine göre RoomTypeData eşleştir
+     * SpaceType enum → RoomTypeData kütüphanesinden detayları al
+     */
+    static const RoomTypeData* GetRoomTypeForSpace(SpaceType type);
+
     // ==================== VALİDASYON ====================
     
     /**

@@ -1366,3 +1366,75 @@ TEST_CASE("IfcImporter returns zero counts for non-existent file", "[ifc]") {
     REQUIRE(!result.warnings.empty());
     REQUIRE(entities.empty());
 }
+
+// ═══════════════════════════════════════════════════════════
+//  HVAC GÜRÜLTÜ + ENERJİ + MEVZUAT + MAHAL TESTLERİ
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("HydraulicSolver - Duct noise analysis", "[hvac][noise]") {
+    NetworkGraph g = CreateSimpleNetwork(1.0);
+    HydraulicSolver solver(g);
+    auto r = solver.CalculateDuctNoise(500.0, 5.0, 0.04, 50.0);
+    REQUIRE(r.Lw_dB > 0);
+    REQUIRE(r.Lp_room_dB > 0);
+    REQUIRE(r.NC_rating >= 0);
+    REQUIRE(!r.assessment.empty());
+}
+
+TEST_CASE("HydraulicSolver - Duct noise zero airflow", "[hvac][noise]") {
+    NetworkGraph g = CreateSimpleNetwork(1.0);
+    HydraulicSolver solver(g);
+    auto r = solver.CalculateDuctNoise(0, 0, 0, 50.0);
+    REQUIRE(r.Lw_dB == 0);
+}
+
+TEST_CASE("HydraulicSolver - Annual energy simulation", "[hvac][energy]") {
+    NetworkGraph g = CreateSimpleNetwork(1.0);
+    HydraulicSolver solver(g);
+    auto r = solver.CalculateAnnualEnergy(100.0, 80.0, 50.0, 4);
+    REQUIRE(r.annualHeating_kWh > 0);
+    REQUIRE(r.annualCooling_kWh > 0);
+    REQUIRE(r.annualTotal_kWh > 0);
+    REQUIRE(r.EUI_kWh_m2 > 0);
+    // 12 aylik veri
+    int nonZeroMonths = 0;
+    for (int m = 0; m < 12; ++m)
+        if (r.months[m].total_kWh > 0) nonZeroMonths++;
+    REQUIRE(nonZeroMonths == 12);
+}
+
+TEST_CASE("HydraulicSolver - Compliance check basic", "[compliance]") {
+    auto g = CreateSimpleNetwork(2.0, 25.0);
+    HydraulicSolver solver(g);
+    solver.Solve();
+    auto checks = solver.CheckCompliance();
+    REQUIRE(checks.size() >= 3); // EN 806-2, EN 806-3, EN 12056-2 minimum
+    for (const auto& c : checks) {
+        REQUIRE(!c.standard.empty());
+        REQUIRE(!c.requirement.empty());
+        REQUIRE(!c.detail.empty());
+    }
+}
+
+TEST_CASE("SpaceManager - GetRequiredFixtures by type", "[space][fixture]") {
+    using namespace vkt::cad;
+    auto bath = SpaceManager::GetRequiredFixtures(SpaceType::Bathroom);
+    REQUIRE(bath.size() >= 3); // WC + Lavabo + Dus minimum
+    auto wc = SpaceManager::GetRequiredFixtures(SpaceType::WC);
+    REQUIRE(wc.size() == 2); // WC + Lavabo
+    auto kitchen = SpaceManager::GetRequiredFixtures(SpaceType::Kitchen);
+    REQUIRE(kitchen.size() >= 1); // Evye minimum
+    auto bedroom = SpaceManager::GetRequiredFixtures(SpaceType::Bedroom);
+    REQUIRE(bedroom.empty()); // islak hacim degil
+}
+
+TEST_CASE("SpaceManager - GetRoomTypeForSpace", "[space]") {
+    using namespace vkt::cad;
+    auto* salon = SpaceManager::GetRoomTypeForSpace(SpaceType::LivingRoom);
+    REQUIRE(salon != nullptr);
+    REQUIRE(salon->name == "Salon");
+    auto* banyo = SpaceManager::GetRoomTypeForSpace(SpaceType::Bathroom);
+    REQUIRE(banyo != nullptr);
+    auto* unknown = SpaceManager::GetRoomTypeForSpace(SpaceType::Void);
+    REQUIRE(unknown == nullptr);
+}

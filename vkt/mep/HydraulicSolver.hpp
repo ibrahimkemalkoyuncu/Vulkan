@@ -9,6 +9,7 @@
 
 #include "NetworkGraph.hpp"
 #include <vector>
+#include <array>
 #include <unordered_set>
 
 namespace vkt { namespace core { class FloorManager; } }
@@ -219,6 +220,57 @@ public:
      */
     ERVResult CalculateERV(double airflow_Ls, double outdoorT, double outdoorRH,
         double indoorT, double indoorRH, double sensEff = 0.75, double latEff = 0.65) const;
+
+    // ═══════════════════════════════════════════════════════════
+    //  HVAC Gürültü Analizi (ASHRAE Handbook Ch.48)
+    // ═══════════════════════════════════════════════════════════
+
+    struct NoiseResult {
+        double Lw_dB = 0;            ///< Ses güç seviyesi (dB)
+        double Lp_room_dB = 0;       ///< Oda içi ses basınç seviyesi (dB)
+        double NC_rating = 0;        ///< Noise Criteria derecesi
+        std::string assessment;       ///< "Kabul edilebilir" / "Yüksek" / "Çok yüksek"
+    };
+
+    NoiseResult CalculateDuctNoise(double airflow_Ls, double velocity_ms,
+        double ductArea_m2, double roomVolume_m3, double roomAbsorption = 0.2) const;
+
+    // ═══════════════════════════════════════════════════════════
+    //  Basit Enerji Simülasyonu (Aylık bin-method)
+    // ═══════════════════════════════════════════════════════════
+
+    struct MonthlyEnergy {
+        double heating_kWh = 0;
+        double cooling_kWh = 0;
+        double hotWater_kWh = 0;
+        double fanPump_kWh = 0;
+        double total_kWh = 0;
+    };
+    struct AnnualEnergyResult {
+        std::array<MonthlyEnergy, 12> months;
+        double annualHeating_kWh = 0;
+        double annualCooling_kWh = 0;
+        double annualTotal_kWh = 0;
+        double EUI_kWh_m2 = 0;       ///< Energy Use Intensity
+    };
+
+    AnnualEnergyResult CalculateAnnualEnergy(
+        double floorArea_m2, double envelopeUA_WK, double ventFlow_Ls,
+        int numOccupants, double hotWaterLpd = 50.0,
+        double heatingSetpoint = 21.0, double coolingSetpoint = 26.0) const;
+
+    // ═══════════════════════════════════════════════════════════
+    //  Mevzuat Uyum Raporu
+    // ═══════════════════════════════════════════════════════════
+
+    struct ComplianceCheck {
+        std::string standard;       ///< "TS EN 806-3", "EN 12056-2" vb.
+        std::string requirement;    ///< "Min basınç 1.0 bar"
+        bool passed = true;
+        std::string detail;         ///< "Tüm fixture'larda basınç >= 1.0 bar"
+    };
+
+    std::vector<ComplianceCheck> CheckCompliance() const;
 
     // ═══════════════════════════════════════════════════════════
     //  Kat Bazlı Statik Basınç Raporu

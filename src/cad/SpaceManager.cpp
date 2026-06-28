@@ -909,4 +909,130 @@ const std::vector<RoomTypeData>& SpaceManager::GetRoomTypeLibrary() {
     return library;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  OTOMATİK VİTRİFİYE YERLEŞİM
+// ═══════════════════════════════════════════════════════════
+
+std::vector<std::string> SpaceManager::GetRequiredFixtures(SpaceType type) {
+    switch (type) {
+        case SpaceType::Bathroom:
+            return {"WC", "Lavabo", "Duş", "Küvet"};
+        case SpaceType::WC:
+            return {"WC", "Lavabo"};
+        case SpaceType::Kitchen:
+            return {"Evye", "Bulaşık Makinesi"};
+        case SpaceType::LaundryRoom:
+            return {"Çamaşır Makinesi", "Evye"};
+        case SpaceType::LivingRoom:
+        case SpaceType::Bedroom:
+        case SpaceType::DiningRoom:
+        case SpaceType::StudyRoom:
+            return {}; // Islak hacim değil
+        case SpaceType::Office:
+            return {}; // Tipik ofiste yok
+        case SpaceType::MeetingRoom:
+            return {};
+        case SpaceType::MechanicalRoom:
+        case SpaceType::BoilerRoom:
+            return {"Evye"};
+        case SpaceType::Corridor:
+        case SpaceType::Balcony:
+        case SpaceType::Terrace:
+        case SpaceType::Storage:
+        case SpaceType::Garage:
+            return {};
+        default:
+            return {};
+    }
+}
+
+std::vector<SpaceManager::FixturePlacement> SpaceManager::SuggestFixtureLayout(const Space* space) const {
+    std::vector<FixturePlacement> placements;
+    if (!space || !space->GetBoundary()) return placements;
+
+    auto fixtures = GetRequiredFixtures(space->GetSpaceType());
+    if (fixtures.empty()) return placements;
+
+    const auto& boundary = *space->GetBoundary();
+    const auto& verts = boundary.GetVertices();
+    if (verts.size() < 3) return placements;
+
+    // Mahal sınırının kenarlarını bul (en uzun kenar = duvar referansı)
+    geom::Vec3 center = space->GetCenter();
+    double area = space->GetArea();
+
+    // Fixture'ları duvar kenarına yakın yerleştir
+    // Strateji: fixture'ları mahalin kenar boyunca eşit aralıklı dağıt
+    // İlk fixture kapıdan en uzak duvar kenarına
+    size_t numFixtures = fixtures.size();
+    double wallOffset = 300.0; // 300mm duvardan mesafe (mm cinsinde)
+
+    for (size_t i = 0; i < numFixtures && i < verts.size(); ++i) {
+        const auto& v0 = verts[i % verts.size()];
+        const auto& v1 = verts[(i + 1) % verts.size()];
+
+        // Kenar orta noktası + içe doğru offset
+        geom::Vec3 mid((v0.pos.x + v1.pos.x) / 2.0, (v0.pos.y + v1.pos.y) / 2.0, v0.pos.z);
+        geom::Vec3 edgeDir(v1.pos.x - v0.pos.x, v1.pos.y - v0.pos.y, 0.0);
+        double edgeLen = std::sqrt(edgeDir.x * edgeDir.x + edgeDir.y * edgeDir.y);
+        if (edgeLen < 100.0) continue;
+
+        geom::Vec3 normal(-edgeDir.y / edgeLen, edgeDir.x / edgeLen, 0.0);
+        geom::Vec3 toCenter(center.x - mid.x, center.y - mid.y, 0.0);
+        double dot = normal.x * toCenter.x + normal.y * toCenter.y;
+        if (dot < 0) { normal.x = -normal.x; normal.y = -normal.y; }
+
+        double rotation = std::atan2(normal.y, normal.x) * 180.0 / M_PI;
+
+        double lu = 0.5;
+        const auto& ftype = fixtures[i];
+        if (ftype == "WC")      lu = 2.0;
+        else if (ftype == "Duş") lu = 1.0;
+        else if (ftype == "Küvet") lu = 3.0;
+        else if (ftype == "Evye")  lu = 1.5;
+        else if (ftype == "Bulaşık Makinesi") lu = 1.5;
+        else if (ftype == "Çamaşır Makinesi") lu = 2.0;
+
+        FixturePlacement fp;
+        fp.fixtureType = ftype;
+        fp.position = geom::Vec3(mid.x + normal.x * wallOffset,
+                                  mid.y + normal.y * wallOffset,
+                                  mid.z);
+        fp.rotation_deg = rotation;
+        fp.loadUnit = lu;
+        placements.push_back(fp);
+    }
+
+    return placements;
+}
+
+const RoomTypeData* SpaceManager::GetRoomTypeForSpace(SpaceType type) {
+    const auto& library = GetRoomTypeLibrary();
+
+    // SpaceType → RoomTypeData isim eşleştirmesi
+    std::string targetName;
+    switch (type) {
+        case SpaceType::LivingRoom:     targetName = "Salon"; break;
+        case SpaceType::Bedroom:        targetName = "Yatak Odasi"; break;
+        case SpaceType::Kitchen:        targetName = "Mutfak"; break;
+        case SpaceType::Bathroom:       targetName = "Banyo"; break;
+        case SpaceType::WC:             targetName = "WC"; break;
+        case SpaceType::DiningRoom:     targetName = "Salon"; break;
+        case SpaceType::Corridor:       targetName = "Koridor"; break;
+        case SpaceType::Office:         targetName = "Ofis"; break;
+        case SpaceType::MeetingRoom:    targetName = "Toplanti Odasi"; break;
+        case SpaceType::MechanicalRoom: targetName = "Makine Dairesi"; break;
+        case SpaceType::BoilerRoom:     targetName = "Makine Dairesi"; break;
+        case SpaceType::LaundryRoom:    targetName = "Banyo"; break;
+        case SpaceType::StudyRoom:      targetName = "Ofis"; break;
+        case SpaceType::Storage:        targetName = "Depo"; break;
+        default: return nullptr;
+    }
+
+    for (const auto& rt : library) {
+        if (rt.name == targetName) return &rt;
+    }
+    return nullptr;
+}
+
 } // namespace vkt::cad
