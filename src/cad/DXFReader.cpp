@@ -17,6 +17,8 @@
 #include "cad/Spline.hpp"
 #include "cad/Text.hpp"
 #include "cad/Hatch.hpp"
+#include "cad/Dimension.hpp"
+#include "cad/Leader.hpp"
 #include <sstream>
 #include <algorithm>
 #include <chrono>
@@ -333,6 +335,8 @@ std::unique_ptr<Entity> DXFReader::ReadEntity(const std::string& entityType) {
     else if (entityType == "TEXT")       return ReadText();
     else if (entityType == "MTEXT")      return ReadMText();
     else if (entityType == "HATCH")      return ReadHatch();
+    else if (entityType == "DIMENSION")  return ReadDimension();
+    else if (entityType == "LEADER")     return ReadLeader();
     else { SkipEntity(); return nullptr; }
 }
 
@@ -521,94 +525,198 @@ std::unique_ptr<Entity> DXFReader::ReadHatch() {
     EntityProps props;
     std::string patternName = "SOLID";
     double patternAngle = 0.0, patternScale = 1.0;
+
+    // We collect the first non-island boundary only (outermost loop).
+    // Island detection: odd boundary paths in DXF are holes; we skip them.
     std::vector<Hatch::BoundaryVertex> boundary;
 
-    // DXF HATCH boundary reading state
-    int boundaryType = 0;    // code 92: boundary path type flags
-    int numEdges = 0;        // code 93: edge count
-    int edgeType = 0;        // code 72 within edge: 1=LINE,2=ARC,3=ELLIPSE,4=SPLINE
-    bool inBoundaryData = false;
+    bool inBoundarySection = false;
     bool inPatternData = false;
-    geom::Vec3 edgePt1, edgePt2; // for LINE edges
-    double edgeCx = 0, edgeCy = 0, edgeR = 0, edgeA0 = 0, edgeA1 = 0;
-    bool edgeCcw = true;
-    int edgeIdx = 0;
+    bool isPolylineBoundary = false;
+    int  boundaryPathIndex = -1; // which boundary we're on
+    bool collectThisPath = false;
+
+    // Edge-type state machine
+    int  edgeType = 0;  // 1=LINE,2=ARC,3=ELLIPSE,4=SPLINE
+    // LINE
+    geom::Vec3 linePt1, linePt2;
+    bool linePt1Set = false;
+    // ARC
+    double arcCx=0, arcCy=0, arcR=0, arcA0=0, arcA1=0;
+    bool arcCcw = true;
+    // ELLIPSE
+    double elCx=0, elCy=0, elMajX=0, elMajY=0, elRatio=1.0, elA0=0, elA1=M_PI*2;
+    bool elCcw = true;
+    // SPLINE — collect fit points
+    std::vector<geom::Vec3> splinePts;
+    bool splineInFitPts = false;
+    geom::Vec3 splineTmpPt;
+    int splineFitCount = 0, splineFitIdx = 0;
+    // POLYLINE boundary vertex
+    geom::Vec3 polyPt;
+    double polyBulge = 0.0;
+    bool polyPtX = false;
+
+    auto flushEdge = [&]() {
+        if (!collectThisPath) return;
+        if (edgeType == 1) {  // LINE: emit start; end emitted when next edge starts
+            boundary.push_back({linePt1});
+        } else if (edgeType == 2) {  // ARC: tessellate
+            double sweep = arcA1 - arcA0;
+            if (arcCcw && sweep < 0) sweep += 360.0;
+            if (!arcCcw && sweep > 0) sweep -= 360.0;
+            sweep = std::abs(sweep);
+            int steps = std::max(6, (int)(sweep / 5.0));
+            for (int k = 0; k < steps; ++k) {
+                double t = (arcA0 + (arcCcw ? 1.0 : -1.0) * sweep * k / steps) * M_PI / 180.0;
+                boundary.push_back({geom::Vec3(arcCx + arcR*std::cos(t),
+                                               arcCy + arcR*std::sin(t), 0.0)});
+            }
+        } else if (edgeType == 3) {  // ELLIPSE: tessellate
+            double majorLen = std::sqrt(elMajX*elMajX + elMajY*elMajY);
+            if (majorLen > 1e-12) {
+                double minorLen = majorLen * elRatio;
+                double rotA = std::atan2(elMajY, elMajX);
+                double sweep = elA1 - elA0;
+                if (elCcw && sweep < 0) sweep += 2*M_PI;
+                if (!elCcw && sweep > 0) sweep -= 2*M_PI;
+                sweep = std::abs(sweep);
+                int steps = std::max(8, (int)(sweep / (M_PI/18)));
+                for (int k = 0; k < steps; ++k) {
+                    double t  = elA0 + (elCcw ? 1.0 : -1.0) * sweep * k / steps;
+                    double lx = majorLen * std::cos(t);
+                    double ly = minorLen * std::sin(t);
+                    boundary.push_back({geom::Vec3(
+                        elCx + lx*std::cos(rotA) - ly*std::sin(rotA),
+                        elCy + lx*std::sin(rotA) + ly*std::cos(rotA), 0.0)});
+                }
+            }
+        } else if (edgeType == 4) {  // SPLINE: linear through fit/control points
+            for (auto& p : splinePts)
+                boundary.push_back({p});
+            splinePts.clear();
+        }
+    };
+
+    auto resetEdge = [&](int type) {
+        flushEdge();
+        edgeType = type;
+        linePt1 = linePt2 = {};
+        linePt1Set = false;
+        arcCx=arcCy=arcR=arcA0=arcA1=0; arcCcw=true;
+        elCx=elCy=elMajX=elMajY=0; elRatio=1.0; elA0=0; elA1=2*M_PI; elCcw=true;
+        splinePts.clear(); splineInFitPts=false; splineFitCount=splineFitIdx=0;
+    };
 
     while (ReadCode(code)) {
         if (code.code == 0) { PushBackCode(code); break; }
         if (ReadEntityProp(code, props)) continue;
 
-        if (code.code == 2)  { patternName = code.value; continue; }
-        if (code.code == 52) { patternAngle = code.AsDouble(); continue; }
-        if (code.code == 41) { patternScale = code.AsDouble(); continue; }
+        if (code.code == 2)  { patternName  = code.value;      continue; }
+        if (code.code == 52) { patternAngle = code.AsDouble();  continue; }
+        if (code.code == 41) { patternScale = code.AsDouble();  continue; }
 
-        // Boundary path header
-        if (code.code == 91) { // number of boundary paths
-            inBoundaryData = true;
+        // Number of boundary paths — enter boundary section
+        if (code.code == 91) {
+            inBoundarySection = true;
             inPatternData = false;
+            boundaryPathIndex = -1;
             continue;
         }
-        if (code.code == 92) { // boundary path type flag
-            boundaryType = code.AsInt();
-            edgeIdx = 0;
+        // Per-path type flag
+        if (code.code == 92 && inBoundarySection) {
+            // Flush last edge of previous path
+            if (collectThisPath && edgeType == 1 && linePt1Set)
+                boundary.push_back({linePt2}); // close LINE sequence
+            if (collectThisPath && edgeType == 4)
+                flushEdge();
+
+            ++boundaryPathIndex;
+            int flag = code.AsInt();
+            isPolylineBoundary = (flag & 0x02) != 0;
+            // Collect only outer boundary (not islands = flag bit 0x10 external boundary)
+            // First path or flag has "external" bit 0x01 → collect; others = holes → skip
+            collectThisPath = (boundaryPathIndex == 0);
+            edgeType = 0;
+            polyPt = {}; polyBulge = 0.0; polyPtX = false;
             continue;
         }
-        if (code.code == 93) { // edge count
-            numEdges = code.AsInt();
+        // Edge count per path
+        if (code.code == 93 && inBoundarySection) {
+            // just informational
             continue;
         }
 
-        // Edge data within boundary
-        if (inBoundaryData) {
-            if (code.code == 72 && !inPatternData) {
-                // flush previous edge if LINE
-                if (edgeType == 1 && edgeIdx > 0) {
-                    boundary.push_back({edgePt1});
+        if (inBoundarySection && !inPatternData) {
+            if (isPolylineBoundary && collectThisPath) {
+                // Polyline boundary: codes 10/20 = vertex, 42 = bulge
+                if (code.code == 10) {
+                    polyPt.x = code.AsDouble(); polyPtX = true;
+                } else if (code.code == 20) {
+                    polyPt.y = code.AsDouble();
+                    if (polyPtX) {
+                        boundary.push_back({geom::Vec3(polyPt.x, polyPt.y, 0.0), 0.0});
+                        polyPtX = false; polyBulge = 0.0;
+                    }
+                } else if (code.code == 42) {
+                    // bulge for the preceding vertex
+                    if (!boundary.empty()) boundary.back().bulge = code.AsDouble();
                 }
-                edgeType = code.AsInt();
-                edgePt1 = edgePt2 = {};
-                edgeCx = edgeCy = edgeR = edgeA0 = edgeA1 = 0;
-                edgeCcw = true;
-                edgeIdx++;
                 continue;
             }
-            if (edgeType == 1) { // LINE
-                if      (code.code == 10) edgePt1.x = code.AsDouble();
-                else if (code.code == 20) edgePt1.y = code.AsDouble();
-                else if (code.code == 11) edgePt2.x = code.AsDouble();
-                else if (code.code == 21) edgePt2.y = code.AsDouble();
-            } else if (edgeType == 2) { // ARC
-                if      (code.code == 10) edgeCx = code.AsDouble();
-                else if (code.code == 20) edgeCy = code.AsDouble();
-                else if (code.code == 40) edgeR  = code.AsDouble();
-                else if (code.code == 50) edgeA0 = code.AsDouble();
-                else if (code.code == 51) edgeA1 = code.AsDouble();
-                else if (code.code == 73) { // flush arc as tessellated points
-                    edgeCcw = code.AsBool();
-                    double sweep = edgeA1 - edgeA0;
-                    if (edgeCcw && sweep < 0) sweep += 360.0;
-                    if (!edgeCcw && sweep > 0) sweep -= 360.0;
-                    sweep = std::abs(sweep);
-                    int steps = std::max(8, (int)(sweep / 5.0)); // 5° per step
-                    for (int k = 0; k < steps; ++k) {
-                        double t = (edgeA0 + (edgeCcw ? 1 : -1) * sweep * k / steps) * M_PI / 180.0;
-                        Hatch::BoundaryVertex v;
-                        v.pos = geom::Vec3(edgeCx + edgeR * std::cos(t),
-                                          edgeCy + edgeR * std::sin(t), 0.0);
-                        boundary.push_back(v);
-                    }
-                }
+
+            // Edge-based boundary: code 72 = edge type
+            if (code.code == 72) {
+                resetEdge(code.AsInt());
+                continue;
+            }
+
+            // LINE edge
+            if (edgeType == 1 && collectThisPath) {
+                if      (code.code == 10) { linePt1.x = code.AsDouble(); }
+                else if (code.code == 20) { linePt1.y = code.AsDouble(); linePt1Set = true;
+                                            boundary.push_back({linePt1}); }
+                else if (code.code == 11) { linePt2.x = code.AsDouble(); }
+                else if (code.code == 21) { linePt2.y = code.AsDouble(); }
+                continue;
+            }
+            // ARC edge
+            if (edgeType == 2 && collectThisPath) {
+                if      (code.code == 10) arcCx = code.AsDouble();
+                else if (code.code == 20) arcCy = code.AsDouble();
+                else if (code.code == 40) arcR  = code.AsDouble();
+                else if (code.code == 50) arcA0 = code.AsDouble();
+                else if (code.code == 51) arcA1 = code.AsDouble();
+                else if (code.code == 73) { arcCcw = code.AsBool(); flushEdge(); edgeType=0; }
+                continue;
+            }
+            // ELLIPSE edge
+            if (edgeType == 3 && collectThisPath) {
+                if      (code.code == 10) elCx   = code.AsDouble();
+                else if (code.code == 20) elCy   = code.AsDouble();
+                else if (code.code == 11) elMajX = code.AsDouble();
+                else if (code.code == 21) elMajY = code.AsDouble();
+                else if (code.code == 40) elRatio= code.AsDouble();
+                else if (code.code == 50) elA0   = code.AsDouble() * M_PI / 180.0;
+                else if (code.code == 51) elA1   = code.AsDouble() * M_PI / 180.0;
+                else if (code.code == 73) { elCcw = code.AsBool(); flushEdge(); edgeType=0; }
+                continue;
+            }
+            // SPLINE edge
+            if (edgeType == 4 && collectThisPath) {
+                if      (code.code == 97) { splineFitCount = code.AsInt(); splinePts.reserve(splineFitCount); splineInFitPts = true; }
+                else if (splineInFitPts && code.code == 10) splineTmpPt.x = code.AsDouble();
+                else if (splineInFitPts && code.code == 20) { splineTmpPt.y = code.AsDouble(); splinePts.push_back(splineTmpPt); }
+                continue;
             }
         }
 
-        // Pattern line data starts (code 78 = number of pattern lines)
-        if (code.code == 78) { inPatternData = true; inBoundaryData = false; }
+        // Pattern data start
+        if (code.code == 78) { inPatternData = true; inBoundarySection = false; }
     }
 
-    // Flush last LINE edge
-    if (edgeType == 1 && !boundary.empty()) {
-        boundary.push_back({edgePt2});
-    }
+    // Flush last edge
+    if (collectThisPath && edgeType == 4) flushEdge();
 
     if (boundary.size() < 3) return nullptr;
     auto h = std::make_unique<Hatch>();
@@ -789,6 +897,97 @@ bool DXFReader::ReadBlocks() {
     }
 
     return true;
+}
+
+std::unique_ptr<Entity> DXFReader::ReadDimension() {
+    DXFCode code;
+    EntityProps props;
+
+    // DXF DIMENSION group codes:
+    // 10,20,30: def_pt (overall definition point)
+    // 11,21,31: text_midpt
+    // 13,23,33: xline1_pt (first extension line origin)
+    // 14,24,34: xline2_pt (second extension line origin)
+    // 15,25,35: radius/diameter arc point
+    // 70: dimension type flags (0=linear, 1=aligned, 2=angular, 3=diameter, 4=radius, 5=angular3pt, 6=ordinate)
+    // 1:  override text
+
+    geom::Vec3 defPt, textMidPt, xline1, xline2, arcPt;
+    std::string overrideText;
+    int dimTypeFlag = 0;
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if      (code.code == 10) defPt.x    = code.AsDouble();
+        else if (code.code == 20) defPt.y    = code.AsDouble();
+        else if (code.code == 30) defPt.z    = code.AsDouble();
+        else if (code.code == 11) textMidPt.x = code.AsDouble();
+        else if (code.code == 21) textMidPt.y = code.AsDouble();
+        else if (code.code == 31) textMidPt.z = code.AsDouble();
+        else if (code.code == 13) xline1.x   = code.AsDouble();
+        else if (code.code == 23) xline1.y   = code.AsDouble();
+        else if (code.code == 33) xline1.z   = code.AsDouble();
+        else if (code.code == 14) xline2.x   = code.AsDouble();
+        else if (code.code == 24) xline2.y   = code.AsDouble();
+        else if (code.code == 34) xline2.z   = code.AsDouble();
+        else if (code.code == 15) arcPt.x    = code.AsDouble();
+        else if (code.code == 25) arcPt.y    = code.AsDouble();
+        else if (code.code == 35) arcPt.z    = code.AsDouble();
+        else if (code.code == 70) dimTypeFlag = code.AsInt() & 0x0F; // low 4 bits = dim type
+        else if (code.code == 1)  overrideText = code.value;
+    }
+
+    geom::Vec3 p1, p2;
+    DimensionType dt = DimensionType::Aligned;
+
+    switch (dimTypeFlag) {
+        case 0: // Rotated/Linear
+            p1 = xline1; p2 = xline2; dt = DimensionType::Linear; break;
+        case 1: // Aligned
+            p1 = xline1; p2 = xline2; dt = DimensionType::Aligned; break;
+        case 3: // Diameter
+            p1 = defPt; p2 = arcPt; dt = DimensionType::Diameter; break;
+        case 4: // Radius
+            p1 = defPt; p2 = arcPt; dt = DimensionType::Radius; break;
+        default: // Angular and others — use xline1/xline2
+            p1 = xline1; p2 = xline2; dt = DimensionType::Aligned; break;
+    }
+
+    // Fallback: if p1==p2 (no xline points found), use defPt
+    double dx = p2.x - p1.x, dy = p2.y - p1.y;
+    if (dx*dx + dy*dy < 1e-10) {
+        p1 = defPt; p2 = arcPt;
+    }
+
+    auto dim = std::make_unique<Dimension>(p1, p2, textMidPt, dt);
+    if (!overrideText.empty()) dim->SetOverrideText(overrideText);
+    ApplyProps(dim.get(), props);
+    return dim;
+}
+
+std::unique_ptr<Entity> DXFReader::ReadLeader() {
+    DXFCode code;
+    EntityProps props;
+    std::vector<geom::Vec3> vertices;
+    geom::Vec3 cur;
+    bool hasX = false;
+
+    while (ReadCode(code)) {
+        if (code.code == 0) { PushBackCode(code); break; }
+        if (ReadEntityProp(code, props)) continue;
+        if (code.code == 10) { cur.x = code.AsDouble(); hasX = true; }
+        else if (code.code == 20) { cur.y = code.AsDouble(); }
+        else if (code.code == 30) {
+            cur.z = code.AsDouble();
+            if (hasX) { vertices.push_back(cur); cur = {}; hasX = false; }
+        }
+    }
+
+    if (vertices.size() < 2) return nullptr;
+    auto ldr = std::make_unique<Leader>(std::move(vertices));
+    ApplyProps(ldr.get(), props);
+    return ldr;
 }
 
 std::unique_ptr<Entity> DXFReader::ReadInsert() {

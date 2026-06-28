@@ -33,6 +33,7 @@ set(TEST_SOURCES
     test_dxf_import.cpp
     test_dwg_colors.cpp
     test_export.cpp
+    test_dxf_roundtrip.cpp
 )
 
 # Test executable
@@ -73,6 +74,7 @@ target_sources(vkt_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cad/Text.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Hatch.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Dimension.cpp
+    ${CMAKE_SOURCE_DIR}/src/cad/Leader.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Space.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/SpaceManager.cpp
 )

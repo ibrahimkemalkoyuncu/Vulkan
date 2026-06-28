@@ -13,6 +13,8 @@
 #include "cad/Polyline.hpp"
 #include "cad/Hatch.hpp"
 #include "cad/Text.hpp"
+#include "cad/Dimension.hpp"
+#include "cad/Leader.hpp"
 #include <sstream>
 #include <chrono>
 #include <cstring>
@@ -406,8 +408,34 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
             entity = ParseHatch(obj);
             if (entity) m_stats.hatchCount++;
             break;
-        default:
+        case DWG_TYPE_DIMENSION_ALIGNED:
+        case DWG_TYPE_DIMENSION_LINEAR:
+        case DWG_TYPE_DIMENSION_ORDINATE:
+        case DWG_TYPE_DIMENSION_ANG3PT:
+        case DWG_TYPE_DIMENSION_ANG2LN:
+        case DWG_TYPE_DIMENSION_RADIUS:
+        case DWG_TYPE_DIMENSION_DIAMETER:
+            entity = ParseDimension(obj);
             break;
+        case DWG_TYPE_LEADER:
+            entity = ParseLeader(obj);
+            break;
+        default:
+            m_stats.skippedCount++;
+            break;
+    }
+
+    // Parse edilen ama NULL dönen entity — failed sayacı
+    if (!entity && obj->type != 0) {
+        // Bilinen tipler NULL döndüyse (parse hatası) — default case'ler hariç
+        switch (obj->type) {
+            case DWG_TYPE_LINE: case DWG_TYPE_CIRCLE: case DWG_TYPE_ARC:
+            case DWG_TYPE_LWPOLYLINE: case DWG_TYPE_TEXT: case DWG_TYPE_MTEXT:
+            case DWG_TYPE_HATCH: case DWG_TYPE_ELLIPSE: case DWG_TYPE_SPLINE:
+                m_stats.failedCount++;
+                break;
+            default: break;
+        }
     }
 
     // Entity'ye renk ve layer bilgisi ata
@@ -1255,6 +1283,113 @@ Entity* DWGReader::ParsePoint(void* obj_ptr) {
     // İkinci çizgiyi doğrudan entities'e ekle
     m_entities.push_back(std::unique_ptr<Entity>(line2));
     return line1; // İlk çizgi ParseEntityByType tarafından eklenir
+}
+
+Entity* DWGReader::ParseDimension(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity) return nullptr;
+
+    geom::Vec3 p1, p2, dimLinePos;
+    std::string userText;
+    DimensionType dimType = DimensionType::Aligned;
+
+    // All dimension types share DIMENSION_COMMON fields via a common cast
+    // Access via the DIMENSION_ALIGNED union member (it's safe as all share COMMON)
+    auto* ent = obj->tio.entity;
+
+    switch (obj->type) {
+        case DWG_TYPE_DIMENSION_ALIGNED: {
+            if (!ent->tio.DIMENSION_ALIGNED) return nullptr;
+            auto* d = ent->tio.DIMENSION_ALIGNED;
+            p1 = geom::Vec3(d->xline1_pt.x, d->xline1_pt.y, 0.0);
+            p2 = geom::Vec3(d->xline2_pt.x, d->xline2_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Aligned;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_LINEAR: {
+            if (!ent->tio.DIMENSION_LINEAR) return nullptr;
+            auto* d = ent->tio.DIMENSION_LINEAR;
+            p1 = geom::Vec3(d->xline1_pt.x, d->xline1_pt.y, 0.0);
+            p2 = geom::Vec3(d->xline2_pt.x, d->xline2_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Linear;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_RADIUS: {
+            if (!ent->tio.DIMENSION_RADIUS) return nullptr;
+            auto* d = ent->tio.DIMENSION_RADIUS;
+            p1 = geom::Vec3(d->def_pt.x, d->def_pt.y, 0.0);      // center
+            p2 = geom::Vec3(d->first_arc_pt.x, d->first_arc_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Radius;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_DIAMETER: {
+            if (!ent->tio.DIMENSION_DIAMETER) return nullptr;
+            auto* d = ent->tio.DIMENSION_DIAMETER;
+            p1 = geom::Vec3(d->def_pt.x, d->def_pt.y, 0.0);
+            p2 = geom::Vec3(d->first_arc_pt.x, d->first_arc_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Diameter;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_ORDINATE: {
+            if (!ent->tio.DIMENSION_ORDINATE) return nullptr;
+            auto* d = ent->tio.DIMENSION_ORDINATE;
+            p1 = geom::Vec3(d->feature_location_pt.x, d->feature_location_pt.y, 0.0);
+            p2 = geom::Vec3(d->leader_endpt.x, d->leader_endpt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Linear;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_ANG3PT: {
+            if (!ent->tio.DIMENSION_ANG3PT) return nullptr;
+            auto* d = ent->tio.DIMENSION_ANG3PT;
+            p1 = geom::Vec3(d->xline1_pt.x, d->xline1_pt.y, 0.0);
+            p2 = geom::Vec3(d->xline2_pt.x, d->xline2_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Aligned;
+            break;
+        }
+        case DWG_TYPE_DIMENSION_ANG2LN: {
+            if (!ent->tio.DIMENSION_ANG2LN) return nullptr;
+            auto* d = ent->tio.DIMENSION_ANG2LN;
+            p1 = geom::Vec3(d->xline1start_pt.x, d->xline1start_pt.y, 0.0);
+            p2 = geom::Vec3(d->xline2end_pt.x, d->xline2end_pt.y, 0.0);
+            dimLinePos = geom::Vec3(d->text_midpt.x, d->text_midpt.y, 0.0);
+            if (d->user_text) userText = d->user_text;
+            dimType = DimensionType::Aligned;
+            break;
+        }
+        default:
+            return nullptr;
+    }
+
+    auto* dim = new Dimension(p1, p2, dimLinePos, dimType);
+    if (!userText.empty()) dim->SetOverrideText(userText);
+    return dim;
+}
+
+Entity* DWGReader::ParseLeader(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.LEADER) return nullptr;
+
+    Dwg_Entity_LEADER* ldr = obj->tio.entity->tio.LEADER;
+    if (!ldr->points || ldr->num_points < 2) return nullptr;
+
+    std::vector<geom::Vec3> verts;
+    verts.reserve(ldr->num_points);
+    for (BITCODE_BL i = 0; i < ldr->num_points; ++i)
+        verts.emplace_back(ldr->points[i].x, ldr->points[i].y, 0.0);
+
+    return new Leader(std::move(verts));
 }
 
 /**

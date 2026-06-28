@@ -9,12 +9,16 @@
 #include "cad/FixtureSymbolLibrary.hpp"
 #include "cad/Line.hpp"
 #include "cad/Circle.hpp"
+#include "cad/Arc.hpp"
 #include "cad/Polyline.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <filesystem>
+#include "../../third_party/nlohmann/json.hpp"
 
 namespace vkt {
 namespace cad {
@@ -724,7 +728,119 @@ FixtureSymbolLibrary::ToEntities(const SymbolGeometry& sym,
         result.push_back(std::move(poly));
     }
 
+    for (const auto& a : sym.arcs) {
+        auto e = std::make_unique<Arc>(
+            geom::Vec3{a.cx, a.cy, 0.0}, a.r,
+            a.startDeg, a.endDeg);
+        e->SetLayerName(layerName);
+        result.push_back(std::move(e));
+    }
+
     return result;
+}
+
+// ── Custom sembol JSON yükleme ────────────────────────────────────────────────
+bool FixtureSymbolLibrary::RegisterCustom(const std::string& jsonPath,
+                                          FixtureSymbolType  type) {
+    std::ifstream f(jsonPath);
+    if (!f.is_open()) return false;
+
+    nlohmann::json j;
+    try { f >> j; } catch (...) { return false; }
+
+    SymbolGeometry geo;
+    geo.label = j.value("label", "?");
+
+    for (const auto& ln : j.value("lines", nlohmann::json::array())) {
+        geo.lines.push_back({ln.value("x1",0.0), ln.value("y1",0.0),
+                              ln.value("x2",0.0), ln.value("y2",0.0)});
+    }
+    for (const auto& ci : j.value("circles", nlohmann::json::array())) {
+        geo.circles.push_back({ci.value("cx",0.0), ci.value("cy",0.0),
+                                ci.value("r",10.0)});
+    }
+    for (const auto& rc : j.value("rects", nlohmann::json::array())) {
+        geo.rects.push_back({rc.value("x",0.0), rc.value("y",0.0),
+                              rc.value("w",0.0), rc.value("h",0.0)});
+    }
+    for (const auto& ar : j.value("arcs", nlohmann::json::array())) {
+        geo.arcs.push_back({ar.value("cx",0.0), ar.value("cy",0.0),
+                             ar.value("r",10.0),
+                             ar.value("startDeg",0.0), ar.value("endDeg",360.0)});
+    }
+
+    int key = static_cast<int>(type);
+    m_factories[key] = [geo](double scale, double cx, double cy) -> SymbolGeometry {
+        SymbolGeometry out = geo;
+        auto applyTransform = [&](double& x, double& y) {
+            x = x * scale + cx;
+            y = y * scale + cy;
+        };
+        for (auto& ln : out.lines) {
+            applyTransform(ln.x1, ln.y1);
+            applyTransform(ln.x2, ln.y2);
+        }
+        for (auto& ci : out.circles) {
+            applyTransform(ci.cx, ci.cy);
+            ci.r *= scale;
+        }
+        for (auto& rc : out.rects) {
+            applyTransform(rc.x, rc.y);
+            rc.w *= scale; rc.h *= scale;
+        }
+        for (auto& ar : out.arcs) {
+            applyTransform(ar.cx, ar.cy);
+            ar.r *= scale;
+        }
+        return out;
+    };
+    return true;
+}
+
+void FixtureSymbolLibrary::LoadCustomDirectory(const std::string& dir) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (entry.path().extension() == ".json") {
+            // Filename prefix determines type: washbasin.json, wc.json, etc.
+            std::string stem = entry.path().stem().string();
+            FixtureSymbolType type = FromLabel(stem);
+            RegisterCustom(entry.path().string(), type);
+        }
+    }
+}
+
+std::vector<FixtureSymbolType> FixtureSymbolLibrary::GetRegisteredTypes() const {
+    std::vector<FixtureSymbolType> types;
+    for (const auto& kv : m_factories)
+        types.push_back(static_cast<FixtureSymbolType>(kv.first));
+    return types;
+}
+
+std::string FixtureSymbolLibrary::GetDisplayName(FixtureSymbolType type) {
+    switch (type) {
+        case FixtureSymbolType::Washbasin:               return "Lavabo";
+        case FixtureSymbolType::WC:                      return "WC / Klozet";
+        case FixtureSymbolType::Shower:                  return "Duş";
+        case FixtureSymbolType::Bathtub:                 return "Küvet";
+        case FixtureSymbolType::DishwasherConnection:    return "Bulaşık Makinesi";
+        case FixtureSymbolType::WashingMachineConnection:return "Çamaşır Makinesi";
+        case FixtureSymbolType::Pump:                    return "Pompa";
+        case FixtureSymbolType::WaterMeter:              return "Su Sayacı";
+        case FixtureSymbolType::GateValve:               return "Sürgülü Vana";
+        case FixtureSymbolType::CheckValve:              return "Çek Valf";
+        case FixtureSymbolType::BallValve:               return "Küresel Vana";
+        case FixtureSymbolType::Drain:                   return "Tahliye";
+        case FixtureSymbolType::Source:                  return "Su Kaynağı";
+        case FixtureSymbolType::Junction:                return "Bağlantı";
+        case FixtureSymbolType::GasAppliance:            return "Gaz Cihazı";
+        case FixtureSymbolType::GasValve:                return "Gaz Vanası";
+        case FixtureSymbolType::Boiler:                  return "Kazan";
+        case FixtureSymbolType::Radiator:                return "Radyatör";
+        case FixtureSymbolType::HotSource:               return "Sıcak Su Kaynağı";
+        case FixtureSymbolType::Sprinkler:               return "Sprinkler";
+        case FixtureSymbolType::FirePump:                return "Yangın Pompası";
+        default:                                         return "Sembol";
+    }
 }
 
 } // namespace cad

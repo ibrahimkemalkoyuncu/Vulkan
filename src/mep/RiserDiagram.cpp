@@ -411,5 +411,159 @@ std::string RiserDiagram::ToText(const RiserDiagramData& data) const {
     return ss.str();
 }
 
+// ═══════════════════════════════════════════════════════════
+//  GenerateAuto — IsColumnEdge() topolojisinden otomatik kolon şeması
+// ═══════════════════════════════════════════════════════════
+RiserDiagramData RiserDiagram::GenerateAuto() const {
+    // İlk adım: dikey boru zincirlerini IsColumnEdge() ile tespit et
+    auto columnEdgeIds = m_network.GetColumnEdges();
+
+    if (columnEdgeIds.empty())
+        return Generate(); // fallback: eski yöntem
+
+    // Dikey boruları XY konumlarına göre grupla
+    // Aynı XY (~100mm tolerans) → aynı kolon
+    struct ColumnGroup {
+        double x = 0, y = 0;
+        std::vector<uint32_t> edgeIds;
+        EdgeType type = EdgeType::Supply;
+        std::string label;
+    };
+    std::vector<ColumnGroup> groups;
+    constexpr double kGroupTol = 100.0; // mm
+
+    for (uint32_t eid : columnEdgeIds) {
+        const Edge* e = m_network.GetEdge(eid);
+        if (!e) continue;
+        const Node* nA = m_network.GetNode(e->nodeA);
+        const Node* nB = m_network.GetNode(e->nodeB);
+        if (!nA || !nB) continue;
+
+        double mx = (nA->position.x + nB->position.x) * 0.5;
+        double my = (nA->position.y + nB->position.y) * 0.5;
+
+        // Mevcut grupta mı?
+        bool found = false;
+        for (auto& g : groups) {
+            double dx = mx - g.x, dy = my - g.y;
+            if (dx*dx + dy*dy < kGroupTol*kGroupTol) {
+                g.edgeIds.push_back(eid);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            ColumnGroup g;
+            g.x = mx; g.y = my;
+            g.edgeIds.push_back(eid);
+            g.type = e->type;
+            groups.push_back(g);
+        }
+    }
+
+    // Grup → RiserColumn dönüşümü
+    std::vector<RiserColumn> columns;
+    int colIdx = 0;
+    for (auto& g : groups) {
+        RiserColumn col;
+        col.pipeType = g.type;
+        col.label = (g.type == EdgeType::Drainage ? "PS-K" : "P-K") + std::to_string(++colIdx);
+
+        // Her edge'in kat aralığını bul
+        for (uint32_t eid : g.edgeIds) {
+            const Edge* e = m_network.GetEdge(eid);
+            if (!e) continue;
+            int flA = InferFloor(e->nodeA);
+            int flB = InferFloor(e->nodeB);
+            int flLow = std::min(flA, flB);
+
+            RiserColumn::FloorSegment seg;
+            seg.floorIndex  = flLow;
+            seg.diameter_mm = static_cast<float>(e->diameter_mm);
+            seg.flowRate_Ls = static_cast<float>(e->flowRate_m3s * 1000.0);
+            col.segments.push_back(seg);
+        }
+
+        if (!col.segments.empty()) {
+            std::sort(col.segments.begin(), col.segments.end(),
+                [](const auto& a, const auto& b) { return a.floorIndex < b.floorIndex; });
+            columns.push_back(std::move(col));
+        }
+    }
+
+    // RiserDiagramData oluştur (Generate() ile aynı render mantığı)
+    RiserDiagramData data;
+    data.columns = std::move(columns);
+
+    int maxFloor = 0, minFloor = 0;
+    for (const auto& col : data.columns) {
+        for (const auto& seg : col.segments) {
+            maxFloor = std::max(maxFloor, seg.floorIndex);
+            minFloor = std::min(minFloor, seg.floorIndex);
+        }
+    }
+    int numFloors = maxFloor - minFloor + 1;
+
+    data.canvasWidth  = MARGIN_LEFT + data.columns.size() * COL_SPACING + 60.0f;
+    data.canvasHeight = MARGIN_TOP  + numFloors * FLOOR_HEIGHT + 60.0f;
+
+    // Kat çizgisi etiketleri
+    for (int fi = minFloor; fi <= maxFloor; ++fi) {
+        float y = MARGIN_TOP + (maxFloor - fi) * FLOOR_HEIGHT;
+        RiserLabel lbl;
+        lbl.x = 5.0f;
+        lbl.y = y + FLOOR_HEIGHT / 2.0f;
+        lbl.fontSize = 9.0f;
+        const core::Floor* fl = m_floors.GetFloor(fi);
+        lbl.text = fl ? fl->label : (fi == 0 ? "Zemin" : std::to_string(fi) + ".Kat");
+        data.labels.push_back(lbl);
+
+        RiserLine hLine;
+        hLine.a = {MARGIN_LEFT - 10.0f, y, 0.8f, 0.8f, 0.8f};
+        hLine.b = {data.canvasWidth,     y, 0.8f, 0.8f, 0.8f};
+        hLine.thickness = 0.5f;
+        data.lines.push_back(hLine);
+    }
+
+    // Kolon dikey çizgileri
+    for (size_t ci = 0; ci < data.columns.size(); ++ci) {
+        const auto& col = data.columns[ci];
+        float x = MARGIN_LEFT + ci * COL_SPACING;
+
+        float r = 0.2f, g = 0.5f, b = 1.0f;
+        if (col.pipeType == EdgeType::Drainage) { r=0.6f; g=0.35f; b=0.1f; }
+        else if (col.pipeType == EdgeType::HotWater) { r=1.0f; g=0.2f; b=0.1f; }
+        else if (col.pipeType == EdgeType::Gas) { r=0.9f; g=0.85f; b=0.0f; }
+
+        for (const auto& seg : col.segments) {
+            float y1 = MARGIN_TOP + (maxFloor - seg.floorIndex) * FLOOR_HEIGHT;
+            float y2 = y1 + FLOOR_HEIGHT;
+            RiserLine vl;
+            vl.a = {x, y1, r, g, b};
+            vl.b = {x, y2, r, g, b};
+            vl.thickness = 2.5f;
+            data.lines.push_back(vl);
+
+            // DN etiketi
+            RiserLabel dl;
+            dl.x = x + 5.0f;
+            dl.y = y1 + FLOOR_HEIGHT * 0.5f;
+            dl.fontSize = 7.0f;
+            dl.text = "DN" + std::to_string((int)seg.diameter_mm);
+            data.labels.push_back(dl);
+        }
+
+        // Kolon başlığı
+        RiserLabel cl;
+        cl.x = x - 10.0f;
+        cl.y = MARGIN_TOP - 15.0f;
+        cl.fontSize = 9.0f;
+        cl.text = col.label;
+        data.labels.push_back(cl);
+    }
+
+    return data;
+}
+
 } // namespace mep
 } // namespace vkt

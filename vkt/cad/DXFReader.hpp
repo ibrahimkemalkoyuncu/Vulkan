@@ -342,6 +342,8 @@ private:
     std::unique_ptr<Entity> ReadText();
     std::unique_ptr<Entity> ReadMText();
     std::unique_ptr<Entity> ReadHatch();
+    std::unique_ptr<Entity> ReadDimension();
+    std::unique_ptr<Entity> ReadLeader();
     
     /**
      * @brief BLOCKS section'ı oku

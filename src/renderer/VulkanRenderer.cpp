@@ -11,6 +11,7 @@
 #include "cad/Spline.hpp"
 #include "cad/Polyline.hpp"
 #include "cad/Dimension.hpp"
+#include "cad/Leader.hpp"
 #include "cad/Hatch.hpp"
 #include "cad/Block.hpp"
 #include <iostream>
@@ -1544,6 +1545,8 @@ std::array<float, 3> VulkanRenderer::GetEdgeColor(mep::EdgeType type, bool isCol
         case mep::EdgeType::Heating:       return {1.0f, 0.3f, 0.05f}; // Kırmızı-turuncu — gidiş
         case mep::EdgeType::HeatingReturn: return {0.2f, 0.4f, 1.0f};  // Mavi — dönüş
         case mep::EdgeType::FireLine:      return {0.8f, 0.0f, 0.0f};  // Koyu kırmızı — yangın
+        case mep::EdgeType::Electric:      return {1.0f, 0.6f, 0.0f};  // Turuncu — elektrik
+        case mep::EdgeType::Duct:          return {0.4f, 0.8f, 0.4f};  // Yeşil — hava kanalı
         default:                           return {0.5f, 0.5f, 0.5f};
     }
 }
@@ -1560,10 +1563,16 @@ void VulkanRenderer::BuildNetworkVertices(const mep::NetworkGraph& network) {
 
     // Edge'ler: Çizgi olarak çiz
     for (const auto& edge : edges) {
-        // Katman görünürlük filtresi
-        if (edge.type == mep::EdgeType::Supply   && !m_showTemizSu) continue;
-        if (edge.type == mep::EdgeType::HotWater && !m_showSicakSu) continue;
-        if (edge.type == mep::EdgeType::Drainage && !m_showPisSu)   continue;
+        // Katman görünürlük filtresi — tüm MEP disiplinleri
+        if (edge.type == mep::EdgeType::Supply        && !m_showTemizSu)  continue;
+        if (edge.type == mep::EdgeType::HotWater      && !m_showSicakSu)  continue;
+        if (edge.type == mep::EdgeType::Drainage       && !m_showPisSu)    continue;
+        if (edge.type == mep::EdgeType::Gas            && !m_showGas)      continue;
+        if (edge.type == mep::EdgeType::Heating        && !m_showHeating)  continue;
+        if (edge.type == mep::EdgeType::HeatingReturn  && !m_showHeating)  continue;
+        if (edge.type == mep::EdgeType::FireLine       && !m_showFire)     continue;
+        if (edge.type == mep::EdgeType::Electric       && !m_showElectric) continue;
+        if (edge.type == mep::EdgeType::Duct           && !m_showDuct)     continue;
 
         const mep::Node* nodeA = network.GetNode(edge.nodeA);
         const mep::Node* nodeB = network.GetNode(edge.nodeB);
@@ -1574,6 +1583,9 @@ void VulkanRenderer::BuildNetworkVertices(const mep::NetworkGraph& network) {
         // Kritik devre override: turuncu-kırmızı
         if (m_criticalPathEdges.count(edge.id))
             color = {1.0f, 0.25f, 0.0f};
+        // Clash highlight override: parlak kırmızı
+        if (m_clashHighlightEdges.count(edge.id))
+            color = {1.0f, 0.0f, 0.0f};
 
         geom::Vertex v1{}, v2{};
         v1.pos[0] = static_cast<float>(nodeA->position.x);
@@ -2306,6 +2318,35 @@ void VulkanRenderer::UpdateCADVertexData(const std::vector<std::unique_ptr<cad::
                 double eux = dex/dlen, euy = dey/dlen;
                 addArrow(ext1x, ext1y,  eux,  euy);  // ext1'den ext2'ye bakan ok
                 addArrow(ext2x, ext2y, -eux, -euy);  // ext2'den ext1'e bakan ok
+            }
+            break;
+        }
+        case cad::EntityType::Leader: {
+            const auto* ldr = static_cast<const cad::Leader*>(entity.get());
+            const auto& verts = ldr->GetVertices();
+            if (verts.size() < 2) break;
+            // Polyline segments
+            for (size_t vi = 0; vi + 1 < verts.size(); ++vi) {
+                addVertex(verts[vi].x, verts[vi].y, verts[vi].z);
+                addVertex(verts[vi+1].x, verts[vi+1].y, verts[vi+1].z);
+            }
+            // Arrowhead: V at first vertex pointing along first segment
+            if (ldr->HasArrowhead() && verts.size() >= 2) {
+                double dx = verts[1].x - verts[0].x;
+                double dy = verts[1].y - verts[0].y;
+                double len = std::sqrt(dx*dx + dy*dy);
+                if (len > 1e-9) {
+                    double ux = dx/len, uy = dy/len;
+                    double nx = -uy, ny = ux;
+                    double arrowLen = 150.0; // 150mm
+                    double x0 = verts[0].x, y0 = verts[0].y, z0 = verts[0].z;
+                    addVertex(x0, y0, z0);
+                    addVertex(x0 + ux*arrowLen + nx*arrowLen*0.25,
+                              y0 + uy*arrowLen + ny*arrowLen*0.25, z0);
+                    addVertex(x0, y0, z0);
+                    addVertex(x0 + ux*arrowLen - nx*arrowLen*0.25,
+                              y0 + uy*arrowLen - ny*arrowLen*0.25, z0);
+                }
             }
             break;
         }

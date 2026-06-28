@@ -100,6 +100,15 @@ public:
     RiserDiagramData Generate() const;
 
     /**
+     * @brief Otomatik kolon şeması — IsColumnEdge() topolojisinden
+     *
+     * NetworkGraph::IsColumnEdge() ile dikey boru zincirlerini tespit eder;
+     * kat bilgisi FloorManager + Z koordinatından çıkarılır; her kolon
+     * için DN, uzunluk, bağlı armatür sayısı hesaplanır.
+     */
+    RiserDiagramData GenerateAuto() const;
+
+    /**
      * @brief SVG formatında kolon şeması
      * @param data Generate() sonucu
      * @return SVG string (dosyaya yazılabilir veya raporun içine gömülebilir)

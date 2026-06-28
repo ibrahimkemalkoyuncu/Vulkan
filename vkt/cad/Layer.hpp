@@ -189,6 +189,13 @@ public:
      */
     static Color GetColorFromACI(int aci);
 
+    /**
+     * @brief Layer grubu / klasörü (ağaç görünümü için)
+     * Örn: "Su Tesisat", "Mimari", "Yangın"
+     */
+    const std::string& GetGroup() const { return m_group; }
+    void SetGroup(const std::string& grp) { m_group = grp; }
+
 private:
     std::string m_name;                     ///< Benzersiz layer ismi
     std::string m_description;              ///< Açıklama
@@ -205,6 +212,7 @@ private:
     bool m_frozen = false;                  ///< Donmuş mu?
     bool m_locked = false;                  ///< Kilitli mi?
     bool m_plottable = true;                ///< Yazdırılabilir mi?
+    std::string m_group;                    ///< Katman grubu / klasörü
 };
 
 /**

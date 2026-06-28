@@ -169,11 +169,16 @@ public:
         m_cadDirty = true; // vertex buffer'ı yeniden oluştur
     }
 
-    /** MEP katman görünürlük filtreleri — Supply/HotWater/Drainage bağımsız gizle */
+    /** MEP katman görünürlük filtreleri — tüm disiplinler bağımsız gizle/göster */
     void SetLayerVisibility(bool showTemizSu, bool showSicakSu, bool showPisSu) {
         m_showTemizSu = showTemizSu;
         m_showSicakSu = showSicakSu;
         m_showPisSu   = showPisSu;
+        m_networkDirty = true;
+    }
+    void SetExtendedVisibility(bool gas, bool heating, bool fire, bool electric, bool duct) {
+        m_showGas = gas; m_showHeating = heating; m_showFire = fire;
+        m_showElectric = electric; m_showDuct = duct;
         m_networkDirty = true;
     }
 
@@ -181,6 +186,17 @@ public:
     void SetCriticalPathEdges(const std::vector<uint32_t>& ids) {
         m_criticalPathEdges.clear();
         for (uint32_t id : ids) m_criticalPathEdges.insert(id);
+        m_networkDirty = true;
+    }
+
+    /** Clash vurgulama — çakışan edge ID'leri kırmızı render edilir */
+    void SetClashHighlightEdges(const std::vector<uint32_t>& ids) {
+        m_clashHighlightEdges.clear();
+        for (uint32_t id : ids) m_clashHighlightEdges.insert(id);
+        m_networkDirty = true;
+    }
+    void ClearClashHighlight() {
+        m_clashHighlightEdges.clear();
         m_networkDirty = true;
     }
 
@@ -363,12 +379,18 @@ private:
     std::unordered_map<std::string, cad::Layer> m_layerMap;
 
     // MEP katman görünürlük filtreleri
-    bool m_showTemizSu = true;
-    bool m_showSicakSu = true;
-    bool m_showPisSu   = true;
+    bool m_showTemizSu  = true;
+    bool m_showSicakSu  = true;
+    bool m_showPisSu    = true;
+    bool m_showGas      = true;
+    bool m_showHeating  = true;
+    bool m_showFire     = true;
+    bool m_showElectric = true;
+    bool m_showDuct     = true;
 
     // Kritik devre vurgulama: bu edge ID'leri farklı renkte çizilir
     std::unordered_set<uint32_t> m_criticalPathEdges;
+    std::unordered_set<uint32_t> m_clashHighlightEdges; ///< Clash detection: kırmızı highlight
 
     // CAD entity seçim vurgulaması
     cad::EntityId                          m_highlightCADEntityId  = 0;  // single-click

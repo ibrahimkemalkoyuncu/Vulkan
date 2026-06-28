@@ -117,11 +117,35 @@ public:
 
     /**
      * @brief Sembolü Entity listesine dönüştür (DXF/Vulkan render için)
-     * @return Line + Circle entity'leri
+     * @return Line + Circle + Arc entity'leri
      */
     static std::vector<std::unique_ptr<Entity>>
         ToEntities(const SymbolGeometry& sym,
                    const std::string& layerName = "VKT-ARMATUR");
+
+    /**
+     * @brief JSON dosyasından kullanıcı tanımlı sembol yükle
+     * @param jsonPath  Sembol tanım dosyası ({"label":"...", "lines":[...], "circles":[...]})
+     * @param type      Sembolü bu tipe ata (örn. kendi FixtureSymbolType enum değeri)
+     * @return true başarılı, false parse hatası
+     */
+    bool RegisterCustom(const std::string& jsonPath, FixtureSymbolType type);
+
+    /**
+     * @brief Tüm custom sembol JSON'larını bir dizinden yükle
+     * @param dir  "custom_symbols/" dizin yolu
+     */
+    void LoadCustomDirectory(const std::string& dir);
+
+    /**
+     * @brief Mevcut tüm kayıtlı tipleri döndür
+     */
+    std::vector<FixtureSymbolType> GetRegisteredTypes() const;
+
+    /**
+     * @brief Verilen tip için görüntü adını döndür
+     */
+    static std::string GetDisplayName(FixtureSymbolType type);
 
 private:
     FixtureSymbolLibrary();

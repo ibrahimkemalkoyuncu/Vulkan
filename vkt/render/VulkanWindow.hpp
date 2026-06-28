@@ -54,6 +54,13 @@ public:
         m_renderer.SetCriticalPathEdges(ids);
     }
 
+    void SetClashHighlightEdges(const std::vector<uint32_t>& ids) {
+        m_renderer.SetClashHighlightEdges(ids);
+    }
+    void ClearClashHighlight() {
+        m_renderer.ClearClashHighlight();
+    }
+
     /// CAD entity referansı (arka plan çizimi)
     void SetCADEntities(const std::vector<std::unique_ptr<cad::Entity>>* entities) {
         m_cadEntities = entities;

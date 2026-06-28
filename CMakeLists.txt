@@ -102,16 +102,21 @@ set(SOURCES
     src/core/Persistence.cpp
     src/core/FloorManager.cpp
     src/core/ProjectManager.cpp
+    src/core/IfcExporter.cpp
     src/core/DocxWriter.cpp
     src/renderer/VulkanRenderer.cpp
     src/renderer/VulkanWindow.cpp
     src/renderer/Gizmo.cpp
     src/ui/MainWindow.cpp
+    src/ui/MainWindow_Analysis.cpp
+    src/ui/MainWindow_CADEdit.cpp
+    src/ui/MainWindow_Layer.cpp
     src/ui/DXFImportDialog.cpp
     src/ui/MimariBelirleDialog.cpp
     src/ui/NewProjectDialog.cpp
     src/ui/FloorAlignmentDialog.cpp
     src/ui/STFixturePanel.cpp
+    src/ui/SymbolPalettePanel.cpp
     src/ui/DevreSecenekleriDialog.cpp
     vkt/ui/DevreSecenekleriDialog.hpp
     src/ui/PreflightCheckDialog.cpp
@@ -144,6 +149,7 @@ set(SOURCES
     src/cad/Viewport.cpp
     src/cad/Space.cpp
     src/cad/Dimension.cpp
+    src/cad/Leader.cpp
     src/cad/Text.cpp
     src/cad/Hatch.cpp
     src/cad/FixtureSymbolLibrary.cpp
@@ -180,6 +186,7 @@ set(HEADERS
     vkt/ui/NewProjectDialog.hpp
     vkt/ui/FloorAlignmentDialog.hpp
     vkt/ui/STFixturePanel.hpp
+    vkt/ui/SymbolPalettePanel.hpp
     vkt/ui/SpacePanel.hpp
     vkt/ui/PrintLayout.hpp
     vkt/ui/PrintLayoutDialog.hpp

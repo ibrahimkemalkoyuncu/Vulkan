@@ -59,7 +59,11 @@ struct DWGStatistics {
     size_t textCount = 0;
     size_t mtextCount = 0;
     size_t hatchCount = 0;
+    size_t dimensionCount = 0;
+    size_t leaderCount = 0;
     size_t insertExpanded = 0;
+    size_t skippedCount = 0;       ///< Desteklenmeyen entity tipi — atlandı
+    size_t failedCount = 0;        ///< Parse edilen ama NULL dönen entity
     double readTimeMs = 0.0;
     std::string dwgVersion;
     
@@ -169,6 +173,8 @@ private:
     Entity* ParseEllipse(void* ent);
     Entity* ParseSpline(void* ent);
     Entity* ParsePoint(void* ent);
+    Entity* ParseDimension(void* ent);
+    Entity* ParseLeader(void* ent);
     void ExpandMInsert(void* obj_ptr, void* dwg_ptr);
     void ExpandMInsertNested(void* obj_ptr, void* dwg_ptr, void* parentChain, int depth);
     

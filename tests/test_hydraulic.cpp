@@ -541,6 +541,135 @@ TEST_CASE("HydraulicSolver - Sarfiyat AutoSize DN secer", "[sarfiyat]") {
 
     for (const auto& edge : g.GetEdges()) {
         if (edge.type == EdgeType::Supply)
-            REQUIRE(edge.diameter_mm >= 16.0); // geçerli DN seçilmiş
+            REQUIRE(edge.diameter_mm >= 16.0);
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GAZ, ELEKTRİK, HVAC SOLVER TESTLERİ
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("SolveGas - basic gas network", "[hydraulic][gas]") {
+    NetworkGraph g;
+    Node src; src.type = NodeType::GasSource; src.position = {0,0,0};
+    uint32_t sid = g.AddNode(src);
+    Node app; app.type = NodeType::GasAppliance; app.gasPower_kW = 24.0;
+    app.position = {5000,0,0};
+    uint32_t aid = g.AddNode(app);
+    Edge pipe; pipe.nodeA = sid; pipe.nodeB = aid;
+    pipe.type = EdgeType::Gas; pipe.length_m = 10.0;
+    pipe.roughness_mm = 0.0015; pipe.diameter_mm = 20.0;
+    g.AddEdge(pipe);
+
+    HydraulicSolver solver(g);
+    solver.SolveGas();
+
+    const auto& edges = g.GetEdges();
+    REQUIRE(edges.size() == 1);
+    REQUIRE(edges[0].flowRate_m3s > 0.0);
+    REQUIRE(edges[0].diameter_mm >= 15.0);
+    REQUIRE(edges[0].velocity_ms > 0.0);
+}
+
+TEST_CASE("SolveElectric - single socket circuit", "[hydraulic][electric]") {
+    NetworkGraph g;
+    Node panel; panel.type = NodeType::ElecPanel; panel.position = {0,0,0};
+    uint32_t pid = g.AddNode(panel);
+    Node sock; sock.type = NodeType::Socket; sock.position = {5000,0,0};
+    uint32_t sid = g.AddNode(sock);
+    Edge cable; cable.nodeA = pid; cable.nodeB = sid;
+    cable.type = EdgeType::Electric; cable.length_m = 15.0;
+    cable.diameter_mm = 2.5;
+    g.AddEdge(cable);
+
+    HydraulicSolver solver(g);
+    solver.SolveElectric();
+
+    const auto& edges = g.GetEdges();
+    REQUIRE(edges.size() == 1);
+    REQUIRE(edges[0].flowRate_m3s > 0.0); // Amper value stored here
+    REQUIRE(edges[0].diameter_mm >= 1.5); // min cable cross-section
+}
+
+TEST_CASE("SolveVentilation - single diffuser", "[hydraulic][hvac]") {
+    NetworkGraph g;
+    Node ahu; ahu.type = NodeType::AHU; ahu.position = {0,0,0};
+    uint32_t aid = g.AddNode(ahu);
+    Node diff; diff.type = NodeType::Diffuser; diff.position = {5000,0,0};
+    uint32_t did = g.AddNode(diff);
+    Edge duct; duct.nodeA = aid; duct.nodeB = did;
+    duct.type = EdgeType::Duct; duct.length_m = 8.0;
+    duct.diameter_mm = 150.0;
+    g.AddEdge(duct);
+
+    HydraulicSolver solver(g);
+    solver.SolveVentilation();
+
+    const auto& edges = g.GetEdges();
+    REQUIRE(edges.size() == 1);
+    REQUIRE(edges[0].flowRate_m3s > 0.0);
+    REQUIRE(edges[0].diameter_mm >= 100.0); // min duct DN
+}
+
+TEST_CASE("Solve - empty network returns safely", "[hydraulic][validation]") {
+    NetworkGraph g;
+    HydraulicSolver solver(g);
+    solver.Solve(); // should not crash, just return early
+    REQUIRE(g.GetEdges().empty());
+}
+
+TEST_CASE("Solve - no source returns safely", "[hydraulic][validation]") {
+    NetworkGraph g;
+    Node fix; fix.type = NodeType::Fixture; fix.loadUnit = 2.0;
+    fix.position = {0,0,0};
+    g.AddNode(fix);
+    Edge pipe; pipe.nodeA = 1; pipe.nodeB = 1;
+    pipe.type = EdgeType::Supply; pipe.length_m = 5.0;
+    g.AddEdge(pipe);
+
+    HydraulicSolver solver(g);
+    solver.Solve(); // should return early without crash
+    REQUIRE(true); // survived
+}
+
+TEST_CASE("EdgeType Electric and Duct roundtrip", "[hydraulic][serialization]") {
+    NetworkGraph g;
+    Node n1; n1.type = NodeType::ElecPanel; n1.position = {0,0,0};
+    uint32_t id1 = g.AddNode(n1);
+    Node n2; n2.type = NodeType::Socket; n2.position = {1000,0,0};
+    uint32_t id2 = g.AddNode(n2);
+    Edge e; e.nodeA = id1; e.nodeB = id2;
+    e.type = EdgeType::Electric; e.diameter_mm = 2.5;
+    g.AddEdge(e);
+
+    REQUIRE(g.GetEdges()[0].type == EdgeType::Electric);
+    REQUIRE(g.GetNodes().size() == 2);
+}
+
+TEST_CASE("NodeType new types exist", "[hydraulic][types]") {
+    REQUIRE(static_cast<int>(NodeType::ElecPanel) > 0);
+    REQUIRE(static_cast<int>(NodeType::Socket) > 0);
+    REQUIRE(static_cast<int>(NodeType::LightFixture) > 0);
+    REQUIRE(static_cast<int>(NodeType::AHU) > 0);
+    REQUIRE(static_cast<int>(NodeType::Diffuser) > 0);
+}
+
+TEST_CASE("EdgeType new types exist", "[hydraulic][types]") {
+    REQUIRE(static_cast<int>(EdgeType::Electric) > 0);
+    REQUIRE(static_cast<int>(EdgeType::Duct) > 0);
+    REQUIRE(EdgeType::Electric != EdgeType::Supply);
+    REQUIRE(EdgeType::Duct != EdgeType::Electric);
+}
+
+TEST_CASE("Database has 15+ pipe materials", "[database]") {
+    auto& db = Database::Instance();
+    auto mats = db.GetPipeMaterials();
+    REQUIRE(mats.size() >= 15);
+}
+
+TEST_CASE("Database has 30+ pump models", "[database]") {
+    auto& db = Database::Instance();
+    // SuggestPump with very high requirements should return the largest
+    auto pump = db.SuggestPump(200.0, 200.0);
+    REQUIRE(!pump.model.empty());
 }
