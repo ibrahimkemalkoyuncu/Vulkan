@@ -102,5 +102,54 @@ bool ClashEngine::CheckIntersection(const Edge& pipe, const cad::Entity* arch,
     return false;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  CLASH RESOLUTION SUGGESTIONS
+// ═══════════════════════════════════════════════════════════
+
+std::vector<ClashResolution> SuggestResolutions(
+    const std::vector<ClashResult>& clashes,
+    const NetworkGraph& network)
+{
+    std::vector<ClashResolution> resolutions;
+
+    for (const auto& clash : clashes) {
+        ClashResolution res;
+        res.entityId = clash.edgeId;
+
+        // Get pipe info for severity and offset calculation
+        const Edge* edge = network.GetEdge(clash.edgeId);
+        double dn = edge ? edge->diameter_mm : 25.0;
+        EdgeType etype = edge ? edge->type : EdgeType::Supply;
+
+        // Severity based on pipe type
+        switch (etype) {
+            case EdgeType::FireLine:     res.severity = 1.0; break;
+            case EdgeType::Drainage:     res.severity = 0.8; break;
+            case EdgeType::Gas:          res.severity = 0.9; break;
+            case EdgeType::Heating:
+            case EdgeType::HeatingReturn:res.severity = 0.6; break;
+            case EdgeType::Supply:
+            case EdgeType::HotWater:     res.severity = 0.5; break;
+            default:                     res.severity = 0.4; break;
+        }
+
+        // Offset: overlap + 50mm clearance, move upward (Z+)
+        double offsetMM = clash.overlapAmount_mm + 50.0;
+        double offsetM = offsetMM / 1000.0;
+        res.suggestedOffset = {0.0, 0.0, offsetM};
+
+        // Description
+        int dnInt = static_cast<int>(dn);
+        res.description = "Boru #" + std::to_string(clash.edgeId) +
+                          " (DN" + std::to_string(dnInt) +
+                          ") yukari " + std::to_string(static_cast<int>(offsetMM)) +
+                          "mm kaydirin";
+
+        resolutions.push_back(res);
+    }
+
+    return resolutions;
+}
+
 } // namespace mep
 } // namespace vkt

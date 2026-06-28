@@ -12,6 +12,7 @@
 
 #include "mep/HydraulicSolver.hpp"
 #include "mep/Database.hpp"
+#include "core/FloorManager.hpp"
 #include <cmath>
 #include <algorithm>
 #include <functional>
@@ -1652,6 +1653,212 @@ double HydraulicSolver::FittingK_Tee(double dn_mm) const {
     if (dn_mm <= 80)  return 1.0;
     if (dn_mm <= 100) return 0.9;
     return 0.8; // DN125+
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HVAC ENGINE — Sogutma Yuku / Psikrometri / ERV
+// ═══════════════════════════════════════════════════════════
+
+HydraulicSolver::CoolingLoadResult HydraulicSolver::CalculateCoolingLoad(
+    double area_m2, double wallU, double roofU,
+    double glassArea_m2, double SHGC, int numPeople, double equipW,
+    double lightWm2, double outdoorTempC, double indoorTempC) const
+{
+    CoolingLoadResult result;
+
+    double deltaT = outdoorTempC - indoorTempC;
+    double CLTD = deltaT * 1.1; // ASHRAE CLTD summer correction
+    if (CLTD < 0) CLTD = 0;
+
+    // Q_wall: duvar+cati iletim (U x A x CLTD)
+    // Assume wall area = perimeter * height ~ sqrt(area)*4*3m, roof = area
+    double wallArea_m2 = std::sqrt(area_m2) * 4.0 * 3.0; // approximate
+    result.Q_wall_W = (wallU * wallArea_m2 + roofU * area_m2) * CLTD;
+
+    // Q_glass: cam gunes yuku (A_glass x SHGC x peak_solar)
+    constexpr double peakSolar_Wm2 = 630.0; // W/m2 peak summer
+    result.Q_glass_W = glassArea_m2 * SHGC * peakSolar_Wm2;
+
+    // Q_internal: ic yukler
+    double Q_people = numPeople * 75.0; // 75W sensible per person
+    double Q_equip  = equipW;
+    double Q_light  = lightWm2 * area_m2;
+    result.Q_internal_W = Q_people + Q_equip + Q_light;
+
+    // Q_ventilation: taze hava yuku
+    // Airflow = 10 L/s per person (ASHRAE 62.1)
+    double airflow_Ls = numPeople * 10.0;
+    double airflow_m3s = airflow_Ls / 1000.0;
+    constexpr double rho_air = 1.2;   // kg/m3
+    constexpr double cp_air  = 1006.0; // J/(kg.K)
+    result.Q_ventilation_W = rho_air * airflow_m3s * cp_air * (deltaT > 0 ? deltaT : 0);
+
+    result.Q_total_W = result.Q_wall_W + result.Q_glass_W
+                     + result.Q_internal_W + result.Q_ventilation_W;
+
+    return result;
+}
+
+HydraulicSolver::PsychrometricState HydraulicSolver::CalcPsychrometric(
+    double T_db, double RH, double P_atm)
+{
+    PsychrometricState state;
+    state.T_db = T_db;
+    state.RH = RH;
+
+    // Antoine equation — saturation pressure (Pa)
+    // Using Buck equation: Psat = 611.21 * exp((18.678 - T/234.5) * T / (257.14 + T))
+    auto satPressure = [](double T) -> double {
+        return 611.21 * std::exp((18.678 - T / 234.5) * T / (257.14 + T));
+    };
+
+    double Psat = satPressure(T_db);
+    double Pv = RH * Psat; // actual vapor pressure
+
+    // Humidity ratio W (kg water / kg dry air)
+    state.W = 0.62198 * Pv / (P_atm - Pv);
+    if (state.W < 0) state.W = 0;
+
+    // Enthalpy h (kJ/kg dry air)
+    state.h = 1.006 * T_db + state.W * (2501.0 + 1.86 * T_db);
+
+    // Specific volume v (m3/kg dry air)
+    double T_K = T_db + 273.15;
+    state.v = 287.058 * T_K / (P_atm - Pv) * (1.0 + 1.6078 * state.W);
+    // Simplify: v = Ra*T / (P-Pv), typical 0.82-0.88 range
+    if (state.v < 0.5) state.v = 0.84; // sanity fallback
+
+    // Dew point T_dp — iterative: find T where Psat(T) = Pv
+    if (Pv > 0) {
+        // Magnus approximation inverse: T_dp = 257.14 * ln(Pv/611.21) / (18.678 - ln(Pv/611.21))
+        // More accurate iterative approach
+        double lnRatio = std::log(Pv / 611.21);
+        // Solve: (18.678 - T/234.5) * T / (257.14 + T) = lnRatio
+        // Use Newton-Raphson with initial guess
+        double Tdp = 257.14 * lnRatio / (18.678 - lnRatio);
+        // Refine with a few Newton iterations
+        for (int i = 0; i < 10; ++i) {
+            double Ps = satPressure(Tdp);
+            double dPs = Ps * ((18.678 - 2.0 * Tdp / 234.5) * (257.14 + Tdp)
+                             - (18.678 - Tdp / 234.5) * Tdp)
+                        / ((257.14 + Tdp) * (257.14 + Tdp));
+            double err = Ps - Pv;
+            if (std::abs(err) < 0.01) break;
+            Tdp -= err / dPs;
+        }
+        state.T_dp = Tdp;
+    } else {
+        state.T_dp = -40.0;
+    }
+
+    // Wet bulb T_wb — simplified approximation (Stull 2011)
+    // T_wb = T*atan(0.151977*(RH%+8.313659)^0.5) + atan(T+RH%) - atan(RH%-1.676331)
+    //        + 0.00391838*(RH%)^1.5 * atan(0.023101*RH%) - 4.686035
+    double RH_pct = RH * 100.0;
+    state.T_wb = T_db * std::atan(0.151977 * std::sqrt(RH_pct + 8.313659))
+               + std::atan(T_db + RH_pct)
+               - std::atan(RH_pct - 1.676331)
+               + 0.00391838 * std::pow(RH_pct, 1.5) * std::atan(0.023101 * RH_pct)
+               - 4.686035;
+
+    return state;
+}
+
+HydraulicSolver::ERVResult HydraulicSolver::CalculateERV(
+    double airflow_Ls, double outdoorT, double outdoorRH,
+    double indoorT, double indoorRH, double sensEff, double latEff) const
+{
+    ERVResult result;
+    result.sensibleEff = sensEff;
+    result.latentEff = latEff;
+
+    double airflow_m3s = airflow_Ls / 1000.0;
+    constexpr double rho_air = 1.2;   // kg/m3
+    constexpr double cp_air  = 1006.0; // J/(kg.K)
+
+    // Sensible heat recovered
+    double deltaT = outdoorT - indoorT;
+    result.heatRecovered_W = sensEff * rho_air * airflow_m3s * cp_air * std::abs(deltaT);
+
+    // Latent heat — moisture transfer
+    auto psyOutdoor = CalcPsychrometric(outdoorT, outdoorRH);
+    auto psyIndoor  = CalcPsychrometric(indoorT, indoorRH);
+    double deltaW = std::abs(psyOutdoor.W - psyIndoor.W); // kg/kg
+    double massFlow_kgs = rho_air * airflow_m3s;
+    result.moistureRecovered_gs = latEff * massFlow_kgs * deltaW * 1000.0; // g/s
+
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Kat Bazli Statik Basinc Raporu
+// ═══════════════════════════════════════════════════════════
+
+std::vector<HydraulicSolver::FloorPressureResult>
+HydraulicSolver::CalculateFloorPressures(const core::FloorManager& fm) const
+{
+    std::vector<FloorPressureResult> results;
+    if (fm.GetFloorCount() == 0) return results;
+
+    // Find lowest source elevation as reference
+    double refElevation = 1e9;
+    for (const auto& [id, node] : m_network.GetNodeMap()) {
+        if (node.type == NodeType::Source || node.type == NodeType::HotSource) {
+            double z_m = node.position.z / 1000.0; // mm to m
+            if (z_m < refElevation) refElevation = z_m;
+        }
+    }
+    if (refElevation > 1e8) refElevation = 0; // no source found
+
+    const auto& floors = fm.GetFloors();
+    for (const auto& floor : floors) {
+        FloorPressureResult fpr;
+        fpr.floorIndex = floor.index;
+        fpr.floorName = floor.label;
+        fpr.elevation_m = floor.elevation_m;
+
+        // Static pressure: rho * g * h (in meters of water column)
+        double heightAboveRef = floor.elevation_m - refElevation;
+        if (heightAboveRef < 0) heightAboveRef = 0;
+        fpr.staticPressure_mSS = heightAboveRef; // 1 m water = 1 mSS
+
+        // Count nodes and edges on this floor
+        fpr.nodeCount = 0;
+        fpr.edgeCount = 0;
+        double totalFriction = 0;
+        int frictionCount = 0;
+
+        for (const auto& [id, node] : m_network.GetNodeMap()) {
+            int nodeFloor = fm.GetFloorOfNode(id);
+            if (nodeFloor == floor.index) {
+                fpr.nodeCount++;
+            }
+        }
+
+        for (const auto& [id, edge] : m_network.GetEdgeMap()) {
+            // Check if edge belongs to this floor (both nodes on same floor)
+            const auto* nA = m_network.GetNode(edge.nodeA);
+            const auto* nB = m_network.GetNode(edge.nodeB);
+            if (!nA || !nB) continue;
+
+            int floorA = fm.GetFloorOfNode(edge.nodeA);
+            int floorB = fm.GetFloorOfNode(edge.nodeB);
+            if (floorA == floor.index || floorB == floor.index) {
+                fpr.edgeCount++;
+                if (edge.headLoss_m > 0) {
+                    totalFriction += edge.headLoss_m;
+                    frictionCount++;
+                }
+            }
+        }
+
+        fpr.frictionLoss_mSS = totalFriction;
+        fpr.requiredPressure_mSS = fpr.staticPressure_mSS + fpr.frictionLoss_mSS;
+
+        results.push_back(fpr);
+    }
+
+    return results;
 }
 
 } // namespace mep

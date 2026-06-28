@@ -11,6 +11,8 @@
 #include <vector>
 #include <unordered_set>
 
+namespace vkt { namespace core { class FloorManager; } }
+
 namespace vkt {
 namespace mep {
 
@@ -155,6 +157,92 @@ public:
      * @brief Kritik devre analizi (Pompa yüksekliği)
      */
     CriticalPathResult CalculateCriticalPath();
+
+    // ═══════════════════════════════════════════════════════════
+    //  HVAC ENGINE — Soğutma Yükü / Psikrometri / ERV
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * @struct CoolingLoadResult
+     * @brief ASHRAE CLTD yöntemiyle soğutma yükü bileşenleri
+     */
+    struct CoolingLoadResult {
+        double Q_wall_W = 0;       ///< Duvar/çatı iletim yükü (W)
+        double Q_glass_W = 0;      ///< Cam güneş yükü — SHGC (W)
+        double Q_internal_W = 0;   ///< İç yükler: kişi + ekipman + aydınlatma (W)
+        double Q_ventilation_W = 0;///< Taze hava yükü (W)
+        double Q_total_W = 0;      ///< Toplam soğutma yükü (W)
+    };
+
+    /**
+     * @brief ASHRAE CLTD yöntemiyle soğutma yükü hesabı
+     */
+    CoolingLoadResult CalculateCoolingLoad(double area_m2, double wallU, double roofU,
+        double glassArea_m2, double SHGC, int numPeople, double equipW,
+        double lightWm2, double outdoorTempC, double indoorTempC) const;
+
+    /**
+     * @struct PsychrometricState
+     * @brief Psikrometrik durum noktası
+     */
+    struct PsychrometricState {
+        double T_db = 20.0;     ///< Kuru termometre sıcaklığı (°C)
+        double T_wb = 14.0;     ///< Yaş termometre sıcaklığı (°C)
+        double RH = 0.50;       ///< Bağıl nem (0-1)
+        double W = 0.0073;      ///< Nem oranı (kg/kg)
+        double h = 38.5;        ///< Entalpi (kJ/kg)
+        double v = 0.84;        ///< Özgül hacim (m³/kg)
+        double T_dp = 9.3;      ///< Çiğ noktası sıcaklığı (°C)
+    };
+
+    /**
+     * @brief Psikrometrik hesaplama (Antoine denklemi tabanlı)
+     * @param T_db Kuru termometre sıcaklığı (°C)
+     * @param RH Bağıl nem (0-1)
+     * @param P_atm Atmosfer basıncı (Pa), default 101325
+     */
+    static PsychrometricState CalcPsychrometric(double T_db, double RH, double P_atm = 101325.0);
+
+    /**
+     * @struct ERVResult
+     * @brief Enerji Geri Kazanım Ventilasyon sonucu
+     */
+    struct ERVResult {
+        double sensibleEff = 0.75;      ///< Duyulabilir etkinlik
+        double latentEff = 0.65;        ///< Gizli ısı etkinliği
+        double heatRecovered_W = 0;     ///< Geri kazanılan ısı (W)
+        double moistureRecovered_gs = 0;///< Geri kazanılan nem (g/s)
+    };
+
+    /**
+     * @brief ERV (Enerji Geri Kazanım) hesabı
+     */
+    ERVResult CalculateERV(double airflow_Ls, double outdoorT, double outdoorRH,
+        double indoorT, double indoorRH, double sensEff = 0.75, double latEff = 0.65) const;
+
+    // ═══════════════════════════════════════════════════════════
+    //  Kat Bazlı Statik Basınç Raporu
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * @struct FloorPressureResult
+     * @brief Kat bazlı basınç analiz sonucu
+     */
+    struct FloorPressureResult {
+        int floorIndex = 0;
+        std::string floorName;
+        double elevation_m = 0;
+        double staticPressure_mSS = 0;   ///< ρgh statik basınç (m su sütunu)
+        double frictionLoss_mSS = 0;     ///< Sürtünme kaybı (m su sütunu)
+        double requiredPressure_mSS = 0; ///< Gerekli toplam basınç (m su sütunu)
+        int nodeCount = 0;
+        int edgeCount = 0;
+    };
+
+    /**
+     * @brief Kat bazlı statik basınç raporu
+     */
+    std::vector<FloorPressureResult> CalculateFloorPressures(const core::FloorManager& fm) const;
 
 private:
     // Topolojik debi dağılımı

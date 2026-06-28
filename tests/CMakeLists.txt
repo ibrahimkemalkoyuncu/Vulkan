@@ -52,6 +52,7 @@ target_sources(vkt_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/mep/HydraulicSolver.cpp
     ${CMAKE_SOURCE_DIR}/src/mep/Database.cpp
     ${CMAKE_SOURCE_DIR}/src/mep/RiserDiagram.cpp
+    ${CMAKE_SOURCE_DIR}/src/mep/SpecGenerator.cpp
     ${CMAKE_SOURCE_DIR}/src/core/FloorManager.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ProjectManager.cpp
     # CAD entity kaynakları
@@ -77,6 +78,11 @@ target_sources(vkt_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/cad/Leader.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/Space.cpp
     ${CMAKE_SOURCE_DIR}/src/cad/SpaceManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/cad/DWGWriter.cpp
+    ${CMAKE_SOURCE_DIR}/src/cad/SelectionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/mep/ClashDetection.cpp
+    ${CMAKE_SOURCE_DIR}/src/mep/ChartGenerator.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/IfcExporter.cpp
 )
 
 # CTest entegrasyonu

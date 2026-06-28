@@ -7,6 +7,9 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "mep/HydraulicSolver.hpp"
 #include "mep/Database.hpp"
+#include "mep/SpecGenerator.hpp"
+#include "cad/SpaceManager.hpp"
+#include "core/FloorManager.hpp"
 
 using namespace vkt::mep;
 
@@ -864,4 +867,502 @@ TEST_CASE("Database has 30+ pump models", "[database]") {
     // SuggestPump with very high requirements should return the largest
     auto pump = db.SuggestPump(200.0, 200.0);
     REQUIRE(!pump.model.empty());
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HVAC ENGINE TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("CoolingLoad - positive total, sum of components", "[hvac]") {
+    NetworkGraph g;
+    HydraulicSolver solver(g);
+
+    auto result = solver.CalculateCoolingLoad(
+        100.0,  // area_m2
+        0.5,    // wallU (W/m2K)
+        0.3,    // roofU
+        20.0,   // glassArea_m2
+        0.6,    // SHGC
+        10,     // numPeople
+        2000.0, // equipW
+        12.0,   // lightWm2
+        35.0,   // outdoorTempC
+        24.0    // indoorTempC
+    );
+
+    REQUIRE(result.Q_wall_W > 0);
+    REQUIRE(result.Q_glass_W > 0);
+    REQUIRE(result.Q_internal_W > 0);
+    REQUIRE(result.Q_ventilation_W > 0);
+    REQUIRE(result.Q_total_W > 0);
+
+    // Total = sum of all components
+    double expectedTotal = result.Q_wall_W + result.Q_glass_W
+                         + result.Q_internal_W + result.Q_ventilation_W;
+    REQUIRE_THAT(result.Q_total_W, Catch::Matchers::WithinAbs(expectedTotal, 0.01));
+}
+
+TEST_CASE("CoolingLoad - zero delta T gives minimal load", "[hvac]") {
+    NetworkGraph g;
+    HydraulicSolver solver(g);
+
+    auto result = solver.CalculateCoolingLoad(
+        50.0, 0.5, 0.3, 10.0, 0.6, 5, 1000.0, 10.0,
+        22.0, 22.0  // same indoor/outdoor
+    );
+
+    // Wall and ventilation should be zero (no delta T)
+    REQUIRE_THAT(result.Q_wall_W, Catch::Matchers::WithinAbs(0.0, 0.01));
+    REQUIRE_THAT(result.Q_ventilation_W, Catch::Matchers::WithinAbs(0.0, 0.01));
+    // Glass and internal loads still present
+    REQUIRE(result.Q_glass_W > 0);
+    REQUIRE(result.Q_internal_W > 0);
+}
+
+TEST_CASE("Psychrometric - RH=1.0 dew point equals dry bulb", "[hvac]") {
+    auto state = HydraulicSolver::CalcPsychrometric(25.0, 1.0);
+
+    REQUIRE(state.W > 0);
+    REQUIRE(state.h > 0);
+    REQUIRE(state.v > 0);
+    // At 100% RH, dew point should equal dry bulb
+    REQUIRE_THAT(state.T_dp, Catch::Matchers::WithinAbs(state.T_db, 0.5));
+    // Wet bulb should also be close to dry bulb at saturation
+    REQUIRE_THAT(state.T_wb, Catch::Matchers::WithinAbs(state.T_db, 2.0));
+}
+
+TEST_CASE("Psychrometric - basic sanity checks", "[hvac]") {
+    auto state = HydraulicSolver::CalcPsychrometric(20.0, 0.50);
+
+    REQUIRE(state.T_db == 20.0);
+    REQUIRE(state.RH == 0.50);
+    REQUIRE(state.W > 0);
+    REQUIRE(state.W < 0.05); // reasonable range for humidity ratio
+    REQUIRE(state.h > 0);
+    REQUIRE(state.v > 0.7);
+    REQUIRE(state.v < 1.0);
+    REQUIRE(state.T_dp < state.T_db); // dew point below dry bulb when RH < 1
+    REQUIRE(state.T_wb <= state.T_db); // wet bulb <= dry bulb
+}
+
+TEST_CASE("ERV - heat recovered positive", "[hvac]") {
+    NetworkGraph g;
+    HydraulicSolver solver(g);
+
+    auto result = solver.CalculateERV(
+        500.0,  // airflow_Ls
+        35.0,   // outdoorT
+        0.60,   // outdoorRH
+        24.0,   // indoorT
+        0.50,   // indoorRH
+        0.75,   // sensEff
+        0.65    // latEff
+    );
+
+    REQUIRE(result.sensibleEff == 0.75);
+    REQUIRE(result.latentEff == 0.65);
+    REQUIRE(result.heatRecovered_W > 0);
+    REQUIRE(result.moistureRecovered_gs > 0);
+}
+
+TEST_CASE("ERV - zero temperature difference gives zero sensible recovery", "[hvac]") {
+    NetworkGraph g;
+    HydraulicSolver solver(g);
+
+    auto result = solver.CalculateERV(
+        500.0, 24.0, 0.50, 24.0, 0.50, 0.75, 0.65
+    );
+
+    REQUIRE_THAT(result.heatRecovered_W, Catch::Matchers::WithinAbs(0.0, 0.01));
+    // Same humidity too, so moisture should be zero
+    REQUIRE_THAT(result.moistureRecovered_gs, Catch::Matchers::WithinAbs(0.0, 0.01));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FAN KATALOGU TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("Database has 15+ fan models", "[database][hvac]") {
+    auto& db = Database::Instance();
+    const auto& fans = db.GetFanCatalog();
+    REQUIRE(fans.size() >= 15);
+
+    for (const auto& fan : fans) {
+        REQUIRE(!fan.model.empty());
+        REQUIRE(!fan.brand.empty());
+        REQUIRE(fan.maxAirflow_Ls > 0);
+        REQUIRE(fan.maxPressure_Pa > 0);
+        REQUIRE(fan.power_kW > 0);
+        REQUIRE(fan.SFP > 0);
+    }
+}
+
+TEST_CASE("Database SuggestFan returns valid fan", "[database][hvac]") {
+    auto& db = Database::Instance();
+    auto fan = db.SuggestFan(200.0, 300.0);
+
+    REQUIRE(!fan.model.empty());
+    REQUIRE(fan.maxAirflow_Ls >= 200.0);
+    REQUIRE(fan.maxPressure_Pa >= 300.0);
+}
+
+TEST_CASE("Database SuggestFan with excessive requirements returns largest", "[database][hvac]") {
+    auto& db = Database::Instance();
+    auto fan = db.SuggestFan(999999.0, 999999.0);
+
+    REQUIRE(!fan.model.empty());
+    // Should be the largest fan in catalog
+    REQUIRE(fan.maxAirflow_Ls > 0);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAHAL TiPi KUTUPHANESI TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("RoomTypeLibrary has 15+ types", "[space][hvac]") {
+    const auto& lib = vkt::cad::SpaceManager::GetRoomTypeLibrary();
+    REQUIRE(lib.size() >= 15);
+
+    for (const auto& room : lib) {
+        REQUIRE(!room.name.empty());
+        REQUIRE(!room.nameEN.empty());
+        REQUIRE(room.airChangeRate > 0);
+        REQUIRE(room.occupantDensity > 0);
+        REQUIRE(room.lightingDensity_Wm2 > 0);
+        REQUIRE(room.tempSetpoint_C > 0);
+        REQUIRE(room.humiditySetpoint > 0);
+        REQUIRE(room.humiditySetpoint <= 1.0);
+    }
+}
+
+TEST_CASE("RoomTypeLibrary contains essential room types", "[space][hvac]") {
+    const auto& lib = vkt::cad::SpaceManager::GetRoomTypeLibrary();
+
+    // Check for some essential room types
+    bool hasOffice = false, hasBedroom = false, hasOR = false;
+    for (const auto& room : lib) {
+        if (room.nameEN == "Office") hasOffice = true;
+        if (room.nameEN == "Bedroom") hasBedroom = true;
+        if (room.nameEN == "Operating Room") hasOR = true;
+    }
+    REQUIRE(hasOffice);
+    REQUIRE(hasBedroom);
+    REQUIRE(hasOR);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  KAT BAZLI BASINC RAPORU TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("FloorPressures - static pressure proportional to elevation", "[hydraulic][floor]") {
+    using namespace vkt::core;
+
+    NetworkGraph graph;
+
+    // Source at ground level
+    Node source; source.type = NodeType::Source;
+    source.position = {0, 0, 0}; // z=0 (mm)
+    uint32_t sid = graph.AddNode(source);
+
+    // Fixture on 3rd floor (z=9000mm = 9m)
+    Node fix1; fix1.type = NodeType::Fixture; fix1.loadUnit = 2.0;
+    fix1.position = {1000, 0, 9000};
+    uint32_t fid1 = graph.AddNode(fix1);
+
+    Edge pipe; pipe.nodeA = sid; pipe.nodeB = fid1;
+    pipe.type = EdgeType::Supply; pipe.diameter_mm = 25;
+    pipe.length_m = 10.0; pipe.headLoss_m = 2.5;
+    graph.AddEdge(pipe);
+
+    FloorManager fm;
+    fm.BuildStandardFloors(3, false, 3.0);
+    fm.AssignNodeToFloor(sid, 0);
+    fm.AssignNodeToFloor(fid1, 3);
+
+    HydraulicSolver solver(graph);
+    auto results = solver.CalculateFloorPressures(fm);
+
+    REQUIRE(results.size() >= 2);
+
+    // Higher floors should have higher static pressure
+    bool foundHigher = false;
+    for (const auto& r : results) {
+        if (r.elevation_m > 0) {
+            REQUIRE(r.staticPressure_mSS > 0);
+            foundHigher = true;
+        }
+    }
+    REQUIRE(foundHigher);
+}
+
+TEST_CASE("FloorPressures - empty FloorManager returns empty", "[hydraulic][floor]") {
+    using namespace vkt::core;
+
+    NetworkGraph graph;
+    FloorManager fm;
+
+    HydraulicSolver solver(graph);
+    auto results = solver.CalculateFloorPressures(fm);
+    REQUIRE(results.empty());
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SPECGENERATOR TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("SpecGenerator produces non-empty HTML", "[spec]") {
+    NetworkGraph graph;
+
+    Node source; source.type = NodeType::Source;
+    uint32_t sid = graph.AddNode(source);
+
+    Node fix; fix.type = NodeType::Fixture; fix.loadUnit = 2.0;
+    fix.fixtureType = "Lavabo";
+    uint32_t fid = graph.AddNode(fix);
+
+    Edge pipe; pipe.nodeA = sid; pipe.nodeB = fid;
+    pipe.type = EdgeType::Supply; pipe.diameter_mm = 20;
+    pipe.length_m = 5.0; pipe.material = "PVC";
+    graph.AddEdge(pipe);
+
+    SpecGenerator gen(graph);
+    std::string html = gen.GenerateHTML();
+
+    REQUIRE(!html.empty());
+    REQUIRE(html.find("<html") != std::string::npos);
+    REQUIRE(html.find("Teknik Sartname") != std::string::npos);
+    REQUIRE(html.find("PVC") != std::string::npos);
+    REQUIRE(html.find("Lavabo") != std::string::npos);
+}
+
+TEST_CASE("SpecGenerator section pipes", "[spec]") {
+    NetworkGraph graph;
+
+    Node src; src.type = NodeType::Source;
+    graph.AddNode(src);
+    Node fix; fix.type = NodeType::Fixture; fix.loadUnit = 1.0;
+    graph.AddNode(fix);
+    Edge e; e.nodeA = 1; e.nodeB = 2;
+    e.type = EdgeType::Supply; e.material = "PP-R"; e.diameter_mm = 25; e.length_m = 10.0;
+    graph.AddEdge(e);
+
+    SpecGenerator gen(graph);
+    std::string pipes = gen.GenerateSection("pipes");
+
+    REQUIRE(!pipes.empty());
+    REQUIRE(pipes.find("PP-R") != std::string::npos);
+    REQUIRE(pipes.find("25") != std::string::npos);
+}
+
+TEST_CASE("SpecGenerator section compliance with multiple edge types", "[spec]") {
+    NetworkGraph graph;
+
+    // Supply edge
+    Node s1; s1.type = NodeType::Source; graph.AddNode(s1);
+    Node f1; f1.type = NodeType::Fixture; graph.AddNode(f1);
+    Edge e1; e1.nodeA = 1; e1.nodeB = 2; e1.type = EdgeType::Supply; graph.AddEdge(e1);
+
+    // Gas edge
+    Node gs; gs.type = NodeType::GasSource; graph.AddNode(gs);
+    Node ga; ga.type = NodeType::GasAppliance; graph.AddNode(ga);
+    Edge eg; eg.nodeA = 3; eg.nodeB = 4; eg.type = EdgeType::Gas; graph.AddEdge(eg);
+
+    SpecGenerator gen(graph);
+    std::string compliance = gen.GenerateSection("compliance");
+
+    REQUIRE(!compliance.empty());
+    REQUIRE(compliance.find("EN 806") != std::string::npos);
+    REQUIRE(compliance.find("EN 1775") != std::string::npos);
+}
+
+TEST_CASE("SpecGenerator empty network", "[spec]") {
+    NetworkGraph graph;
+    SpecGenerator gen(graph);
+    std::string html = gen.GenerateHTML();
+
+    // Should still produce valid HTML
+    REQUIRE(!html.empty());
+    REQUIRE(html.find("<html") != std::string::npos);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DWGWRITER TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+#include "cad/DWGWriter.hpp"
+#include "cad/Line.hpp"
+#include "cad/SelectionManager.hpp"
+#include "mep/ClashDetection.hpp"
+#include "mep/ChartGenerator.hpp"
+#include "core/IfcExporter.hpp"
+#include <fstream>
+#include <cstdio>
+
+TEST_CASE("DWGWriter WriteDxfCompat produces non-empty output", "[dwg-writer]") {
+    // Create temp file path
+    std::string tmpPath = "test_dwgwriter_output.dxf";
+
+    // Create some test entities
+    std::vector<std::unique_ptr<vkt::cad::Entity>> entities;
+    entities.push_back(std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{0, 0, 0}, vkt::geom::Vec3{1000, 1000, 0}));
+    entities.push_back(std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{500, 0, 0}, vkt::geom::Vec3{500, 2000, 0}));
+
+    std::map<std::string, vkt::cad::Layer> layers;
+
+    bool ok = vkt::cad::DWGWriter::WriteDxfCompat(tmpPath, entities, layers);
+    REQUIRE(ok);
+
+    // Verify file is non-empty and contains DXF markers
+    std::ifstream in(tmpPath);
+    REQUIRE(in.is_open());
+    std::string content((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+    in.close();
+    REQUIRE(content.size() > 100);
+    REQUIRE(content.find("SECTION") != std::string::npos);
+    REQUIRE(content.find("ENTITIES") != std::string::npos);
+    REQUIRE(content.find("LINE") != std::string::npos);
+    REQUIRE(content.find("EOF") != std::string::npos);
+
+    std::remove(tmpPath.c_str());
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CHARTGENERATOR TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("ChartGenerator BarChartSVG contains svg element", "[chart]") {
+    std::map<int, double> dnLengths = {{20, 15.5}, {25, 22.3}, {32, 8.0}};
+    std::string svg = vkt::mep::ChartGenerator::BarChartSVG(dnLengths);
+
+    REQUIRE(!svg.empty());
+    REQUIRE(svg.find("<svg") != std::string::npos);
+    REQUIRE(svg.find("DN20") != std::string::npos);
+    REQUIRE(svg.find("DN25") != std::string::npos);
+    REQUIRE(svg.find("</svg>") != std::string::npos);
+}
+
+TEST_CASE("ChartGenerator PieChartSVG contains svg element", "[chart]") {
+    std::map<std::string, double> materials = {{"PVC", 50.0}, {"PP-R", 30.0}, {"Bakir", 20.0}};
+    std::string svg = vkt::mep::ChartGenerator::PieChartSVG(materials);
+
+    REQUIRE(!svg.empty());
+    REQUIRE(svg.find("<svg") != std::string::npos);
+    REQUIRE(svg.find("path") != std::string::npos);
+    REQUIRE(svg.find("PVC") != std::string::npos);
+    REQUIRE(svg.find("</svg>") != std::string::npos);
+}
+
+TEST_CASE("ChartGenerator PressureProfileSVG contains svg element", "[chart]") {
+    std::vector<double> pressures = {30.0, 28.5, 25.0, 22.0};
+    std::vector<std::string> labels = {"Kaynak", "Kat1", "Kat2", "Kat3"};
+    std::string svg = vkt::mep::ChartGenerator::PressureProfileSVG(pressures, labels);
+
+    REQUIRE(!svg.empty());
+    REQUIRE(svg.find("<svg") != std::string::npos);
+    REQUIRE(svg.find("polyline") != std::string::npos);
+    REQUIRE(svg.find("</svg>") != std::string::npos);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CLASH RESOLUTION TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("ClashResolution suggestions non-empty for overlapping pipes", "[clash]") {
+    NetworkGraph graph;
+
+    Node source; source.type = NodeType::Source;
+    source.position = {0, 0, 0};
+    uint32_t sid = graph.AddNode(source);
+
+    Node fix; fix.type = NodeType::Fixture;
+    fix.position = {5000, 0, 0};
+    uint32_t fid = graph.AddNode(fix);
+
+    Edge pipe; pipe.nodeA = sid; pipe.nodeB = fid;
+    pipe.type = EdgeType::Supply; pipe.diameter_mm = 25;
+    pipe.length_m = 5.0;
+    graph.AddEdge(pipe);
+
+    // Create a fake clash result
+    std::vector<vkt::mep::ClashResult> clashes;
+    vkt::mep::ClashResult c;
+    c.id = 1;
+    c.edgeId = 1;
+    c.architecturalId = 100;
+    c.clashPoint = {2500, 0, 0};
+    c.overlapAmount_mm = 30.0;
+    c.severity = vkt::mep::ClashSeverity::Hard;
+    c.description = "Test clash";
+    clashes.push_back(c);
+
+    auto resolutions = vkt::mep::SuggestResolutions(clashes, graph);
+    REQUIRE(!resolutions.empty());
+    REQUIRE(resolutions[0].entityId == 1);
+    REQUIRE(resolutions[0].severity > 0.0);
+    REQUIRE(resolutions[0].suggestedOffset.z > 0.0);  // Move upward
+    REQUIRE(!resolutions[0].description.empty());
+}
+
+// ═══════════════════════════════════════════════════════════
+//  FENCE SELECTION TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("SelectByFence returns intersecting entities", "[selection]") {
+    // Create two lines
+    auto line1 = std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{0, 0, 0}, vkt::geom::Vec3{100, 0, 0});
+    auto line2 = std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{200, 0, 0}, vkt::geom::Vec3{300, 0, 0});
+
+    std::vector<vkt::cad::Entity*> entities = {line1.get(), line2.get()};
+
+    vkt::cad::SelectionManager sm;
+
+    // Fence that crosses line1 but not line2
+    std::vector<vkt::geom::Vec3> fence = {
+        {50, -50, 0}, {50, 50, 0}
+    };
+
+    auto result = sm.SelectByFence(fence, entities);
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0] == line1->GetId());
+}
+
+TEST_CASE("SelectByPolygon returns entities inside polygon", "[selection]") {
+    auto line1 = std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{10, 10, 0}, vkt::geom::Vec3{20, 20, 0});
+    auto line2 = std::make_unique<vkt::cad::Line>(
+        vkt::geom::Vec3{200, 200, 0}, vkt::geom::Vec3{300, 300, 0});
+
+    std::vector<vkt::cad::Entity*> entities = {line1.get(), line2.get()};
+
+    vkt::cad::SelectionManager sm;
+
+    // Polygon that contains line1 but not line2
+    std::vector<vkt::geom::Vec3> polygon = {
+        {0, 0, 0}, {50, 0, 0}, {50, 50, 0}, {0, 50, 0}
+    };
+
+    auto result = sm.SelectByPolygon(polygon, entities, false);
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0] == line1->GetId());
+}
+
+// ═══════════════════════════════════════════════════════════
+//  IFC IMPORTER TESTLERi
+// ═══════════════════════════════════════════════════════════
+
+TEST_CASE("IfcImporter returns zero counts for non-existent file", "[ifc]") {
+    std::vector<std::unique_ptr<vkt::cad::Entity>> entities;
+    auto result = vkt::core::IfcImporter::Import("nonexistent_file.ifc", entities);
+
+    REQUIRE(result.wallCount == 0);
+    REQUIRE(result.slabCount == 0);
+    REQUIRE(result.pipeCount == 0);
+    REQUIRE(result.fixtureCount == 0);
+    REQUIRE(!result.warnings.empty());
+    REQUIRE(entities.empty());
 }

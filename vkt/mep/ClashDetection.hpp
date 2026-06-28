@@ -78,5 +78,26 @@ private:
     double m_tolerance = 50.0; // mm
 };
 
+/**
+ * @struct ClashResolution
+ * @brief Suggested resolution for a detected clash
+ */
+struct ClashResolution {
+    std::string description;            ///< Human-readable suggestion (Turkish)
+    uint32_t entityId = 0;              ///< Entity to move
+    geom::Vec3 suggestedOffset{0, 0, 0}; ///< Move this much to resolve
+    double severity = 0.0;             ///< 0-1, 1=critical (fire lines)
+};
+
+/**
+ * @brief Generate resolution suggestions for detected clashes
+ * @param clashes Output from ClashEngine::RunAnalysis()
+ * @param network MEP network for pipe info lookup
+ * @return Resolution suggestions
+ */
+std::vector<ClashResolution> SuggestResolutions(
+    const std::vector<ClashResult>& clashes,
+    const NetworkGraph& network);
+
 } // namespace mep
 } // namespace vkt

@@ -17,6 +17,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QLabel>
+#include <QTabWidget>
 #include <memory>
 #include <vector>
 #include <array>
@@ -585,6 +586,15 @@ private:
 
     // Son Açılan Projeler
     QMenu* m_recentMenu = nullptr;
+
+    // MDI Tab System
+    QTabWidget* m_tabWidget = nullptr;
+    std::vector<core::Document*> m_openDocuments;
+    int m_activeTabIndex = -1;
+
+    void OnTabChanged(int index);
+    void OnTabCloseRequested(int index);
+    void AddDocumentTab(core::Document* doc, const QString& title);
 
     // Dark mode
     bool m_darkMode = true;

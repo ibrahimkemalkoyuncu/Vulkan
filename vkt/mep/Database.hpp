@@ -84,6 +84,19 @@ struct RadiatorData {
 };
 
 /**
+ * @struct FanData
+ * @brief Fan katalog verisi (Systemair, Rosenberg, ebm-papst)
+ */
+struct FanData {
+    std::string model;
+    std::string brand;
+    double maxAirflow_Ls = 0;   ///< Maksimum hava debisi (L/s)
+    double maxPressure_Pa = 0;  ///< Maksimum basınç (Pa)
+    double power_kW = 0;        ///< Motor gücü (kW)
+    double SFP = 0;             ///< Specific Fan Power (W/(L/s))
+};
+
+/**
  * @class Database
  * @brief Tesisat veritabanı yönetimi
  * 
@@ -122,6 +135,10 @@ public:
     // Yangın borusu DN (EN 12845)
     double GetFireDN(double flow_Ls) const;
 
+    // Fan kataloğu (Systemair, Rosenberg, ebm-papst)
+    const std::vector<FanData>& GetFanCatalog() const { return m_fans; }
+    FanData SuggestFan(double airflow_Ls, double pressure_Pa) const;
+
 private:
     Database();
     void InitializeFixtures();
@@ -130,6 +147,7 @@ private:
     void InitializePumps();
     void InitializeGasAppliances();
     void InitializeRadiators();
+    void InitializeFans();
 
     std::map<std::string, FixtureData>       m_fixtures;
     std::map<std::string, PipeData>          m_pipes;
@@ -137,6 +155,7 @@ private:
     std::vector<PumpData>                    m_pumps;
     std::map<std::string, GasApplianceData>  m_gasAppliances;
     std::map<std::string, RadiatorData>      m_radiators;
+    std::vector<FanData>                     m_fans;
 };
 
 } // namespace mep

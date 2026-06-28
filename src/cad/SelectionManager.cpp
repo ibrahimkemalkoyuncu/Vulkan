@@ -411,4 +411,136 @@ void SelectionManager::UpdateSelectedEntitiesFlags() {
     }
 }
 
+// ── Line-line segment intersection (2D) ─────────────────────────
+
+bool SelectionManager::SegmentsIntersect2D(const geom::Vec3& a1, const geom::Vec3& a2,
+                                            const geom::Vec3& b1, const geom::Vec3& b2) {
+    // Cross product helper (2D, returns z component)
+    auto cross2D = [](double ax, double ay, double bx, double by) -> double {
+        return ax * by - ay * bx;
+    };
+
+    double dx = a2.x - a1.x;
+    double dy = a2.y - a1.y;
+    double ex = b2.x - b1.x;
+    double ey = b2.y - b1.y;
+
+    double denom = cross2D(dx, dy, ex, ey);
+    if (std::abs(denom) < 1e-12) return false; // Parallel
+
+    double fx = b1.x - a1.x;
+    double fy = b1.y - a1.y;
+
+    double t = cross2D(fx, fy, ex, ey) / denom;
+    double u = cross2D(fx, fy, dx, dy) / denom;
+
+    return (t >= 0.0 && t <= 1.0 && u >= 0.0 && u <= 1.0);
+}
+
+// ── Fence Selection ──────────────────────────────────────────────
+
+std::vector<EntityId> SelectionManager::SelectByFence(
+    const std::vector<geom::Vec3>& fencePoints,
+    const std::vector<Entity*>& entities) const
+{
+    std::vector<EntityId> result;
+    if (fencePoints.size() < 2) return result;
+
+    for (const Entity* entity : entities) {
+        if (!entity) continue;
+
+        // Get entity endpoints from bounding box (simplified)
+        BoundingBox bb = entity->GetBounds();
+        if (!bb.IsValid()) continue;
+
+        // Entity represented as line segment from min corner to max corner (diagonal)
+        // For Line entities, use actual start/end; for others use bbox diagonal
+        geom::Vec3 eStart, eEnd;
+        if (entity->GetType() == EntityType::Line) {
+            const auto* line = static_cast<const Line*>(entity);
+            eStart = line->GetStart();
+            eEnd = line->GetEnd();
+        } else {
+            eStart = bb.min;
+            eEnd = bb.max;
+        }
+
+        // Check intersection with each fence segment
+        bool hit = false;
+        for (size_t i = 0; i + 1 < fencePoints.size(); ++i) {
+            if (SegmentsIntersect2D(fencePoints[i], fencePoints[i + 1], eStart, eEnd)) {
+                hit = true;
+                break;
+            }
+        }
+
+        if (hit) {
+            result.push_back(entity->GetId());
+        }
+    }
+
+    return result;
+}
+
+// ── Polygon Selection ────────────────────────────────────────────
+
+std::vector<EntityId> SelectionManager::SelectByPolygon(
+    const std::vector<geom::Vec3>& polygon,
+    const std::vector<Entity*>& entities,
+    bool crossingMode) const
+{
+    std::vector<EntityId> result;
+    if (polygon.size() < 3) return result;
+
+    for (const Entity* entity : entities) {
+        if (!entity) continue;
+
+        BoundingBox bb = entity->GetBounds();
+        if (!bb.IsValid()) continue;
+
+        // Get entity endpoints
+        geom::Vec3 eStart, eEnd;
+        if (entity->GetType() == EntityType::Line) {
+            const auto* line = static_cast<const Line*>(entity);
+            eStart = line->GetStart();
+            eEnd = line->GetEnd();
+        } else {
+            eStart = bb.min;
+            eEnd = bb.max;
+        }
+
+        bool startInside = IsPointInPolygon(eStart, polygon);
+        bool endInside = IsPointInPolygon(eEnd, polygon);
+
+        if (!crossingMode) {
+            // WPolygon mode: both endpoints must be inside
+            if (startInside && endInside) {
+                result.push_back(entity->GetId());
+            }
+        } else {
+            // CPolygon mode: any intersection or any endpoint inside
+            if (startInside || endInside) {
+                result.push_back(entity->GetId());
+                continue;
+            }
+
+            // Check if entity segment intersects any polygon edge
+            bool intersects = false;
+            size_t n = polygon.size();
+            for (size_t i = 0; i < n; ++i) {
+                size_t j = (i + 1) % n;
+                if (SegmentsIntersect2D(polygon[i], polygon[j], eStart, eEnd)) {
+                    intersects = true;
+                    break;
+                }
+            }
+            if (intersects) {
+                result.push_back(entity->GetId());
+            }
+        }
+    }
+
+    return result;
+}
+
 } // namespace vkt::cad

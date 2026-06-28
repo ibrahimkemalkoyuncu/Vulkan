@@ -26,6 +26,7 @@ Database::Database() {
     InitializePumps();
     InitializeGasAppliances();
     InitializeRadiators();
+    InitializeFans();
 }
 
 void Database::InitializeFixtures() {
@@ -387,6 +388,57 @@ double Database::GetFireDN(double flow_Ls) const {
     for (int i = 0; kDN[i] > 0; ++i)
         if (kDN[i] >= d_mm) return kDN[i];
     return 200.0;
+}
+
+void Database::InitializeFans() {
+    // Systemair fans
+    m_fans.push_back({"K 100 M",     "Systemair", 80,   200,  0.045, 0.56});
+    m_fans.push_back({"K 160 M",     "Systemair", 170,  350,  0.09,  0.53});
+    m_fans.push_back({"K 200 M",     "Systemair", 330,  450,  0.15,  0.45});
+    m_fans.push_back({"K 250 M",     "Systemair", 550,  600,  0.25,  0.45});
+    m_fans.push_back({"K 315 M",     "Systemair", 1100, 750,  0.55,  0.50});
+    m_fans.push_back({"KVO 100",     "Systemair", 95,   180,  0.05,  0.53});
+    m_fans.push_back({"AW 200E2",    "Systemair", 400,  250,  0.12,  0.30});
+    // Rosenberg fans
+    m_fans.push_back({"DRAD 200-4",  "Rosenberg", 220,  300,  0.10,  0.45});
+    m_fans.push_back({"DRAD 250-4",  "Rosenberg", 500,  450,  0.22,  0.44});
+    m_fans.push_back({"DRAD 315-4",  "Rosenberg", 900,  600,  0.45,  0.50});
+    m_fans.push_back({"DRAD 400-4",  "Rosenberg", 2000, 800,  1.10,  0.55});
+    m_fans.push_back({"ERAB 20-2",   "Rosenberg", 280,  200,  0.08,  0.29});
+    // ebm-papst fans
+    m_fans.push_back({"R2E133-BH72", "ebm-papst", 150,  350,  0.07,  0.47});
+    m_fans.push_back({"R2E190-AO26", "ebm-papst", 350,  500,  0.18,  0.51});
+    m_fans.push_back({"R2E225-BD92", "ebm-papst", 650,  700,  0.35,  0.54});
+    m_fans.push_back({"R4E310-AP11", "ebm-papst", 1500, 900,  0.75,  0.50});
+}
+
+FanData Database::SuggestFan(double airflow_Ls, double pressure_Pa) const {
+    // Find smallest fan that meets both airflow and pressure requirements
+    const FanData* best = nullptr;
+    double bestPower = 1e9;
+
+    for (const auto& fan : m_fans) {
+        if (fan.maxAirflow_Ls >= airflow_Ls && fan.maxPressure_Pa >= pressure_Pa) {
+            if (fan.power_kW < bestPower) {
+                bestPower = fan.power_kW;
+                best = &fan;
+            }
+        }
+    }
+
+    if (best) return *best;
+
+    // If no fan meets requirements, return the largest one
+    if (!m_fans.empty()) {
+        const FanData* largest = &m_fans[0];
+        for (const auto& fan : m_fans) {
+            if (fan.maxAirflow_Ls > largest->maxAirflow_Ls)
+                largest = &fan;
+        }
+        return *largest;
+    }
+
+    return FanData{"N/A", "N/A", 0, 0, 0, 0};
 }
 
 } // namespace mep

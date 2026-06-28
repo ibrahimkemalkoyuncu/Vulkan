@@ -257,9 +257,37 @@ private:
     bool IsPointInRectangle(const geom::Vec3& point, const BoundingBox& rect) const;
     bool IsPointInPolygon(const geom::Vec3& point, const std::vector<geom::Vec3>& polygon) const;
     double DistanceToEntity(const geom::Vec3& point, const Entity* entity) const;
-    
+
     void NotifySelectionChanged();
     void UpdateSelectedEntitiesFlags();
+
+public:
+    // ── Advanced selection (AutoCAD Fence/WPolygon/CPolygon equivalents) ──
+
+    /**
+     * @brief Fence selection - polyline crossing test (like AutoCAD FENCE)
+     * @param fencePoints Fence polyline vertices (at least 2)
+     * @param entities Raw entity pointers to test
+     * @return Entity IDs that intersect any fence segment
+     */
+    std::vector<EntityId> SelectByFence(const std::vector<geom::Vec3>& fencePoints,
+                                         const std::vector<Entity*>& entities) const;
+
+    /**
+     * @brief Polygon selection - entities inside polygon (like AutoCAD WP/CP)
+     * @param polygon Polygon vertices (closed automatically)
+     * @param entities Raw entity pointers to test
+     * @param crossingMode false=WPolygon (fully inside), true=CPolygon (any intersection)
+     * @return Entity IDs matching the criteria
+     */
+    std::vector<EntityId> SelectByPolygon(const std::vector<geom::Vec3>& polygon,
+                                           const std::vector<Entity*>& entities,
+                                           bool crossingMode = false) const;
+
+private:
+    // Line-line segment intersection test (2D, ignores Z)
+    static bool SegmentsIntersect2D(const geom::Vec3& a1, const geom::Vec3& a2,
+                                     const geom::Vec3& b1, const geom::Vec3& b2);
 };
 
 } // namespace vkt::cad

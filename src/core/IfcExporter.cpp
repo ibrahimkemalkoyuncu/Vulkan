@@ -4,10 +4,13 @@
  */
 
 #include "core/IfcExporter.hpp"
+#include "cad/Line.hpp"
 #include <fstream>
 #include <iomanip>
 #include <ctime>
 #include <cmath>
+#include <algorithm>
+#include <cctype>
 
 namespace vkt {
 namespace core {
@@ -288,6 +291,101 @@ bool IfcExporter::Export(const std::string& filePath,
         << "END-ISO-10303-21;\n";
 
     return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  IFC IMPORTER
+// ═══════════════════════════════════════════════════════════
+
+std::string IfcImporter::ParseStepLine(const std::string& line, std::string& entityType) {
+    entityType.clear();
+
+    // Find "#N = IFCTYPE("
+    auto eqPos = line.find('=');
+    if (eqPos == std::string::npos) return "";
+
+    // Extract entity ID part
+    std::string idPart = line.substr(0, eqPos);
+
+    // Extract type name: after '=' until '('
+    auto start = line.find_first_not_of(" \t", eqPos + 1);
+    if (start == std::string::npos) return idPart;
+
+    auto parenPos = line.find('(', start);
+    if (parenPos == std::string::npos) {
+        entityType = line.substr(start);
+    } else {
+        entityType = line.substr(start, parenPos - start);
+    }
+
+    // Trim whitespace from entityType
+    while (!entityType.empty() && (entityType.back() == ' ' || entityType.back() == '\t'))
+        entityType.pop_back();
+
+    return idPart;
+}
+
+IfcImportResult IfcImporter::Import(const std::string& filepath,
+                                     std::vector<std::unique_ptr<cad::Entity>>& entities) {
+    IfcImportResult result;
+
+    std::ifstream in(filepath);
+    if (!in.is_open()) {
+        result.warnings.push_back("Dosya acilamadi: " + filepath);
+        return result;
+    }
+
+    std::string line;
+    bool inData = false;
+
+    while (std::getline(in, line)) {
+        // Trim
+        while (!line.empty() && (line.front() == ' ' || line.front() == '\t'))
+            line.erase(line.begin());
+
+        if (line == "DATA;") { inData = true; continue; }
+        if (line == "ENDSEC;") { inData = false; continue; }
+        if (!inData) continue;
+        if (line.empty() || line[0] != '#') continue;
+
+        std::string entityType;
+        ParseStepLine(line, entityType);
+
+        // Convert to uppercase for comparison
+        std::string upper = entityType;
+        for (auto& ch : upper) ch = static_cast<char>(std::toupper(ch));
+
+        if (upper == "IFCWALL" || upper == "IFCWALLSTANDARDCASE") {
+            result.wallCount++;
+            // Create a placeholder line entity for the wall
+            auto wallLine = std::make_unique<cad::Line>(
+                geom::Vec3{static_cast<double>(result.wallCount) * 1000.0, 0, 0},
+                geom::Vec3{static_cast<double>(result.wallCount) * 1000.0 + 5000.0, 0, 0});
+            wallLine->SetLayerName("IFC-WALL");
+            entities.push_back(std::move(wallLine));
+        }
+        else if (upper == "IFCSLAB") {
+            result.slabCount++;
+        }
+        else if (upper == "IFCPIPESEGMENT") {
+            result.pipeCount++;
+            auto pipeLine = std::make_unique<cad::Line>(
+                geom::Vec3{0, static_cast<double>(result.pipeCount) * 500.0, 0},
+                geom::Vec3{3000.0, static_cast<double>(result.pipeCount) * 500.0, 0});
+            pipeLine->SetLayerName("IFC-PIPE");
+            entities.push_back(std::move(pipeLine));
+        }
+        else if (upper == "IFCFLOWTERMINAL" || upper == "IFCSANITARYTERMINAL") {
+            result.fixtureCount++;
+        }
+    }
+
+    if (result.wallCount == 0 && result.slabCount == 0 &&
+        result.pipeCount == 0 && result.fixtureCount == 0) {
+        result.warnings.push_back("IFC dosyasinda taninan entity bulunamadi.");
+    }
+
+    return result;
 }
 
 } // namespace core

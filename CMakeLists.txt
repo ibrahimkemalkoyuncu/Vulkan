@@ -135,6 +135,8 @@ set(SOURCES
     src/mep/RiserDiagram.cpp
     src/mep/ClashDetection.cpp
     src/mep/XLSXWriter.cpp
+    src/mep/SpecGenerator.cpp
+    src/mep/ChartGenerator.cpp
     src/geom/BRep.cpp
     src/cad/Entity.cpp
     src/cad/Layer.cpp
@@ -155,6 +157,7 @@ set(SOURCES
     src/cad/FixtureSymbolLibrary.cpp
     src/cad/DXFReader.cpp
     src/cad/DXFWriter.cpp
+    src/cad/DWGWriter.cpp
     src/cad/DWGReader.cpp  # Placeholder implementation (UI support)
     src/cad/SpaceManager.cpp
     src/cad/SnapManager.cpp
@@ -177,6 +180,8 @@ set(HEADERS
     vkt/mep/Database.hpp
     vkt/mep/ScheduleGenerator.hpp
     vkt/mep/RiserDiagram.hpp
+    vkt/mep/SpecGenerator.hpp
+    vkt/mep/ChartGenerator.hpp
     vkt/render/VulkanRenderer.hpp
     vkt/render/VulkanWindow.hpp
     vkt/render/Gizmo.hpp
@@ -209,6 +214,7 @@ set(HEADERS
     vkt/cad/FixtureSymbolLibrary.hpp
     vkt/cad/DXFReader.hpp
     vkt/cad/DXFWriter.hpp
+    vkt/cad/DWGWriter.hpp
     vkt/cad/DWGReader.hpp
     vkt/cad/SpaceManager.hpp
     vkt/cad/SnapManager.hpp

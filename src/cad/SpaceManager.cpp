@@ -878,4 +878,35 @@ void SpaceManager::AssignArchElementsToSpaces(const std::vector<ArchElement>& el
     }
 }
 
+// ==================== MAHAL TiPi KUTUPHANESI ====================
+
+const std::vector<RoomTypeData>& SpaceManager::GetRoomTypeLibrary() {
+    static const std::vector<RoomTypeData> library = {
+        // Konut
+        {"Yatak Odasi",     "Bedroom",         0.5,  0.04, 8.0,   3.0,  22.0, 0.50},
+        {"Salon",           "Living Room",      0.5,  0.06, 12.0,  8.0,  22.0, 0.50},
+        {"Mutfak",          "Kitchen",          2.0,  0.10, 15.0,  20.0, 22.0, 0.50},
+        {"Banyo",           "Bathroom",         3.0,  0.10, 10.0,  2.0,  24.0, 0.60},
+        {"WC",              "Toilet",           3.0,  0.10, 8.0,   1.0,  22.0, 0.50},
+        {"Koridor",         "Corridor",         0.5,  0.02, 6.0,   0.0,  20.0, 0.50},
+        // Ticari
+        {"Ofis",            "Office",           1.0,  0.10, 12.0,  15.0, 22.0, 0.50},
+        {"Toplanti Odasi",  "Meeting Room",     2.0,  0.50, 12.0,  5.0,  22.0, 0.50},
+        {"Resepsiyon",      "Reception",        1.0,  0.15, 10.0,  5.0,  22.0, 0.50},
+        {"Magaza",          "Retail",           1.5,  0.20, 18.0,  10.0, 22.0, 0.50},
+        // Hastane
+        {"Hasta Odasi",     "Patient Room",     6.0,  0.10, 10.0,  5.0,  24.0, 0.50},
+        {"Ameliyathane",    "Operating Room",   15.0, 0.15, 30.0,  50.0, 20.0, 0.55},
+        {"Yogun Bakim",     "ICU",              12.0, 0.10, 15.0,  30.0, 22.0, 0.50},
+        // Okul
+        {"Sinif",           "Classroom",        3.0,  0.40, 12.0,  5.0,  22.0, 0.50},
+        {"Laboratuvar",     "Laboratory",       6.0,  0.25, 15.0,  25.0, 22.0, 0.50},
+        {"Yemekhane",       "Cafeteria",        4.0,  0.70, 12.0,  10.0, 22.0, 0.50},
+        // Endustri
+        {"Uretim Alani",    "Production Area",  3.0,  0.08, 12.0,  30.0, 20.0, 0.50},
+        {"Depo",            "Warehouse",        0.5,  0.02, 5.0,   2.0,  18.0, 0.50},
+    };
+    return library;
+}
+
 } // namespace vkt::cad

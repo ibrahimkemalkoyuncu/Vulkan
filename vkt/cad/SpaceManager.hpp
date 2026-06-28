@@ -88,10 +88,33 @@ struct SpaceDetectionOptions {
  * }
  * ```
  */
+/**
+ * @struct RoomTypeData
+ * @brief Mahal tipi kütüphanesi - HVAC/MEP hesapları için referans değerler
+ */
+struct RoomTypeData {
+    std::string name;              ///< Türkçe ad ("Yatak Odası", "Salon" vb.)
+    std::string nameEN;            ///< İngilizce ad ("Bedroom", "Living Room")
+    double airChangeRate = 0.5;    ///< Hava değişim hızı (ACH - air changes per hour)
+    double occupantDensity = 0.05; ///< Kişi yoğunluğu (kişi/m²)
+    double lightingDensity_Wm2 = 10.0; ///< Aydınlatma yoğunluğu (W/m²)
+    double equipDensity_Wm2 = 5.0;     ///< Ekipman yoğunluğu (W/m²)
+    double tempSetpoint_C = 22.0;      ///< Sıcaklık ayar noktası (°C)
+    double humiditySetpoint = 0.50;    ///< Nem ayar noktası (0-1)
+};
+
 class SpaceManager {
 public:
     SpaceManager();
     ~SpaceManager();
+
+    // ==================== MAHAL TİPİ KÜTÜPHANESİ ====================
+
+    /**
+     * @brief Standart mahal tipi kütüphanesi (konut, ticari, hastane, okul, endüstri)
+     * @return En az 15 farklı mahal tipi içeren referans listesi
+     */
+    static const std::vector<RoomTypeData>& GetRoomTypeLibrary();
     
     // ==================== CRUD OPERASYONLARI ====================
     

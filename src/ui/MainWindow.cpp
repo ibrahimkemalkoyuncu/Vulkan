@@ -105,7 +105,18 @@ MainWindow::MainWindow(QWidget* parent)
     m_vulkanWindow = new render::VulkanWindow();
     m_vulkanContainer = QWidget::createWindowContainer(m_vulkanWindow, this);
     m_vulkanContainer->setMinimumSize(400, 300);
-    setCentralWidget(m_vulkanContainer);
+
+    // MDI Tab System — wraps VulkanWindow
+    m_tabWidget = new QTabWidget(this);
+    m_tabWidget->setTabsClosable(true);
+    m_tabWidget->setMovable(true);
+    m_tabWidget->setDocumentMode(true);
+    m_tabWidget->addTab(m_vulkanContainer, tr("Yeni Proje"));
+    m_activeTabIndex = 0;
+    setCentralWidget(m_tabWidget);
+
+    connect(m_tabWidget, &QTabWidget::currentChanged, this, &MainWindow::OnTabChanged);
+    connect(m_tabWidget, &QTabWidget::tabCloseRequested, this, &MainWindow::OnTabCloseRequested);
 
     // Snap overlay — şeffaf, mouse olaylarını geçirir
     m_snapOverlay = new SnapOverlay(m_vulkanContainer);
@@ -5165,6 +5176,62 @@ void MainWindow::RebuildCADEntityCache() {
     }
     // Mekânsal ızgara — büyük projelerde pick O(n)→O(1)
     m_entityGrid.Build(entities);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MDI TAB SYSTEM
+// ═══════════════════════════════════════════════════════════
+
+void MainWindow::OnTabChanged(int index) {
+    if (index < 0 || !m_tabWidget) return;
+    m_activeTabIndex = index;
+
+    // Switch active document if multiple documents are open
+    if (index < static_cast<int>(m_openDocuments.size())) {
+        core::Document* doc = m_openDocuments[index];
+        if (doc && doc != m_document) {
+            SetDocument(doc);
+        }
+    }
+}
+
+void MainWindow::OnTabCloseRequested(int index) {
+    if (!m_tabWidget || m_tabWidget->count() <= 1) return; // Keep at least one tab
+
+    // Check if document needs saving
+    if (index < static_cast<int>(m_openDocuments.size())) {
+        core::Document* doc = m_openDocuments[index];
+        if (doc && doc->IsModified()) {
+            auto reply = QMessageBox::question(this, tr("Kaydet"),
+                tr("Belge degistirilmis. Kaydetmek ister misiniz?"),
+                QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+            if (reply == QMessageBox::Cancel) return;
+            if (reply == QMessageBox::Yes) {
+                // Save the document
+                OnSave();
+            }
+        }
+        m_openDocuments.erase(m_openDocuments.begin() + index);
+    }
+
+    m_tabWidget->removeTab(index);
+
+    // Update active tab index
+    m_activeTabIndex = m_tabWidget->currentIndex();
+}
+
+void MainWindow::AddDocumentTab(core::Document* doc, const QString& title) {
+    if (!m_tabWidget || !doc) return;
+
+    m_openDocuments.push_back(doc);
+
+    // Create a placeholder widget for the tab (actual rendering goes through m_vulkanWindow)
+    QWidget* tabPage = new QWidget(m_tabWidget);
+    int idx = m_tabWidget->addTab(tabPage, title);
+    m_tabWidget->setCurrentIndex(idx);
+    m_activeTabIndex = idx;
+
+    SetDocument(doc);
 }
 
 } // namespace ui
