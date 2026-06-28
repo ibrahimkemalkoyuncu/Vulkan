@@ -36,7 +36,18 @@ enum class NodeType {
     Radiator,      ///< Radyatör / ısıtıcı
     // --- Yangın ---
     FirePump,      ///< Yangın pompası / tank
-    Sprinkler      ///< Sprinkler başlığı
+    Sprinkler,     ///< Sprinkler başlığı
+    // --- Elektrik (IEC 60364) ---
+    ElecPanel,     ///< Elektrik panosu / dağıtım tablosu
+    Socket,        ///< Priz
+    LightFixture,  ///< Aydınlatma armatürü
+    // --- Havalandırma (EN 15665) ---
+    AHU,           ///< Klima santrali (Air Handling Unit)
+    Diffuser,      ///< Difüzör / menfez
+    Plenum,        ///< Plenum kutusu (dağıtım)
+    Damper,        ///< Damper (hava kesici/ayar)
+    FlexDuct,      ///< Fleksibıl bağlantı
+    VAVBox         ///< Değişken hava hacimli kutu
 };
 
 /**
@@ -51,7 +62,11 @@ enum class EdgeType {
     Gas,            ///< Doğal gaz (TS EN 1775) — sarı
     Heating,        ///< Isıtma gidiş (EN 12831) — kırmızı-turuncu
     HeatingReturn,  ///< Isıtma dönüş — mavi
-    FireLine        ///< Yangın hattı (EN 12845) — koyu kırmızı
+    FireLine,       ///< Yangın hattı (EN 12845) — koyu kırmızı
+    // --- Elektrik ---
+    Electric,       ///< Elektrik kablosu / buat hattı
+    // --- Havalandırma ---
+    Duct            ///< Kanal (hava kanalı)
 };
 
 /**
@@ -118,6 +133,17 @@ struct Edge {
     
     std::string material = "PVC";       ///< Boru malzemesi
     std::string label;                  ///< Etiket
+
+    // Dikdörtgen kanal kesiti (Duct tipi için)
+    double ductWidth_mm  = 0.0;         ///< Kanal genişliği (mm) — 0 ise dairesel
+    double ductHeight_mm = 0.0;         ///< Kanal yüksekliği (mm)
+
+    bool IsRectangularDuct() const { return type == EdgeType::Duct && ductWidth_mm > 0 && ductHeight_mm > 0; }
+    double DuctArea_m2() const {
+        if (IsRectangularDuct()) return (ductWidth_mm / 1000.0) * (ductHeight_mm / 1000.0);
+        double r = diameter_mm / 2000.0;
+        return 3.14159265 * r * r;
+    }
 };
 
 /**

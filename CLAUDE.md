@@ -490,11 +490,36 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Basınç Bölgesi Analizi** — `OnBaskiBolgesi()`: Source sayısı + kritik yol + pompa öneri rich-text dialog; `BOLGE`/`PRESSURE-ZONE` komutu
 - **Üretici Katalog** — `OnUreticiKatalog()`: Wavin/Valsir/Henco 9 ürün grubu (PVC-U/PP-R/PE-Xc/PP/HDPE/PE-RT/Bakır/Çelik); fiyat + pürüzlülük tablosu; `KATALOG`/`URETICI` komutu
 - **Document::AddCADEntity()** — inline helper `m_cadEntities.push_back(std::move(entity))`
-- **132/132 test geçiyor** (tüm modüller dahil)
+- **Scale (Ölçekle) komutu** — `OnScale()`: seçili entity'leri merkez etrafında ölçekleme; mm↔m dönüşümü dahil; `TransformCADEntitiesCommand` ile undo/redo; `SCALE`/`OLCEKLE`/`SC` CommandBar; Düzen menüsü
+- **Rotate (Döndür) komutu** — `OnRotate()`: serbest açı (0-360°) döndürme; `TransformCADEntitiesCommand` undo/redo; `ROTATE`/`DONDUR`/`RO` CommandBar; Düzen menüsü
+- **Stretch (Esnet) komutu** — `OnStretch()`: vertex bazlı deformasyon (Line/Polyline/Entity); crossing midpoint ile sağ yarı taşıma; `TransformCADEntitiesCommand` undo/redo; `STRETCH`/`ESNET`/`S` CommandBar; Düzen menüsü
+- **W-Block dialog** — `OnWBlock()`: FineSANI wblock iş akışı; nesne seç (seçili/tüm çizim) → tutma noktası (otomatik BBox veya koordinat) → DXF kaydet; proje `mimari/` klasörüne yönlendirir; `WBLOCK`/`W-BLOCK`/`BLOK-OLUSTUR` CommandBar
+- **Zengin sağ tık context menüsü** — Entity seçiliyken FineSANI uyumlu menü: Taşı/Sil/Aynala/Döndür/Ölçekle/Esnet/Kopyala/Geri Al/Seçimi Kaldır; boş alanda Tümünü Seç/Yapıştır eklendi
+- **KATOPSI komutu** — `KATOPSI`/`PLAN`/`PLAN-GORUNUM` CommandBar alias → `OnPlanView()`; FineSANI plan görünümüne dönüş komutu
+- **Mimari Belirle "Kullanılan" butonu** — `OnKullanilan()`: proje `mimari/` klasöründeki DXF/DWG dosyalarını listeler; QInputDialog ile dosya seçimi; m_edtDosya'ya yolu atar
+- **TransformCADEntitiesCommand** — `Commands.hpp`'ye yeni Command sınıfı; Scale/Rotate/Stretch için snapshot-based undo/redo; ilk Execute no-op, Undo/Redo `unique_ptr` swap
+- **Autosave sistemi** — 60s interval QTimer; `QStandardPaths::TempLocation/vkt_autosave.vkt`; crash recovery dialog (uygulama açılışında); `m_autosaveTimer`; değişiklik yoksa kaydetmez
+- **Kalıcı kat göstergesi (status bar)** — `m_floorStatusLabel` QLabel; `RefreshFloorSelector()` sonunda güncellenir; "Kat:1 ZEMIN Kot:0.00 m" formatında FineSANI uyumlu gösterim
+- **HVAC metraj ve kanal sistemi** — `Edge.ductWidth_mm/ductHeight_mm` dikdörtgen kesit; `IsRectangularDuct()` + `DuctArea_m2()`; `AddEdge()` Duct tipi default 400×300mm + "Galvaniz Kanal"; `SolveVentilation()` dikdörtgen kanal desteği (hidrolik çap hesabı, kesit etiketi "400x300"); Database'e 3 kanal malzemesi (Galvaniz/Flex/İzoleli); `NodeType::Plenum/Damper/FlexDuct/VAVBox` HVAC bağlantı elemanları; `KANAL-KESIT`/`DUCT-SIZE` ile seçili kanala dikdörtgen kesit atama; `PLENUM`/`DAMPER`/`FLEKS`/`VAV` yerleştirme komutları; `HVAC-BOM` alias
+- **BOM disiplin bazlı gruplama** — `OnBOM()` tamamen yeniden yazıldı: EdgeType'a göre ayrı tablolar (Temiz Su/Sıcak Su/Pis Su/Gaz/Isıtma/Yangın/HVAC Kanal/Elektrik); her disiplin renkli başlıkla; dikdörtgen kanal kesitleri "400x300" formatında; HVAC node sayıları (AHU/Difüzör/Plenum/Damper); QTextBrowser ile scrollable rapor; fire %7 + işçilik %35 maliyet özeti
+- **Persistence kanal kesit alanları** — `SerializeEdge/DeserializeEdge` ductWidth_mm/ductHeight_mm
+- **Mimari eleman tanıma sistemi** — `ArchElementType` enum (Wall/Column/Beam/Door/Window/Stair/Shaft); `ArchElement` struct (tip, konum, boyut, layer, block ismi); `SpaceManager::DetectArchElements()` layer-bazlı (DUVAR/KOLON/KIRIS/KAPI/PENCERE + AIA A-WALL/A-DOOR/S-COLS) + block-bazlı (INSERT ismine göre kapı/pencere/kolon tanıma); `AssignArchElementsToSpaces()` mahal-eleman ilişkilendirme; `Space::GetNetArea()` brüt alan - kolon alanı; `OnArchElementReport()` HTML rapor (mahal bazlı: duvar/kapı/pencere/kolon/kiriş sayım + brüt/net alan); `MIMARI-RAPOR`/`ARCH-REPORT`/`MAHAL-RAPOR` CommandBar; Mimari menüye "Mimari Eleman Raporu" eklendi; LayerManager'a KOLON/KIRIS layer'ları; TS layer standardına KIRIS/PENCERE/KAPI eklendi
+- **156/156 test geçiyor** (tüm modüller dahil)
 - **Sembol kütüphanesi genişletme (Session 30)** — `FixtureSymbolType` enum'a 7 yeni tip eklendi: `GasAppliance` (TS EN 12067 diamond + alev), `GasValve` (butterfly disk + dik kol), `Boiler` (EN 12828 dikdörtgen + eşanjör çizgileri + alev), `Radiator` (EN 442 iki bant + 7 fin), `HotSource` (kaynak + dalgalı ısı yayları), `Sprinkler` (EN 12845 çapraz kol + 8 su ışını), `FirePump` (çift halka + dış yangın işaretleri); `FromLabel()` gaz/ısıtma/yangın eşleştirmeleri eklendi
 - **Mevcut semboller iyileştirildi** — Lavabo: iki yarı daire ile gerçek eliptik havuz + musluk noktaları; WC: D-şekli gövde + rezervuar; Duş: 8 yönlü yağmurbaşı ışınları + köşe kapı yayı; Küvet: musluk çifti + büyütülmüş iç oval
 - **Otomatik ölçülendirme anti-overlap (Session 30)** — `OnAutoOlculendir()` yeniden yazıldı: paralel boru grupları 15° açı slot'larına ayrılır; yakın borularda stacking (1500→3000→4500mm); mevcut VKT-DIM silme dialog; etiketlere debi (L/s) eklendi; `Document::RemoveCADEntitiesByLayer()` + `GetCADEntitiesMutable()` yeni helper'lar
 - **Document::RemoveCADEntitiesByLayer()** + **GetCADEntitiesMutable()** — Document'a inline yardımcılar eklendi
+- **Context menü Delete undo** — `DeleteCADEntitiesCommand`; `RebuildCADEntityCache()` dangling ptr fix
+- **Delete tuşu undo** — aynı `DeleteCADEntitiesCommand` pattern
+- **OnMirror undo** — `TransformCADEntitiesCommand` snapshot pattern
+- **OnOffset undo** — `AddCADEntitiesCommand`; eklenen entity ID'leri takip
+- **OnPaste undo** — aynı `AddCADEntitiesCommand` pattern
+- **Atomic save** — `SaveProject()` temp → `.bak` yedek → rename atomik geçiş
+- **HydraulicSolver hata bildirimi** — `m_warnings/m_errors`; `HasErrors()`; status bar + log
+- **DXFWriter Spline export** — `WriteEntitySpline()` NURBS ctrl + fit noktaları
+- **Thread safety guard'ları** — entity mutation öncesi `WaitForCADBuild()` çağrıları (OnOffset, OnPaste, context menü Delete)
+- **DeleteCADEntitiesCommand StashRemoved** — silinen entity'ler command'a aktarılıyor; Undo/Redo roundtrip doğrulandı
+- **9 entegrasyon testi** — duct rectangular roundtrip, HVAC node types roundtrip, solver error/warning reporting, DeleteCADEntities undo/redo, AddCADEntities undo/redo, atomic save, Edge IsRectangularDuct, AddEdge Duct defaults; **165/165 test geçiyor**
 
 ### Devam Eden
 

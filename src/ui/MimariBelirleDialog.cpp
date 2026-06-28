@@ -14,6 +14,7 @@
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
+#include <QInputDialog>
 
 namespace vkt {
 namespace ui {
@@ -135,11 +136,14 @@ void MimariBelirleDialog::BuildUI() {
     auto* btnRow = new QHBoxLayout();
     m_btnYenile = new QPushButton("Yenile");
     m_btnYenile->setToolTip("Girilen bilgileri listeye ekle / güncelle");
+    m_btnKullanilan = new QPushButton("Kullanılan");
+    m_btnKullanilan->setToolTip("Proje klasöründeki mevcut DXF/DWG dosyalarını listele");
     m_btnSil = new QPushButton("Sil");
     m_btnSil->setToolTip("Seçili katı listeden kaldır");
     m_btnSil->setEnabled(false);
     btnRow->addStretch();
     btnRow->addWidget(m_btnYenile);
+    btnRow->addWidget(m_btnKullanilan);
     btnRow->addWidget(m_btnSil);
     form->addRow(btnRow);
 
@@ -163,9 +167,10 @@ void MimariBelirleDialog::BuildUI() {
     buttons->button(QDialogButtonBox::Cancel)->setText("İptal");
     mainLayout->addWidget(buttons);
 
-    connect(m_btnDosya,  &QPushButton::clicked, this, &MimariBelirleDialog::OnDosyaSec);
-    connect(m_btnYenile, &QPushButton::clicked, this, &MimariBelirleDialog::OnYenile);
-    connect(m_btnSil,    &QPushButton::clicked, this, &MimariBelirleDialog::OnSil);
+    connect(m_btnDosya,     &QPushButton::clicked, this, &MimariBelirleDialog::OnDosyaSec);
+    connect(m_btnYenile,   &QPushButton::clicked, this, &MimariBelirleDialog::OnYenile);
+    connect(m_btnKullanilan, &QPushButton::clicked, this, &MimariBelirleDialog::OnKullanilan);
+    connect(m_btnSil,      &QPushButton::clicked, this, &MimariBelirleDialog::OnSil);
     connect(m_table,     &QTableWidget::itemSelectionChanged,
             this, &MimariBelirleDialog::OnRowSelected);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -241,6 +246,40 @@ void MimariBelirleDialog::OnSil() {
     m_editRow = -1;
     m_btnSil->setEnabled(false);
     RefreshTable();
+}
+
+void MimariBelirleDialog::OnKullanilan() {
+    // Proje mimari/ klasöründeki DXF/DWG dosyalarını listele
+    auto& pm = core::ProjectManager::Instance();
+    QString searchDir;
+    if (pm.HasActiveProject()) {
+        searchDir = QString::fromStdString(pm.GetMimariFolder());
+    } else {
+        searchDir = QFileDialog::getExistingDirectory(this, "Mimari dosya klasörü seçin");
+    }
+    if (searchDir.isEmpty()) return;
+
+    QDir dir(searchDir);
+    QStringList filters = {"*.dxf", "*.dwg", "*.DXF", "*.DWG"};
+    QStringList files = dir.entryList(filters, QDir::Files, QDir::Name);
+
+    if (files.isEmpty()) {
+        QMessageBox::information(this, "Kullanılan Dosyalar",
+            "Klasörde DXF/DWG dosyası bulunamadı:\n" + searchDir);
+        return;
+    }
+
+    QStringList items;
+    for (const auto& f : files)
+        items << f;
+
+    bool ok;
+    QString selected = QInputDialog::getItem(this, "Kullanılan Dosyalar",
+        QString("Klasör: %1\n\nDosya seçin:").arg(searchDir),
+        items, 0, false, &ok);
+    if (ok && !selected.isEmpty()) {
+        m_edtDosya->setText(dir.absoluteFilePath(selected));
+    }
 }
 
 void MimariBelirleDialog::OnRowSelected() {

@@ -382,4 +382,20 @@ std::vector<std::string> Space::GetValidationErrors() const {
     return errors;
 }
 
+double Space::GetNetArea() const {
+    double gross = GetArea();
+    if (gross <= 0) return 0;
+
+    double colonArea = 0;
+    for (auto& e : m_archElements) {
+        if (e.type == ArchElementType::Column) {
+            double w = e.width_mm > 0 ? e.width_mm : 300;
+            double l = e.length_mm > 0 ? e.length_mm : w;
+            colonArea += (w / 1000.0) * (l / 1000.0);
+        }
+    }
+    double net = gross - colonArea;
+    return net > 0 ? net : gross;
+}
+
 } // namespace vkt::cad

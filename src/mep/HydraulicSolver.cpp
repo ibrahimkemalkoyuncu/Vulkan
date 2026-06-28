@@ -44,6 +44,59 @@ void HydraulicSolver::Solve() {
     std::cout << "  TEMİZ SU ŞEBEKE ANALİZİ (TS EN 806-3)" << std::endl;
     std::cout << "═══════════════════════════════════════" << std::endl;
 
+    m_warnings.clear();
+    m_errors.clear();
+
+    // P0: Ön doğrulama — boş/eksik ağ kontrolü
+    {
+        int sourceCount = 0, fixtureCount = 0, supplyEdgeCount = 0;
+        for (const auto& [id, node] : m_network.GetNodeMap()) {
+            if (node.type == NodeType::Source || node.type == NodeType::HotSource) ++sourceCount;
+            if (node.type == NodeType::Fixture) ++fixtureCount;
+        }
+        for (const auto& [id, edge] : m_network.GetEdgeMap()) {
+            if (edge.type == EdgeType::Supply || edge.type == EdgeType::HotWater) ++supplyEdgeCount;
+        }
+        if (sourceCount == 0) {
+            m_errors.push_back("Temiz su kaynagi (Source) bulunamadi - once kaynak yerlestirin");
+            return;
+        }
+        if (fixtureCount == 0 && supplyEdgeCount == 0) {
+            m_errors.push_back("Armatur veya boru bulunamadi - once tesisat cizin");
+            return;
+        }
+    }
+
+    // P1: Bağlantı kontrolü — izole ada (island) tespiti
+    {
+        std::unordered_set<uint32_t> visited;
+        uint32_t startNode = 0;
+        for (const auto& [id, node] : m_network.GetNodeMap()) {
+            if (node.type == NodeType::Source) { startNode = id; break; }
+        }
+        if (startNode > 0) {
+            std::queue<uint32_t> bfs;
+            bfs.push(startNode);
+            visited.insert(startNode);
+            while (!bfs.empty()) {
+                uint32_t n = bfs.front(); bfs.pop();
+                for (uint32_t eid : m_network.GetConnectedEdges(n)) {
+                    const Edge* e = m_network.GetEdge(eid);
+                    if (!e) continue;
+                    uint32_t nb = (e->nodeA == n) ? e->nodeB : e->nodeA;
+                    if (!visited.count(nb)) { visited.insert(nb); bfs.push(nb); }
+                }
+            }
+            int totalNodes = static_cast<int>(m_network.GetNodeMap().size());
+            int reachable  = static_cast<int>(visited.size());
+            if (reachable < totalNodes) {
+                m_warnings.push_back("Agda " + std::to_string(totalNodes - reachable)
+                    + " izole node tespit edildi (toplam " + std::to_string(totalNodes)
+                    + ", erisilebilir " + std::to_string(reachable) + ")");
+            }
+        }
+    }
+
     // 1. Her fixture node'un LU/SB değerinden debi hesapla
     for (auto& [id, node] : m_network.GetNodeMap()) {
         double unitVal = node.loadUnit;
@@ -76,6 +129,16 @@ void HydraulicSolver::Solve() {
         SolveHardyCross(loops);
     }
 
+    // 3c. Newton-Raphson ile basınç-debi eşzamanlı iyileştirme
+    // Sadece karmaşık ağlarda (>10 junction) çalıştır — basit ağlarda Hardy-Cross yeterli
+    {
+        int junctionCount = 0;
+        for (const auto& [nid, node] : m_network.GetNodeMap())
+            if (node.type == NodeType::Junction) ++junctionCount;
+        if (junctionCount > 10 && !loops.empty())
+            SolveNewtonRaphson();
+    }
+
     // 4. Her boru için hidrolik hesap
     for (auto& [id, edge] : m_network.GetEdgeMap()) {
         if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
@@ -104,8 +167,24 @@ void HydraulicSolver::Solve() {
                   << std::endl;
     }
 
+    // P0: Tehlikeli hız uyarıları
+    for (const auto& [id, edge] : m_network.GetEdgeMap()) {
+        if (edge.type != EdgeType::Supply && edge.type != EdgeType::HotWater) continue;
+        if (edge.flowRate_m3s < 1e-10) continue;
+        if (edge.velocity_ms > 5.0)
+            m_warnings.push_back("Boru #" + std::to_string(edge.id)
+                + " hiz=" + std::to_string(edge.velocity_ms).substr(0,4)
+                + " m/s, DN" + std::to_string((int)edge.diameter_mm)
+                + " cok kucuk (gurultu/erozyon riski)");
+        else if (edge.velocity_ms > 0.0 && edge.velocity_ms < 0.2)
+            m_warnings.push_back("Boru #" + std::to_string(edge.id)
+                + " hiz=" + std::to_string(edge.velocity_ms).substr(0,5)
+                + " m/s, DN" + std::to_string((int)edge.diameter_mm)
+                + " cok buyuk (durgunluk riski)");
+    }
+
     // Cache'leri dirty işaretle (edge/node değerleri değişti)
-    m_network.GetEdges(); // Force rebuild so cache reflects new values
+    m_network.GetEdges();
     m_network.GetNodes();
 
     std::cout << "Besleme analizi tamamlandı." << std::endl;
@@ -301,7 +380,21 @@ void HydraulicSolver::SolveDrainage() {
                   << std::endl;
     }
 
-    m_network.GetEdges(); // Force cache rebuild
+    // P1: Ters eğim / geri akış kontrolü — drenaj node'larında Z monoton azalmalı
+    for (const auto& [id, edge] : m_network.GetEdgeMap()) {
+        if (edge.type != EdgeType::Drainage) continue;
+        const Node* nA = m_network.GetNode(edge.nodeA);
+        const Node* nB = m_network.GetNode(edge.nodeB);
+        if (!nA || !nB) continue;
+        if (nA->position.z < nB->position.z - 0.01) {
+            std::cerr << "[UYARI] Drenaj boru #" << edge.id
+                      << " ters eğimli — nodeA(z=" << nA->position.z
+                      << ") < nodeB(z=" << nB->position.z
+                      << ") → geri akış riski!" << std::endl;
+        }
+    }
+
+    m_network.GetEdges();
     std::cout << "Drenaj analizi tamamlandı." << std::endl;
 }
 
@@ -427,8 +520,39 @@ void HydraulicSolver::SolveGas() {
         double f  = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
                                    : HaalandFriction(Re, edge.roughness_mm / (edge.diameter_mm));
         double dP_Pa = f * (edge.length_m / D_m) * (rho_gas * edge.velocity_ms * edge.velocity_ms / 2.0);
-        edge.headLoss_m = dP_Pa / (rho_gas * 9.81); // gaz su sütununa çevirmek yerine Pa olarak tut
+        edge.headLoss_m = dP_Pa / (rho_gas * 9.81);
         edge.pressure_Pa = dP_Pa;
+    }
+
+    // P1: Gaz min basınç kontrolü — kaynak→cihaz kümülatif basınç kaybı
+    // TS EN 1775: min 17.4 Pa (Düşük Basınç) cihaz giriş basıncı
+    constexpr double kSourcePressure_Pa = 2000.0; // 20 mbar giriş basıncı (sayaç çıkışı)
+    constexpr double kMinAppliance_Pa   = 17.4;
+    for (const auto& [nid, node] : nodeMap) {
+        if (node.type != NodeType::GasAppliance) continue;
+        // DFS ile GasSource→bu cihaz yolundaki toplam basınç kaybını hesapla
+        double totalLoss_Pa = 0.0;
+        std::unordered_set<uint32_t> visited;
+        std::function<bool(uint32_t)> tracePath = [&](uint32_t n) -> bool {
+            if (visited.count(n)) return false;
+            visited.insert(n);
+            if (n == nid) return true;
+            for (uint32_t eid : m_network.GetConnectedEdges(n)) {
+                const Edge* e = m_network.GetEdge(eid);
+                if (!e || e->type != EdgeType::Gas) continue;
+                uint32_t nb = (e->nodeA == n) ? e->nodeB : e->nodeA;
+                if (tracePath(nb)) { totalLoss_Pa += e->pressure_Pa; return true; }
+            }
+            return false;
+        };
+        for (const auto& [sid, snode] : nodeMap) {
+            if (snode.type == NodeType::GasSource) { tracePath(sid); break; }
+        }
+        double remainingP = kSourcePressure_Pa - totalLoss_Pa;
+        if (remainingP < kMinAppliance_Pa)
+            std::cerr << "[UYARI] Gaz cihazı node #" << nid << " (" << node.label
+                      << "): kalan basınç " << remainingP << " Pa < min " << kMinAppliance_Pa
+                      << " Pa — hat çapı artırılmalı!" << std::endl;
     }
 }
 
@@ -574,6 +698,129 @@ void HydraulicSolver::SolveFire(const std::string& hazardClass) {
                                     : HaalandFriction(Re, edge.roughness_mm / edge.diameter_mm);
         edge.headLoss_m = f * (edge.length_m / D_m) * (edge.velocity_ms * edge.velocity_ms) / (2.0 * 9.81);
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ELEKTRİK TESİSAT HESABI — IEC 60364
+// ═══════════════════════════════════════════════════════════
+void HydraulicSolver::SolveElectric() {
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    // Toplam güç toplaması — DFS ile panelden aşağı
+    std::function<double(uint32_t, uint32_t)> dfsP = [&](uint32_t nid, uint32_t parent) -> double {
+        double total = 0.0;
+        auto nit = nodeMap.find(nid);
+        if (nit != nodeMap.end()) {
+            if (nit->second.type == NodeType::Socket)       total += 3500.0;  // 3.5 kW
+            if (nit->second.type == NodeType::LightFixture)  total += 200.0;   // 200 W
+        }
+        for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+            auto* e = m_network.GetEdge(eid);
+            if (!e || e->type != EdgeType::Electric) continue;
+            uint32_t nb = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+            if (nb == parent) continue;
+            double sub = dfsP(nb, nid);
+            // Kablo boyutlandırma: I = P / (V × cosφ × √phases)
+            // Pano tipi: ElecPanel → 3-faz (400V), Socket/Light → 1-faz (230V)
+            bool isThreePhase = false;
+            auto srcIt = nodeMap.find(nid);
+            if (srcIt != nodeMap.end() && srcIt->second.type == NodeType::ElecPanel)
+                isThreePhase = true;
+            double V = isThreePhase ? 400.0 : 230.0;
+            double cosPhi = 0.85;
+            double phaseFactor = isThreePhase ? 1.732 : 1.0; // √3 for 3-phase
+            double I = sub / (V * cosPhi * phaseFactor);
+            e->flowRate_m3s = I;  // Amper
+            // Kablo kesiti seçimi (mm²): IEC 60364-5-52 Tablo B.52.2
+            // 1.5mm²→13A, 2.5→20, 4→27, 6→36, 10→50, 16→66, 25→89
+            static const double kTable[][2] = {
+                {13,1.5},{20,2.5},{27,4},{36,6},{50,10},{66,16},{89,25},{115,35},{150,50}
+            };
+            e->diameter_mm = 1.5;
+            for (auto& [ampCap, mm2] : kTable) {
+                if (ampCap >= I) { e->diameter_mm = mm2; break; }
+            }
+            // Gerilim düşümü: ΔV = 2 × I × ρ_Cu × L / A
+            constexpr double rho_Cu = 0.0175; // Ω·mm²/m bakır
+            double A_mm2 = e->diameter_mm;
+            e->velocity_ms = I;  // display
+            e->headLoss_m  = 2.0 * I * rho_Cu * e->length_m / A_mm2; // Volt drop
+            total += sub;
+        }
+        return total;
+    };
+
+    for (auto& [id, node] : nodeMap)
+        if (node.type == NodeType::ElecPanel)
+            dfsP(id, 0);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  HAVALANDIRMA KANAL HESABI — EN 15665
+// ═══════════════════════════════════════════════════════════
+void HydraulicSolver::SolveVentilation() {
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    // Difüzör debisi: kişi başı 10 L/s (EN 15665 ofis)
+    constexpr double kFlowPerDiffuser_Ls = 10.0;
+
+    std::function<double(uint32_t, uint32_t)> dfsV = [&](uint32_t nid, uint32_t parent) -> double {
+        double total = 0.0;
+        auto nit = nodeMap.find(nid);
+        if (nit != nodeMap.end() && nit->second.type == NodeType::Diffuser)
+            total += kFlowPerDiffuser_Ls / 1000.0; // m³/s
+
+        for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+            auto* e = m_network.GetEdge(eid);
+            if (!e || e->type != EdgeType::Duct) continue;
+            uint32_t nb = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+            if (nb == parent) continue;
+            double sub = dfsV(nb, nid);
+            e->flowRate_m3s = sub;
+
+            constexpr double v_max = 5.0;
+            double A_needed = sub / v_max;
+            double A_act = 0, D_hyd = 0;
+
+            if (e->IsRectangularDuct()) {
+                // Dikdörtgen kanal — mevcut kesiti koru, sadece hız/kayıp hesapla
+                A_act = e->DuctArea_m2();
+                double P = 2.0 * (e->ductWidth_mm + e->ductHeight_mm) / 1000.0;
+                D_hyd = (P > 0) ? 4.0 * A_act / P : 0.2;
+                e->diameter_mm = std::sqrt(4.0 * A_act / M_PI) * 1000.0;
+                e->label = std::to_string((int)e->ductWidth_mm) + "x"
+                         + std::to_string((int)e->ductHeight_mm);
+            } else {
+                // Dairesel kanal — otomatik boyutlandırma
+                double D_m = std::sqrt(4.0 * A_needed / M_PI);
+                static const int kDucts[] = {100,125,150,200,250,315,400,500,630,800,1000};
+                e->diameter_mm = 100;
+                for (int dn : kDucts) {
+                    if (dn >= D_m * 1000.0) { e->diameter_mm = dn; break; }
+                }
+                double D_act_m = e->diameter_mm / 1000.0;
+                A_act = M_PI * D_act_m * D_act_m / 4.0;
+                D_hyd = D_act_m;
+                e->label = "Ø" + std::to_string((int)e->diameter_mm);
+            }
+
+            e->velocity_ms = (A_act > 1e-9) ? sub / A_act : 0;
+            constexpr double rho_air = 1.2;
+            constexpr double f_duct  = 0.02;
+            e->headLoss_m = (D_hyd > 1e-9)
+                ? f_duct * (e->length_m / D_hyd) *
+                  (rho_air * e->velocity_ms * e->velocity_ms / 2.0) / 9.81
+                : 0;
+            total += sub;
+        }
+        return total;
+    };
+
+    for (auto& [id, node] : nodeMap)
+        if (node.type == NodeType::AHU)
+            dfsV(id, 0);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1035,6 +1282,183 @@ void HydraulicSolver::SolveHardyCross(const std::vector<NetworkLoop>& loops) {
         if (A > 0.0)
             edge.velocity_ms = std::abs(edge.flowRate_m3s) / A;
         edge.headLoss_m = CalculateHeadLoss(edge);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  NEWTON-RAPHSON — çok dallı karmaşık ağ çözümü
+//  Global Gradient Algorithm (Todini & Pilati, 1988)
+//  Eşzamanlı Q (debi) ve H (basınç) çözümü
+// ═══════════════════════════════════════════════════════════
+
+double HydraulicSolver::EdgeHeadLossFunc(const Edge& edge, double Q_m3s) const {
+    double D = edge.diameter_mm / 1000.0;
+    if (D < 1e-6) return 0.0;
+    double A = PI * D * D / 4.0;
+    double v = std::abs(Q_m3s) / std::max(A, 1e-12);
+    double Re = 1000.0 * v * D / 1e-3;
+    double relRough = edge.roughness_mm / std::max(edge.diameter_mm, 0.1);
+    double f = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
+                              : HaalandFriction(Re, relRough);
+    double L = std::max(edge.length_m, 0.001);
+    // ΔH = sign(Q) × f × (L/D) × v² / (2g)
+    double dH = f * (L / D) * (v * v) / (2.0 * 9.81);
+    return (Q_m3s >= 0.0) ? dH : -dH;
+}
+
+double HydraulicSolver::EdgeHeadLossDerivative(const Edge& edge, double Q_m3s) const {
+    double D = edge.diameter_mm / 1000.0;
+    if (D < 1e-6) return 1e6;
+    double A = PI * D * D / 4.0;
+    double absQ = std::max(std::abs(Q_m3s), 1e-12);
+    double v = absQ / A;
+    double Re = 1000.0 * v * D / 1e-3;
+    double relRough = edge.roughness_mm / std::max(edge.diameter_mm, 0.1);
+    double f = (Re < 2300.0) ? 64.0 / std::max(Re, 1.0)
+                              : HaalandFriction(Re, relRough);
+    double L = std::max(edge.length_m, 0.001);
+    // d(ΔH)/dQ ≈ 2 × f × L / (D × A² × 2g) × |Q|
+    return 2.0 * f * L * absQ / (D * A * A * 2.0 * 9.81);
+}
+
+void HydraulicSolver::SolveNewtonRaphson(int maxIter, double tolerance) {
+    auto& nodeMap = m_network.GetNodeMap();
+    auto& edgeMap = m_network.GetEdgeMap();
+
+    // P0: Sınır koşul kontrolü — en az 1 sabit basınçlı node (Source/HotSource) gerekli
+    {
+        bool hasFixedPressure = false;
+        for (const auto& [nid, node] : nodeMap) {
+            if (node.type == NodeType::Source || node.type == NodeType::HotSource) {
+                hasFixedPressure = true;
+                break;
+            }
+        }
+        if (!hasFixedPressure) {
+            std::cerr << "[N-R] Sabit basınç düğümü (Source) bulunamadı — Newton-Raphson atlanıyor" << std::endl;
+            return;
+        }
+    }
+
+    // Sadece Supply/HotWater edge'leri üzerinde çalış
+    std::vector<uint32_t> pipeIds;
+    for (auto& [eid, edge] : edgeMap) {
+        if (edge.type == EdgeType::Supply || edge.type == EdgeType::HotWater) {
+            pipeIds.push_back(eid);
+            if (std::abs(edge.flowRate_m3s) < 1e-10)
+                edge.flowRate_m3s = 1e-4; // başlangıç tahmini
+        }
+    }
+    if (pipeIds.empty()) return;
+
+    // Junction node'ları (bilinmeyen basınçlar)
+    std::vector<uint32_t> junctionIds;
+    std::unordered_map<uint32_t, int> nodeIndex;
+    for (auto& [nid, node] : nodeMap) {
+        if (node.type == NodeType::Junction) {
+            nodeIndex[nid] = static_cast<int>(junctionIds.size());
+            junctionIds.push_back(nid);
+        }
+    }
+    if (junctionIds.empty()) return;
+
+    int N = static_cast<int>(junctionIds.size());
+
+    // Başlangıç basınçları: tüm junction'lara 30m
+    std::vector<double> H(N, 30.0);
+
+    for (int iter = 0; iter < maxIter; ++iter) {
+        // F vektörü: nodal mass balance (ΣQ_in - ΣQ_out - demand = 0)
+        std::vector<double> F(N, 0.0);
+
+        // Demand: fixture'ların çektiği debi (junction'lara dağıtılmış)
+        for (auto& [nid, node] : nodeMap) {
+            if (node.type == NodeType::Fixture && node.flowRate_m3s > 0) {
+                // En yakın junction'ı bul
+                for (uint32_t eid : m_network.GetConnectedEdges(nid)) {
+                    const Edge* e = m_network.GetEdge(eid);
+                    if (!e) continue;
+                    uint32_t other = (e->nodeA == nid) ? e->nodeB : e->nodeA;
+                    auto it = nodeIndex.find(other);
+                    if (it != nodeIndex.end()) {
+                        F[it->second] -= node.flowRate_m3s;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Her edge'in katkısını nodal denklemlere ekle
+        // Aynı zamanda Jacobian (dF/dH) bant-diyagonal matrisi oluştur
+        // Basitleştirilmiş: diyagonal-dominant yaklaşım
+        std::vector<double> diag(N, 0.0);
+
+        for (uint32_t eid : pipeIds) {
+            Edge* e = m_network.GetEdge(eid);
+            if (!e) continue;
+            auto itA = nodeIndex.find(e->nodeA);
+            auto itB = nodeIndex.find(e->nodeB);
+
+            double dHdQ = EdgeHeadLossDerivative(*e, e->flowRate_m3s);
+            double conductance = 1.0 / std::max(dHdQ, 1e-12);
+
+            // Head loss: ΔH = H_A - H_B = f(Q)
+            double H_A = (itA != nodeIndex.end()) ? H[itA->second] : 50.0; // Source → sabit H
+            double H_B = (itB != nodeIndex.end()) ? H[itB->second] : 50.0;
+
+            double dH = H_A - H_B;
+            double hLoss = EdgeHeadLossFunc(*e, e->flowRate_m3s);
+
+            // Debi düzeltmesi: Q_new = conductance × (dH - hLoss + dHdQ × Q_old)
+            double Q_correction = conductance * (dH - hLoss);
+            double Q_new = e->flowRate_m3s + 0.5 * Q_correction; // damping
+            e->flowRate_m3s = Q_new;
+
+            // Nodal balance'a katkı
+            if (itA != nodeIndex.end()) {
+                F[itA->second] -= Q_new;
+                diag[itA->second] += conductance;
+            }
+            if (itB != nodeIndex.end()) {
+                F[itB->second] += Q_new;
+                diag[itB->second] += conductance;
+            }
+        }
+
+        // Basınç düzeltmesi: ΔH = -F / diag (basitleştirilmiş Jacobian)
+        double maxResidual = 0.0;
+        for (int i = 0; i < N; ++i) {
+            if (diag[i] > 1e-15) {
+                double dH = -F[i] / diag[i];
+                H[i] += 0.7 * dH; // under-relaxation
+                maxResidual = std::max(maxResidual, std::abs(F[i]));
+            }
+        }
+
+        if (maxResidual < tolerance) {
+            std::cout << "Newton-Raphson yakınsadı: " << iter + 1
+                      << " iterasyonda, residual=" << maxResidual * 1000.0
+                      << " mL/s" << std::endl;
+            break;
+        }
+    }
+
+    // Sonuçları güncelle — hız ve kayıp
+    for (uint32_t eid : pipeIds) {
+        Edge* e = m_network.GetEdge(eid);
+        if (!e) continue;
+        double D = e->diameter_mm / 1000.0;
+        double A = PI * D * D / 4.0;
+        if (A > 0.0)
+            e->velocity_ms = std::abs(e->flowRate_m3s) / A;
+        e->headLoss_m = std::abs(EdgeHeadLossFunc(*e, e->flowRate_m3s));
+    }
+
+    // Junction basınçlarını node'lara kaydet
+    for (int i = 0; i < N; ++i) {
+        auto it = nodeMap.find(junctionIds[i]);
+        if (it != nodeMap.end())
+            it->second.pressureDesired_Pa = H[i] * 9810.0; // m → Pa
     }
 }
 

@@ -6,6 +6,9 @@
 #include "cad/SpaceManager.hpp"
 #include "cad/Line.hpp"
 #include "cad/Text.hpp"
+#include "cad/Block.hpp"
+#include "cad/Circle.hpp"
+#include "cad/Arc.hpp"
 #include "nlohmann/json.hpp"
 #include <algorithm>
 #include <sstream>
@@ -723,6 +726,156 @@ std::string SpaceManager::GenerateSpaceNumber(SpaceType type) {
     char buffer[8];
     snprintf(buffer, sizeof(buffer), "%s%02d", prefix.c_str(), counter);
     return std::string(buffer);
+}
+
+// ==================== MİMARİ ELEMAN TESPİTİ ====================
+
+static bool layerContains(const std::string& layer, const std::string& keyword) {
+    std::string up = layer;
+    for (auto& c : up) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    std::string kup = keyword;
+    for (auto& c : kup) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return up.find(kup) != std::string::npos;
+}
+
+static ArchElementType classifyByLayer(const std::string& layer) {
+    // Türkçe + İngilizce + AIA layer isimleri
+    if (layerContains(layer, "DUVAR") || layerContains(layer, "WALL")
+        || layerContains(layer, "A-WALL") || layerContains(layer, "S-WALL"))
+        return ArchElementType::Wall;
+    if (layerContains(layer, "KOLON") || layerContains(layer, "COLUMN")
+        || layerContains(layer, "S-COLS") || layerContains(layer, "S-COL"))
+        return ArchElementType::Column;
+    if (layerContains(layer, "KIRIS") || layerContains(layer, "BEAM")
+        || layerContains(layer, "S-BEAM"))
+        return ArchElementType::Beam;
+    if (layerContains(layer, "KAPI") || layerContains(layer, "DOOR")
+        || layerContains(layer, "A-DOOR"))
+        return ArchElementType::Door;
+    if (layerContains(layer, "PENCERE") || layerContains(layer, "WINDOW")
+        || layerContains(layer, "A-GLAZ") || layerContains(layer, "A-WIND"))
+        return ArchElementType::Window;
+    if (layerContains(layer, "MERDIVEN") || layerContains(layer, "STAIR")
+        || layerContains(layer, "A-FLOR-STRS"))
+        return ArchElementType::Stair;
+    if (layerContains(layer, "SAFT") || layerContains(layer, "SHAFT")
+        || layerContains(layer, "BACA"))
+        return ArchElementType::Shaft;
+    return ArchElementType::Other;
+}
+
+static ArchElementType classifyByBlockName(const std::string& blockName) {
+    std::string up = blockName;
+    for (auto& c : up) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+
+    if (up.find("DOOR") != std::string::npos || up.find("KAPI") != std::string::npos
+        || up.find("DR") == 0 || up.find("A-DOOR") != std::string::npos)
+        return ArchElementType::Door;
+    if (up.find("WINDOW") != std::string::npos || up.find("PENCERE") != std::string::npos
+        || up.find("WN") == 0 || up.find("A-GLAZ") != std::string::npos)
+        return ArchElementType::Window;
+    if (up.find("COLUMN") != std::string::npos || up.find("KOLON") != std::string::npos
+        || up.find("COL") == 0)
+        return ArchElementType::Column;
+    if (up.find("STAIR") != std::string::npos || up.find("MERDIVEN") != std::string::npos)
+        return ArchElementType::Stair;
+    return ArchElementType::Other;
+}
+
+std::vector<ArchElement> SpaceManager::DetectArchElements(
+    const std::vector<Entity*>& entities) const
+{
+    std::vector<ArchElement> result;
+    result.reserve(entities.size() / 4);
+
+    for (const auto* ent : entities) {
+        if (!ent || !ent->IsVisible()) continue;
+
+        ArchElementType type = ArchElementType::Other;
+        std::string layerName = ent->GetLayerName();
+        std::string blockName;
+
+        // 1. Layer bazlı tanıma
+        type = classifyByLayer(layerName);
+
+        // 2. INSERT blok ismine göre tanıma (layer'dan daha spesifik)
+        if (ent->GetType() == EntityType::Insert) {
+            const auto* ins = static_cast<const Insert*>(ent);
+            blockName = ins->GetBlockName();
+            auto blockType = classifyByBlockName(blockName);
+            if (blockType != ArchElementType::Other) type = blockType;
+        }
+
+        if (type == ArchElementType::Other) continue;
+
+        ArchElement elem;
+        elem.type      = type;
+        elem.entityId  = ent->GetId();
+        elem.layerName = layerName;
+        elem.blockName = blockName;
+
+        // Konum ve boyut bilgisi
+        auto bb = ent->GetBounds();
+        elem.position = bb.GetCenter();
+
+        double dx = bb.max.x - bb.min.x;
+        double dy = bb.max.y - bb.min.y;
+
+        switch (type) {
+            case ArchElementType::Wall:
+                elem.length_mm = std::max(dx, dy);
+                elem.width_mm  = std::min(dx, dy);
+                if (elem.width_mm < 1.0) elem.width_mm = 200;
+                break;
+            case ArchElementType::Column:
+                elem.width_mm  = dx > 0 ? dx : 300;
+                elem.length_mm = dy > 0 ? dy : elem.width_mm;
+                break;
+            case ArchElementType::Beam:
+                elem.length_mm = std::max(dx, dy);
+                elem.width_mm  = std::min(dx, dy);
+                if (elem.width_mm < 1.0) elem.width_mm = 300;
+                break;
+            case ArchElementType::Door:
+                elem.width_mm = std::max(dx, dy);
+                if (elem.width_mm < 100) elem.width_mm = 900;
+                elem.height_mm = 2100;
+                break;
+            case ArchElementType::Window:
+                elem.width_mm = std::max(dx, dy);
+                if (elem.width_mm < 100) elem.width_mm = 1200;
+                elem.height_mm = 1200;
+                break;
+            default:
+                elem.width_mm  = dx;
+                elem.length_mm = dy;
+                break;
+        }
+
+        if (ent->GetType() == EntityType::Insert) {
+            const auto* ins = static_cast<const Insert*>(ent);
+            elem.angle_deg = ins->GetRotDeg();
+        }
+
+        result.push_back(elem);
+    }
+
+    return result;
+}
+
+void SpaceManager::AssignArchElementsToSpaces(const std::vector<ArchElement>& elements) {
+    for (auto& [id, space] : m_spaces) {
+        space->ClearArchElements();
+    }
+
+    for (const auto& elem : elements) {
+        for (auto& [id, space] : m_spaces) {
+            if (space->ContainsPoint(elem.position)) {
+                space->AddArchElement(elem);
+                break;
+            }
+        }
+    }
 }
 
 } // namespace vkt::cad

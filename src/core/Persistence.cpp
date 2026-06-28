@@ -6,6 +6,7 @@
 #include "core/Persistence.hpp"
 #include <fstream>
 #include <iostream>
+#include <filesystem>
 
 namespace vkt {
 namespace core {
@@ -58,16 +59,39 @@ bool Persistence::SaveProject(const std::string& path, const mep::NetworkGraph& 
         j["version"] = "1.0.0";
         j["type"] = "VKT_Project";
         j["network"] = SerializeNetwork(network);
-        
-        std::ofstream file(path);
-        if (!file.is_open()) {
-            std::cerr << "Dosya açılamadı: " << path << std::endl;
+
+        // Atomic save: temp dosyaya yaz → rename
+        std::string tempPath = path + ".tmp";
+        {
+            std::ofstream file(tempPath);
+            if (!file.is_open()) {
+                std::cerr << "Temp dosya açılamadı: " << tempPath << std::endl;
+                return false;
+            }
+            file << j.dump(2);
+            file.flush();
+            if (!file.good()) {
+                std::cerr << "Yazma hatası: " << tempPath << std::endl;
+                return false;
+            }
+        }
+
+        // Mevcut dosyayı yedekle (varsa)
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec)) {
+            std::filesystem::rename(path, path + ".bak", ec);
+        }
+
+        // Temp → asıl dosya
+        std::filesystem::rename(tempPath, path, ec);
+        if (ec) {
+            std::cerr << "Rename hatası: " << ec.message() << std::endl;
             return false;
         }
-        
-        file << j.dump(2); // Pretty print with 2 spaces
-        file.close();
-        
+
+        // Yedek dosyayı sil
+        std::filesystem::remove(path + ".bak", ec);
+
         std::cout << "Proje kaydedildi: " << path << std::endl;
         return true;
     } catch (const std::exception& e) {
@@ -133,6 +157,10 @@ json Persistence::SerializeEdge(const mep::Edge& edge) {
     j["cumulativeDU"] = edge.cumulativeDU;
     j["material"] = edge.material;
     j["label"] = edge.label;
+    j["fillRate"] = edge.fillRate;
+    j["nominalFlow_Ls"] = edge.nominalFlow_Ls;
+    if (edge.ductWidth_mm > 0)  j["ductWidth_mm"]  = edge.ductWidth_mm;
+    if (edge.ductHeight_mm > 0) j["ductHeight_mm"] = edge.ductHeight_mm;
     return j;
 }
 
@@ -176,7 +204,11 @@ mep::Edge Persistence::DeserializeEdge(const json& j) {
     edge.cumulativeDU = j.value("cumulativeDU", 0.0);
     edge.material = j.value("material", "PVC");
     edge.label = j.value("label", "");
-    
+    edge.fillRate = j.value("fillRate", 0.0);
+    edge.nominalFlow_Ls = j.value("nominalFlow_Ls", 0.0);
+    edge.ductWidth_mm  = j.value("ductWidth_mm", 0.0);
+    edge.ductHeight_mm = j.value("ductHeight_mm", 0.0);
+
     return edge;
 }
 

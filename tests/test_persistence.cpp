@@ -8,6 +8,8 @@
 #include "core/Document.hpp"
 #include "core/Commands.hpp"
 #include "mep/NetworkGraph.hpp"
+#include "mep/HydraulicSolver.hpp"
+#include "cad/Line.hpp"
 #include <filesystem>
 #include <string>
 
@@ -209,4 +211,221 @@ TEST_CASE("New command after undo clears redo stack", "[commands]") {
     doc.ExecuteCommand(std::make_unique<AddNodeCommand>(net, n3));
     REQUIRE_FALSE(doc.CanRedo());
     REQUIRE(net.GetNodeCount() == 2);
+}
+
+// ============================================================
+// ENTEGRASYON TESTLERI - ROUND-TRIP + UNDO + DUCT
+// ============================================================
+
+TEST_CASE("Save/Load roundtrip - duct rectangular dimensions", "[persistence][integration]") {
+    Document doc;
+    auto& net = doc.GetNetwork();
+
+    Node src; src.type = NodeType::AHU; src.position = {0,0,0};
+    Node diff; diff.type = NodeType::Diffuser; diff.position = {5000,0,0};
+    uint32_t nA = net.AddNode(src);
+    uint32_t nB = net.AddNode(diff);
+
+    Edge duct;
+    duct.type = EdgeType::Duct;
+    duct.nodeA = nA; duct.nodeB = nB;
+    duct.ductWidth_mm = 500;
+    duct.ductHeight_mm = 300;
+    duct.material = "Galvaniz Kanal";
+    net.AddEdge(duct);
+
+    std::string path = TempPath("vkt_test_duct_roundtrip.json");
+    REQUIRE(doc.Save(path));
+
+    Document doc2;
+    REQUIRE(doc2.Load(path));
+    auto& net2 = doc2.GetNetwork();
+    REQUIRE(net2.GetEdgeCount() == 1);
+
+    auto edges = net2.GetEdgeList();
+    REQUIRE(edges[0].ductWidth_mm == 500.0);
+    REQUIRE(edges[0].ductHeight_mm == 300.0);
+    REQUIRE(edges[0].type == EdgeType::Duct);
+    REQUIRE(edges[0].material == "Galvaniz Kanal");
+    REQUIRE(edges[0].IsRectangularDuct());
+    REQUIRE(edges[0].DuctArea_m2() > 0.14); // 0.5 * 0.3 = 0.15
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("Save/Load roundtrip - node types (HVAC)", "[persistence][integration]") {
+    Document doc;
+    auto& net = doc.GetNetwork();
+
+    Node plenum; plenum.type = NodeType::Plenum; plenum.position = {100,0,0};
+    Node damper; damper.type = NodeType::Damper; damper.position = {200,0,0};
+    Node vav;    vav.type = NodeType::VAVBox;    vav.position = {300,0,0};
+    net.AddNode(plenum);
+    net.AddNode(damper);
+    net.AddNode(vav);
+
+    std::string path = TempPath("vkt_test_hvac_nodes.json");
+    REQUIRE(doc.Save(path));
+
+    Document doc2;
+    REQUIRE(doc2.Load(path));
+    auto nodes = doc2.GetNetwork().GetNodeList();
+    REQUIRE(nodes.size() == 3);
+
+    bool foundPlenum = false, foundDamper = false, foundVAV = false;
+    for (auto& n : nodes) {
+        if (n.type == NodeType::Plenum)  foundPlenum = true;
+        if (n.type == NodeType::Damper)  foundDamper = true;
+        if (n.type == NodeType::VAVBox)  foundVAV = true;
+    }
+    REQUIRE(foundPlenum);
+    REQUIRE(foundDamper);
+    REQUIRE(foundVAV);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("HydraulicSolver - error reporting on empty network", "[solver][integration]") {
+    NetworkGraph net;
+    // No source, no fixture
+    HydraulicSolver solver(net);
+    solver.Solve();
+
+    REQUIRE(solver.HasErrors());
+    REQUIRE(solver.GetErrors().size() >= 1);
+}
+
+TEST_CASE("HydraulicSolver - warning on isolated nodes", "[solver][integration]") {
+    NetworkGraph net;
+
+    Node src; src.type = NodeType::Source; src.position = {0,0,0};
+    Node fix; fix.type = NodeType::Fixture; fix.position = {1000,0,0}; fix.loadUnit = 1.0;
+    Node iso; iso.type = NodeType::Junction; iso.position = {5000,5000,0};
+    uint32_t nA = net.AddNode(src);
+    uint32_t nB = net.AddNode(fix);
+    net.AddNode(iso); // isolated
+
+    Edge e; e.nodeA = nA; e.nodeB = nB; e.type = EdgeType::Supply;
+    net.AddEdge(e);
+
+    HydraulicSolver solver(net);
+    solver.Solve();
+
+    REQUIRE(solver.GetWarnings().size() >= 1);
+}
+
+TEST_CASE("DeleteCADEntitiesCommand - undo restores entities", "[commands][integration]") {
+    Document doc;
+    auto line1 = std::make_unique<cad::Line>(geom::Vec3{0,0,0}, geom::Vec3{100,0,0});
+    auto line2 = std::make_unique<cad::Line>(geom::Vec3{0,100,0}, geom::Vec3{100,100,0});
+    cad::EntityId id1 = line1->GetId();
+    cad::EntityId id2 = line2->GetId();
+    doc.AddCADEntity(std::move(line1));
+    doc.AddCADEntity(std::move(line2));
+    REQUIRE(doc.GetCADEntities().size() == 2);
+
+    // Delete entity 1
+    auto& entities = doc.GetCADEntitiesMutable();
+    std::vector<cad::EntityId> delIds = {id1};
+    auto cmd = std::make_unique<DeleteCADEntitiesCommand>(entities, delIds);
+    std::vector<std::unique_ptr<cad::Entity>> removed;
+    for (auto it = entities.begin(); it != entities.end(); ++it) {
+        if (*it && (*it)->GetId() == id1) {
+            removed.push_back(std::move(*it));
+            entities.erase(it);
+            break;
+        }
+    }
+    cmd->StashRemoved(std::move(removed));
+    doc.ExecuteCommand(std::move(cmd));
+    REQUIRE(doc.GetCADEntities().size() == 1);
+
+    // Undo restores
+    doc.Undo();
+    REQUIRE(doc.GetCADEntities().size() == 2);
+
+    // Redo removes again
+    doc.Redo();
+    REQUIRE(doc.GetCADEntities().size() == 1);
+}
+
+TEST_CASE("AddCADEntitiesCommand - undo removes added entities", "[commands][integration]") {
+    Document doc;
+    auto& entities = doc.GetCADEntitiesMutable();
+
+    auto line = std::make_unique<cad::Line>(geom::Vec3{0,0,0}, geom::Vec3{100,0,0});
+    cad::EntityId addedId = line->GetId();
+    entities.push_back(std::move(line));
+
+    auto cmd = std::make_unique<AddCADEntitiesCommand>(entities, std::vector<cad::EntityId>{addedId});
+    doc.ExecuteCommand(std::move(cmd));
+    REQUIRE(doc.GetCADEntities().size() == 1);
+
+    // Undo removes
+    doc.Undo();
+    REQUIRE(doc.GetCADEntities().size() == 0);
+
+    // Redo restores
+    doc.Redo();
+    REQUIRE(doc.GetCADEntities().size() == 1);
+}
+
+TEST_CASE("Atomic save creates temp then renames", "[persistence][integration]") {
+    Document doc;
+    auto& net = doc.GetNetwork();
+    Node n; n.type = NodeType::Source; n.position = {0,0,0};
+    net.AddNode(n);
+
+    std::string path = TempPath("vkt_test_atomic_save.json");
+    REQUIRE(doc.Save(path));
+
+    // File should exist
+    REQUIRE(std::filesystem::exists(path));
+    // Temp should NOT exist
+    REQUIRE_FALSE(std::filesystem::exists(path + ".tmp"));
+    // Backup should NOT exist (cleaned up)
+    REQUIRE_FALSE(std::filesystem::exists(path + ".bak"));
+
+    // File should be valid JSON loadable
+    Document doc2;
+    REQUIRE(doc2.Load(path));
+    REQUIRE(doc2.GetNetwork().GetNodeCount() == 1);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("Edge IsRectangularDuct and DuctArea", "[network][integration]") {
+    Edge e;
+    e.type = EdgeType::Duct;
+    e.ductWidth_mm = 400;
+    e.ductHeight_mm = 300;
+
+    REQUIRE(e.IsRectangularDuct());
+    REQUIRE_THAT(e.DuctArea_m2(), WithinAbs(0.12, 0.001)); // 0.4 * 0.3
+
+    // Circular duct
+    Edge e2;
+    e2.type = EdgeType::Duct;
+    e2.diameter_mm = 250;
+    REQUIRE_FALSE(e2.IsRectangularDuct());
+    REQUIRE(e2.DuctArea_m2() > 0.04); // pi * 0.125^2 ~ 0.049
+}
+
+TEST_CASE("NetworkGraph AddEdge sets Duct defaults", "[network][integration]") {
+    NetworkGraph net;
+    Node n1; n1.position = {0,0,0};
+    Node n2; n2.position = {1000,0,0};
+    uint32_t a = net.AddNode(n1);
+    uint32_t b = net.AddNode(n2);
+
+    Edge e;
+    e.nodeA = a; e.nodeB = b;
+    e.type = EdgeType::Duct;
+    uint32_t eid = net.AddEdge(e);
+
+    const Edge* added = net.GetEdge(eid);
+    REQUIRE(added != nullptr);
+    REQUIRE(added->ductWidth_mm == 400.0);
+    REQUIRE(added->ductHeight_mm == 300.0);
+    REQUIRE(added->material == "Galvaniz Kanal");
 }

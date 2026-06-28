@@ -229,6 +229,22 @@ public:
      */
     void DetectAllAdjacencies(double tolerance = 10.0);
     
+    // ==================== MİMARİ ELEMAN TESPİTİ ====================
+
+    /**
+     * @brief Entity'lerden mimari elemanları tespit et (layer + block ismine göre)
+     * @param entities Tüm CAD entity'ler
+     * @return Tespit edilen mimari eleman listesi
+     */
+    std::vector<ArchElement> DetectArchElements(
+        const std::vector<Entity*>& entities) const;
+
+    /**
+     * @brief Tespit edilen mimari elemanları mahallere ata
+     * (her eleman hangi mahalin sınırları içinde?)
+     */
+    void AssignArchElementsToSpaces(const std::vector<ArchElement>& elements);
+
     // ==================== VALİDASYON ====================
     
     /**

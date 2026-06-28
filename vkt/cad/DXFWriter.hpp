@@ -12,9 +12,11 @@
 
 #include "Entity.hpp"
 #include "Block.hpp"
+#include "Layer.hpp"
 #include "mep/NetworkGraph.hpp"
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace vkt {
 namespace cad {
@@ -36,7 +38,8 @@ public:
                const std::vector<std::unique_ptr<Entity>>& entities,
                const mep::NetworkGraph& network,
                const std::string& projectName = "VKT Projesi",
-               const BlockRegistry* registry = nullptr) const;
+               const BlockRegistry* registry = nullptr,
+               const std::unordered_map<std::string, Layer>* layerMap = nullptr) const;
 
     /**
      * @brief Sadece MEP şebekesini DXF'e yaz (CAD arka plan olmadan)
@@ -52,7 +55,8 @@ private:
     void WriteHeader(std::ostream& out, const std::string& projectName) const;
     void WriteTables(std::ostream& out,
                      const std::vector<std::unique_ptr<Entity>>& entities,
-                     const BlockRegistry* registry) const;
+                     const BlockRegistry* registry,
+                     const std::unordered_map<std::string, Layer>* layerMap = nullptr) const;
     void WriteBlocksSection(std::ostream& out, const BlockRegistry* registry) const;
     void WriteBlockEntities(std::ostream& out,
                             const std::vector<std::unique_ptr<Entity>>& blockEntities) const;
@@ -67,6 +71,10 @@ private:
     void WriteEntityEllipse(std::ostream& out, const Entity& e) const;
     void WriteEntityText(std::ostream& out, const Entity& e) const;
     void WriteEntityInsert(std::ostream& out, const Entity& e) const;
+    void WriteEntityDimension(std::ostream& out, const Entity& e) const;
+    void WriteEntityLeader(std::ostream& out, const Entity& e) const;
+    void WriteEntityHatch(std::ostream& out, const Entity& e) const;
+    void WriteEntitySpline(std::ostream& out, const Entity& e) const;
 
     void WriteNetworkEdges(std::ostream& out, const mep::NetworkGraph& net) const;
     void WriteNetworkNodes(std::ostream& out, const mep::NetworkGraph& net) const;

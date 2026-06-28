@@ -11,6 +11,11 @@
 #include "cad/Ellipse.hpp"
 #include "cad/Block.hpp"
 #include "cad/Layer.hpp"
+#include "cad/Dimension.hpp"
+#include "cad/Leader.hpp"
+#include "cad/Hatch.hpp"
+#include "cad/Spline.hpp"
+#include "cad/Text.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -47,14 +52,15 @@ bool DXFWriter::Write(const std::string& filePath,
                       const std::vector<std::unique_ptr<Entity>>& entities,
                       const mep::NetworkGraph& network,
                       const std::string& projectName,
-                      const BlockRegistry* registry) const {
+                      const BlockRegistry* registry,
+                      const std::unordered_map<std::string, Layer>* layerMap) const {
     std::ofstream out(filePath);
     if (!out.is_open()) return false;
 
     out << std::fixed << std::setprecision(6);
 
     WriteHeader(out, projectName);
-    WriteTables(out, entities, registry);
+    WriteTables(out, entities, registry, layerMap);
     WriteBlocksSection(out, registry);
     WriteEntitiesSection(out, entities, network);
 
@@ -105,7 +111,8 @@ void DXFWriter::WriteHeader(std::ostream& out, const std::string& projectName) c
 
 void DXFWriter::WriteTables(std::ostream& out,
                             const std::vector<std::unique_ptr<Entity>>& entities,
-                            const BlockRegistry* registry) const {
+                            const BlockRegistry* registry,
+                            const std::unordered_map<std::string, Layer>* layerMap) const {
     WriteGroup(out, 0, "SECTION");
     WriteGroup(out, 2, "TABLES");
 
@@ -125,14 +132,24 @@ void DXFWriter::WriteTables(std::ostream& out,
     // LAYER tablosu — tüm entity katmanları + MEP katmanları
     std::unordered_set<std::string> layerNames;
     for (const auto& e : entities) {
-        if (e) layerNames.insert(e->GetLayerName());
+        if (e && !e->GetLayerName().empty()) layerNames.insert(e->GetLayerName());
     }
-    // MEP sabitleri
-    layerNames.insert("VKT-TEMIZ-SU");
-    layerNames.insert("VKT-ATIK-SU");
-    layerNames.insert("VKT-HAVALANDIRMA");
-    layerNames.insert("VKT-NODE");
-    layerNames.insert("0");  // AutoCAD varsayılan katmanı
+    // MEP sabit katmanlar (renk tablosu aşağıda)
+    static const std::pair<const char*, int> kMepLayers[] = {
+        {"VKT-TEMIZ-SU",    4 },  // cyan
+        {"VKT-SICAK-SU",    1 },  // red
+        {"VKT-ATIK-SU",     30},  // brown
+        {"VKT-HAVALANDIRMA",3 },  // green
+        {"VKT-GAZ",         2 },  // yellow
+        {"VKT-ISITMA",      30},  // orange-brown
+        {"VKT-ISITMA-DONUS",40},  // orange
+        {"VKT-YANGIN",      1 },  // red
+        {"VKT-NODE",        7 },
+        {"VKT-DIM",         3 },  // green for dims
+        {"0",               7 },
+    };
+    for (const auto& lp : kMepLayers)
+        layerNames.insert(lp.first);
 
     WriteGroup(out, 0, "TABLE");
     WriteGroup(out, 2, "LAYER");
@@ -141,14 +158,30 @@ void DXFWriter::WriteTables(std::ostream& out,
     for (const auto& name : layerNames) {
         WriteGroup(out, 0, "LAYER");
         WriteGroup(out, 2, name);
-        WriteGroup(out, 70, 0);   // kilitli değil
 
-        // Katmana göre renk ata
-        int aci = 7; // beyaz (varsayılan)
-        if (name == "VKT-TEMIZ-SU")       aci = 5;  // mavi
-        else if (name == "VKT-ATIK-SU")   aci = 30; // kahverengi
-        else if (name == "VKT-HAVALANDIRMA") aci = 3; // yeşil
-        else if (name == "VKT-NODE")       aci = 1;  // kırmızı
+        // DXF code 70 layer flags:
+        // bit 0 = frozen, bit 2 = frozen in new viewports, bit 4 = locked
+        int flag70 = 0;
+        if (layerMap) {
+            auto it = layerMap->find(name);
+            if (it != layerMap->end()) {
+                if (it->second.IsFrozen()) flag70 |= 1;
+                if (it->second.IsLocked()) flag70 |= 4;
+            }
+        }
+        WriteGroup(out, 70, flag70);
+
+        // Default ACI from MEP table; override from layerMap if present
+        int aci = 7;
+        for (const auto& lp : kMepLayers)
+            if (name == lp.first) { aci = lp.second; break; }
+        if (layerMap) {
+            auto it = layerMap->find(name);
+            if (it != layerMap->end()) {
+                auto col = it->second.GetColor();
+                if (col.a != 0) aci = ColorToACI(col.r, col.g, col.b);
+            }
+        }
 
         WriteGroup(out, 62, aci);
         WriteGroup(out, 6, "Continuous");
@@ -233,8 +266,12 @@ void DXFWriter::WriteBlockEntities(std::ostream& out,
             case EntityType::Circle:    WriteEntityCircle(out, *e);    break;
             case EntityType::Arc:       WriteEntityArc(out, *e);       break;
             case EntityType::Ellipse:   WriteEntityEllipse(out, *e);   break;
+            case EntityType::Spline:    WriteEntitySpline(out, *e);    break;
             case EntityType::Text:      WriteEntityText(out, *e);      break;
             case EntityType::Insert:    WriteEntityInsert(out, *e);    break;
+            case EntityType::Dimension: WriteEntityDimension(out, *e); break;
+            case EntityType::Leader:    WriteEntityLeader(out, *e);    break;
+            case EntityType::Hatch:     WriteEntityHatch(out, *e);     break;
             default: break;
         }
     }
@@ -269,11 +306,23 @@ void DXFWriter::WriteEntitiesSection(std::ostream& out,
             case EntityType::Ellipse:
                 WriteEntityEllipse(out, *e);
                 break;
+            case EntityType::Spline:
+                WriteEntitySpline(out, *e);
+                break;
             case EntityType::Text:
                 WriteEntityText(out, *e);
                 break;
             case EntityType::Insert:
                 WriteEntityInsert(out, *e);
+                break;
+            case EntityType::Dimension:
+                WriteEntityDimension(out, *e);
+                break;
+            case EntityType::Leader:
+                WriteEntityLeader(out, *e);
+                break;
+            case EntityType::Hatch:
+                WriteEntityHatch(out, *e);
                 break;
             default:
                 break;
@@ -423,6 +472,138 @@ void DXFWriter::WriteEntityInsert(std::ostream& out, const Entity& e) const {
     WriteGroup(out, 50, ins.GetRotDeg());            // dönme açısı (derece)
 }
 
+void DXFWriter::WriteEntityDimension(std::ostream& out, const Entity& e) const {
+    const auto& dim = static_cast<const Dimension&>(e);
+    auto p1     = dim.GetPoint1();
+    auto p2     = dim.GetPoint2();
+    auto dimPos = dim.GetDimLinePos();
+
+    // DXF type flag: 0=linear,1=aligned,3=diameter,4=radius
+    int typeFlag = 1;
+    switch (dim.GetDimType()) {
+        case DimensionType::Aligned:  typeFlag = 1; break;
+        case DimensionType::Linear:   typeFlag = 0; break;
+        case DimensionType::Radius:   typeFlag = 4; break;
+        case DimensionType::Diameter: typeFlag = 3; break;
+        default: break;
+    }
+
+    std::string layer = e.GetLayerName().empty() ? "VKT-DIM" : e.GetLayerName();
+    WriteGroup(out, 0, "DIMENSION");
+    WriteGroup(out, 8, layer);
+    // def point (code 10 = text mid position)
+    WriteGroup(out, 10, dimPos.x);
+    WriteGroup(out, 20, dimPos.y);
+    WriteGroup(out, 30, dimPos.z);
+    // text mid point
+    WriteGroup(out, 11, dimPos.x);
+    WriteGroup(out, 21, dimPos.y);
+    WriteGroup(out, 31, dimPos.z);
+    WriteGroup(out, 70, typeFlag);
+    if (!dim.GetOverrideText().empty())
+        WriteGroup(out, 1, dim.GetOverrideText());
+    // extension line origin points
+    WriteGroup(out, 13, p1.x);
+    WriteGroup(out, 23, p1.y);
+    WriteGroup(out, 33, p1.z);
+    WriteGroup(out, 14, p2.x);
+    WriteGroup(out, 24, p2.y);
+    WriteGroup(out, 34, p2.z);
+}
+
+void DXFWriter::WriteEntityLeader(std::ostream& out, const Entity& e) const {
+    const auto& ldr = static_cast<const Leader&>(e);
+    const auto& verts = ldr.GetVertices();
+    if (verts.size() < 2) return;
+
+    std::string layer = e.GetLayerName().empty() ? "0" : e.GetLayerName();
+    WriteGroup(out, 0, "LEADER");
+    WriteGroup(out, 8, layer);
+    WriteGroup(out, 76, static_cast<int>(verts.size())); // vertex count
+
+    for (const auto& v : verts) {
+        WriteGroup(out, 10, v.x);
+        WriteGroup(out, 20, v.y);
+        WriteGroup(out, 30, v.z);
+    }
+
+    WriteGroup(out, 73, ldr.HasArrowhead() ? 1 : 0);
+    if (!ldr.GetText().empty())
+        WriteGroup(out, 3, ldr.GetText());
+}
+
+void DXFWriter::WriteEntitySpline(std::ostream& out, const Entity& e) const {
+    const auto& sp = static_cast<const Spline&>(e);
+    out << "  0\nSPLINE\n";
+    out << "  5\n" << std::hex << e.GetId() << std::dec << "\n";
+    out << "100\nAcDbEntity\n";
+    out << "  8\n" << e.GetLayerName() << "\n";
+    out << "100\nAcDbSpline\n";
+
+    int degree = sp.GetDegree();
+    out << " 71\n" << degree << "\n";
+
+    if (sp.HasCtrlPoints()) {
+        const auto& ctrl = sp.GetCtrlPoints();
+        const auto& knots = sp.GetKnots();
+        out << " 72\n" << knots.size() << "\n";
+        out << " 73\n" << ctrl.size() << "\n";
+        for (double k : knots)
+            out << " 40\n" << k << "\n";
+        for (const auto& p : ctrl) {
+            out << " 10\n" << p.x << "\n";
+            out << " 20\n" << p.y << "\n";
+            out << " 30\n" << p.z << "\n";
+        }
+    } else if (sp.HasFitPoints()) {
+        const auto& fit = sp.GetFitPoints();
+        out << " 74\n" << fit.size() << "\n";
+        for (const auto& p : fit) {
+            out << " 11\n" << p.x << "\n";
+            out << " 21\n" << p.y << "\n";
+            out << " 31\n" << p.z << "\n";
+        }
+    }
+}
+
+void DXFWriter::WriteEntityHatch(std::ostream& out, const Entity& e) const {
+    const auto& h = static_cast<const Hatch&>(e);
+    const auto& bnd = h.GetBoundary();
+    if (bnd.size() < 3) return;
+
+    std::string layer = e.GetLayerName().empty() ? "0" : e.GetLayerName();
+    auto c = e.GetColor();
+
+    WriteGroup(out, 0, "HATCH");
+    WriteGroup(out, 8, layer);
+    if (c.a != 0)
+        WriteGroup(out, 62, ColorToACI(c.r, c.g, c.b));
+    WriteGroup(out, 2, h.GetPatternName().empty() ? "SOLID" : h.GetPatternName());
+    WriteGroup(out, 70, h.IsSolid() ? 1 : 0);  // solid fill flag
+    WriteGroup(out, 71, 0); // associativity (0=non-associative)
+    WriteGroup(out, 91, 1); // 1 boundary path
+
+    // Outer boundary as polyline path
+    WriteGroup(out, 92, 7); // boundary path type = 7 (outer + polyline)
+    WriteGroup(out, 72, 0); // hasBulge = false (simplified)
+    WriteGroup(out, 73, 1); // isClosed
+    WriteGroup(out, 93, static_cast<int>(bnd.size())); // vertex count
+    for (const auto& v : bnd) {
+        WriteGroup(out, 10, v.pos.x);
+        WriteGroup(out, 20, v.pos.y);
+        if (std::abs(v.bulge) > 1e-10)
+            WriteGroup(out, 42, v.bulge);
+    }
+    WriteGroup(out, 97, 0); // source boundary count
+
+    WriteGroup(out, 75, 0); // hatch style
+    WriteGroup(out, 76, 1); // hatch pattern type (1=predefined)
+    WriteGroup(out, 52, h.GetPatternAngle());
+    WriteGroup(out, 41, h.GetPatternScale());
+    WriteGroup(out, 77, 0); // pattern double flag
+    WriteGroup(out, 78, 0); // number of pattern definition lines (0 for SOLID)
+}
+
 // ═══════════════════════════════════════════════════════════
 //  MEP NETWORK YAZICILAR
 // ═══════════════════════════════════════════════════════════
@@ -438,11 +619,25 @@ void DXFWriter::WriteNetworkEdges(std::ostream& out,
         int aci;
         switch (edge.type) {
             case mep::EdgeType::Supply:
-                layer = "VKT-TEMIZ-SU"; aci = 5; break;
+                layer = "VKT-TEMIZ-SU";    aci = 4;  break; // cyan
+            case mep::EdgeType::HotWater:
+                layer = "VKT-SICAK-SU";    aci = 1;  break; // red
             case mep::EdgeType::Drainage:
-                layer = "VKT-ATIK-SU";  aci = 30; break;
+                layer = "VKT-ATIK-SU";     aci = 30; break; // brown
             case mep::EdgeType::Vent:
-                layer = "VKT-HAVALANDIRMA"; aci = 3; break;
+                layer = "VKT-HAVALANDIRMA";aci = 3;  break; // green
+            case mep::EdgeType::Gas:
+                layer = "VKT-GAZ";         aci = 2;  break; // yellow
+            case mep::EdgeType::Heating:
+                layer = "VKT-ISITMA";      aci = 30; break; // orange-brown
+            case mep::EdgeType::HeatingReturn:
+                layer = "VKT-ISITMA-DONUS";aci = 40; break; // orange
+            case mep::EdgeType::FireLine:
+                layer = "VKT-YANGIN";      aci = 1;  break; // red
+            case mep::EdgeType::Electric:
+                layer = "VKT-ELEKTRIK";    aci = 40; break; // orange
+            case mep::EdgeType::Duct:
+                layer = "VKT-HAVALANDIRMA";aci = 3;  break; // green
             default:
                 layer = "0"; aci = 7; break;
         }
@@ -456,6 +651,15 @@ void DXFWriter::WriteNetworkEdges(std::ostream& out,
         WriteGroup(out, 11, nB->position.x);
         WriteGroup(out, 21, nB->position.y);
         WriteGroup(out, 31, nB->position.z);
+
+        // XDATA — MEP hidrolik verisi (round-trip interoperabilite)
+        WriteGroup(out, 1001, "VKT_MEP");
+        WriteGroup(out, 1000, "EdgeID=" + std::to_string(eid));
+        WriteGroup(out, 1040, edge.diameter_mm);   // DN (mm)
+        WriteGroup(out, 1040, edge.flowRate_m3s);   // Q (m³/s)
+        WriteGroup(out, 1040, edge.velocity_ms);    // v (m/s)
+        WriteGroup(out, 1040, edge.headLoss_m);     // ΔH (m)
+        WriteGroup(out, 1000, "Material=" + edge.material);
 
         // Çap etiketi (TEXT entity, boru ortasına)
         double mx = (nA->position.x + nB->position.x) * 0.5;

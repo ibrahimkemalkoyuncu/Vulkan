@@ -73,6 +73,50 @@ enum class SpaceType {
 };
 
 /**
+ * @enum ArchElementType
+ * @brief Mimari eleman tipi
+ */
+enum class ArchElementType {
+    Wall,       ///< Duvar
+    Column,     ///< Kolon (taşıyıcı)
+    Beam,       ///< Kiriş
+    Door,       ///< Kapı
+    Window,     ///< Pencere
+    Stair,      ///< Merdiven
+    Shaft,      ///< Şaft / Baca
+    Other       ///< Diğer
+};
+
+/**
+ * @struct ArchElement
+ * @brief Tespit edilen mimari eleman
+ */
+struct ArchElement {
+    ArchElementType type = ArchElementType::Other;
+    EntityId        entityId = 0;       ///< Kaynak CAD entity ID
+    std::string     layerName;          ///< Kaynak layer ("DUVAR", "KOLON" vb.)
+    std::string     blockName;          ///< INSERT blok adı (varsa)
+    geom::Vec3      position{0,0,0};    ///< Konum (merkez veya ekleme noktası)
+    double          width_mm  = 0;      ///< Genişlik (kapı/pencere açıklığı, duvar kalınlığı)
+    double          height_mm = 0;      ///< Yükseklik (kapı/pencere)
+    double          length_mm = 0;      ///< Uzunluk (duvar uzunluğu, kiriş boyu)
+    double          angle_deg = 0;      ///< Yerleşim açısı
+
+    static const char* TypeName(ArchElementType t) {
+        switch (t) {
+            case ArchElementType::Wall:   return "Duvar";
+            case ArchElementType::Column: return "Kolon";
+            case ArchElementType::Beam:   return "Kiriş";
+            case ArchElementType::Door:   return "Kapı";
+            case ArchElementType::Window: return "Pencere";
+            case ArchElementType::Stair:  return "Merdiven";
+            case ArchElementType::Shaft:  return "Şaft";
+            default: return "Diğer";
+        }
+    }
+};
+
+/**
  * @struct SpaceRequirements
  * @brief Mahal tesisat gereksinimleri - Hangi sistemler gerekli?
  */
@@ -310,6 +354,20 @@ private:
     // İlişkiler (ID listesi - gerçek entity'ler Document'te)
     std::vector<size_t> m_fixtureIds;       ///< Bu mahaldeki fixture entity ID'leri
     std::vector<size_t> m_adjacentSpaceIds; ///< Komşu mahal ID'leri
+
+    // Mimari elemanlar (bu mahale ait)
+    std::vector<ArchElement> m_archElements;
+
+public:
+    const std::vector<ArchElement>& GetArchElements() const { return m_archElements; }
+    void AddArchElement(const ArchElement& elem) { m_archElements.push_back(elem); }
+    void ClearArchElements() { m_archElements.clear(); }
+    int CountArchElements(ArchElementType type) const {
+        int n = 0;
+        for (auto& e : m_archElements) if (e.type == type) ++n;
+        return n;
+    }
+    double GetNetArea() const;
 };
 
 } // namespace vkt::cad

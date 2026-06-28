@@ -73,6 +73,11 @@ public:
     /// Global norm — tüm oturumda kullanılır (singleton gibi)
     static HydroNorm& GlobalNorm() { static HydroNorm n = HydroNorm::EN806_3; return n; }
 
+    /// Son çözüm sırasında oluşan uyarı/hata mesajları
+    const std::vector<std::string>& GetWarnings() const { return m_warnings; }
+    const std::vector<std::string>& GetErrors()   const { return m_errors; }
+    bool HasErrors() const { return !m_errors.empty(); }
+
     /**
      * @brief Besleme şebekesi hesabı (TS EN 806-3)
      *
@@ -120,6 +125,22 @@ public:
     void SolveFire(const std::string& hazardClass = "OH1");
 
     /**
+     * @brief Elektrik tesisat hesabı (IEC 60364)
+     * - Kablo kesiti: I = P / (V × cosφ)
+     * - Gerilim düşümü: ΔV = 2 × I × R × L
+     * - Sigorta uyumu
+     */
+    void SolveElectric();
+
+    /**
+     * @brief Havalandırma / HVAC kanal hesabı (EN 15665)
+     * - Kişi başı hava debisi: 10 L/s (ofis), 8 L/s (konut)
+     * - Kanal boyutlandırma: Q = v × A, v_max = 5 m/s
+     * - Basınç kaybı: ΔP = f × (L/D_h) × (ρv²/2)
+     */
+    void SolveVentilation();
+
+    /**
      * @brief Kritik devre analizi (Pompa yüksekliği)
      */
     CriticalPathResult CalculateCriticalPath();
@@ -159,9 +180,19 @@ private:
     std::vector<NetworkLoop> DetectLoops() const;
     double ComputeResistance(const Edge& edge) const;
 
+    // Newton-Raphson — çok dallı karmaşık ağ çözümü
+    // Darcy-Weisbach head loss + nodal mass balance
+    // Jacobian matrisi: ∂F/∂Q (debi düzeltme), ∂F/∂H (basınç düzeltme)
+    void SolveNewtonRaphson(int maxIter = 50, double tolerance = 1e-6);
+    // Bir edge'in Q→ΔH fonksiyonu ve türevi (Jacobian bileşeni)
+    double EdgeHeadLossFunc(const Edge& edge, double Q_m3s) const;
+    double EdgeHeadLossDerivative(const Edge& edge, double Q_m3s) const;
+
     NetworkGraph& m_network;
     BuildingType m_buildingType = BuildingType::Residential;
     HydroNorm    m_norm         = HydroNorm::EN806_3;
+    std::vector<std::string> m_warnings;
+    std::vector<std::string> m_errors;
 };
 
 } // namespace mep

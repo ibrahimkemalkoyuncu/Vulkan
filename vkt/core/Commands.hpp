@@ -232,5 +232,120 @@ private:
     geom::Vec3   m_old, m_new;
 };
 
+/// CAD entity transform (Scale/Rotate/Stretch) undo — swap unique_ptr in document
+/// First Execute is no-op (transform already applied); Undo/Redo swap snapshots.
+class TransformCADEntitiesCommand : public Command {
+public:
+    TransformCADEntitiesCommand(
+        std::vector<std::unique_ptr<cad::Entity>>& docEntities,
+        std::vector<cad::EntityId> ids,
+        std::vector<std::unique_ptr<cad::Entity>> snapshots)
+        : m_docEntities(docEntities)
+        , m_ids(std::move(ids))
+        , m_snapshots(std::move(snapshots)) {}
+
+    void Execute() override {
+        if (m_firstExec) { m_firstExec = false; return; }
+        Swap();
+    }
+    void Undo() override { Swap(); }
+
+private:
+    void Swap() {
+        for (size_t i = 0; i < m_ids.size() && i < m_snapshots.size(); ++i) {
+            for (auto& uptr : m_docEntities) {
+                if (uptr && uptr->GetId() == m_ids[i] && m_snapshots[i]) {
+                    std::swap(uptr, m_snapshots[i]);
+                    break;
+                }
+            }
+        }
+    }
+    std::vector<std::unique_ptr<cad::Entity>>& m_docEntities;
+    std::vector<cad::EntityId> m_ids;
+    std::vector<std::unique_ptr<cad::Entity>> m_snapshots;
+    bool m_firstExec = true;
+};
+
+/// CAD entity silme (undo ile geri yükleme)
+/// Kullanım: silme işlemini kendiniz yapın, sonra bu command'ı ExecuteCommand ile kaydedin.
+/// Command, silinen entity'leri dışarıdan alır (StashRemoved) ve Undo'da geri koyar.
+class DeleteCADEntitiesCommand : public Command {
+public:
+    DeleteCADEntitiesCommand(
+        std::vector<std::unique_ptr<cad::Entity>>& docEntities,
+        std::vector<cad::EntityId> ids)
+        : m_docEntities(docEntities), m_ids(std::move(ids)) {}
+
+    void Execute() override {
+        if (m_firstExec) { m_firstExec = false; return; }
+        // Redo: tekrar sil
+        for (auto eid : m_ids) {
+            for (auto it = m_docEntities.begin(); it != m_docEntities.end(); ++it) {
+                if (*it && (*it)->GetId() == eid) {
+                    m_removed.push_back(std::move(*it));
+                    m_docEntities.erase(it);
+                    break;
+                }
+            }
+        }
+    }
+
+    void Undo() override {
+        // İlk undo: silinen entity'ler henüz m_removed'da yoksa, doc'tan çıkarılmışlardır
+        // StashRemoved ile dışarıdan eklenmiş olmalı
+        for (auto& e : m_removed)
+            if (e) m_docEntities.push_back(std::move(e));
+        m_removed.clear();
+    }
+
+    /// Silme işlemi dışarıda yapıldıktan sonra, silinen entity'leri buraya aktar
+    void StashRemoved(std::vector<std::unique_ptr<cad::Entity>> removed) {
+        m_removed = std::move(removed);
+    }
+
+private:
+    std::vector<std::unique_ptr<cad::Entity>>& m_docEntities;
+    std::vector<cad::EntityId> m_ids;
+    std::vector<std::unique_ptr<cad::Entity>> m_removed;
+    bool m_firstExec = true;
+};
+
+/// CAD entity ekleme undo (Offset/Paste) — Undo'da siler, Redo'da geri koyar
+class AddCADEntitiesCommand : public Command {
+public:
+    AddCADEntitiesCommand(
+        std::vector<std::unique_ptr<cad::Entity>>& docEntities,
+        std::vector<cad::EntityId> addedIds)
+        : m_docEntities(docEntities), m_addedIds(std::move(addedIds)) {}
+
+    void Execute() override {
+        if (m_firstExec) { m_firstExec = false; return; }
+        // Redo: geri koy
+        for (auto& e : m_removed)
+            m_docEntities.push_back(std::move(e));
+        m_removed.clear();
+    }
+
+    void Undo() override {
+        // Eklenen entity'leri sil ve sakla
+        for (auto eid : m_addedIds) {
+            for (auto it = m_docEntities.begin(); it != m_docEntities.end(); ++it) {
+                if (*it && (*it)->GetId() == eid) {
+                    m_removed.push_back(std::move(*it));
+                    m_docEntities.erase(it);
+                    break;
+                }
+            }
+        }
+    }
+
+private:
+    std::vector<std::unique_ptr<cad::Entity>>& m_docEntities;
+    std::vector<cad::EntityId> m_addedIds;
+    std::vector<std::unique_ptr<cad::Entity>> m_removed;
+    bool m_firstExec = true;
+};
+
 } // namespace core
 } // namespace vkt

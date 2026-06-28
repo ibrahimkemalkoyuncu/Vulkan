@@ -4,6 +4,7 @@
  */
 
 #include "ui/MainWindow.hpp"
+#include <QApplication>
 #include "ui/DXFImportDialog.hpp"
 #include "ui/MimariBelirleDialog.hpp"
 #include "ui/NewProjectDialog.hpp"
@@ -12,6 +13,7 @@
 #include "ui/PreflightCheckDialog.hpp"
 #include "core/ProjectManager.hpp"
 #include "core/DocxWriter.hpp"
+#include "core/IfcExporter.hpp"
 #include "ui/SpacePanel.hpp"
 #include "ui/CommandBar.hpp"
 #include "ui/SnapOverlay.hpp"
@@ -30,6 +32,7 @@
 #include "cad/Arc.hpp"
 #include "cad/DXFWriter.hpp"
 #include "cad/Dimension.hpp"
+#include "cad/Polyline.hpp"
 #include "core/Version.hpp"
 #include <QGuiApplication>
 #include <QRegularExpression>
@@ -63,6 +66,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
+#include <QStandardPaths>
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <iostream>
@@ -144,11 +148,56 @@ MainWindow::MainWindow(QWidget* parent)
     if (!projectsRoot.isEmpty())
         core::ProjectManager::Instance().SetProjectsRoot(projectsRoot.toStdString());
 
+    // Autosave timer (60 saniye)
+    m_autosaveTimer = new QTimer(this);
+    m_autosaveTimer->setInterval(60000);
+    connect(m_autosaveTimer, &QTimer::timeout, this, [this]() {
+        if (!m_document || !m_document->IsModified()) return;
+        QString savePath = m_autosavePath;
+        if (savePath.isEmpty()) {
+            QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+            savePath = dir + "/vkt_autosave.vkt";
+        }
+        if (m_document->Save(savePath.toStdString())) {
+            statusBar()->showMessage("Otomatik kayit: " + QFileInfo(savePath).fileName(), 2000);
+        }
+    });
+    m_autosaveTimer->start();
+
+    // Crash recovery — önceki autosave dosyasını kontrol et
+    {
+        QString autoPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                         + "/vkt_autosave.vkt";
+        QFileInfo fi(autoPath);
+        if (fi.exists() && fi.size() > 100) {
+            auto answer = QMessageBox::question(this, "Kurtarma",
+                "Önceki oturumdan otomatik kayıt bulundu.\nGeri yüklemek ister misiniz?",
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+            if (answer == QMessageBox::Yes) {
+                QTimer::singleShot(500, this, [this, autoPath]() {
+                    auto doc = std::make_unique<core::Document>();
+                    if (doc->Load(autoPath.toStdString())) {
+                        m_ownedDocument = std::move(doc);
+                        SetDocument(m_ownedDocument.get());
+                        statusBar()->showMessage("Otomatik kayıt geri yüklendi", 3000);
+                    }
+                });
+            } else {
+                QFile::remove(autoPath);
+            }
+        }
+    }
+
+    // Kalıcı kat göstergesi (status bar)
+    m_floorStatusLabel = new QLabel("Kat: - | Kot: 0.00 m");
+    m_floorStatusLabel->setStyleSheet("QLabel { padding: 0 8px; font-weight: bold; }");
+    statusBar()->addPermanentWidget(m_floorStatusLabel);
+
     statusBar()->showMessage("VKT hazir - Muhendislik Modu ACIK");
 }
 
 MainWindow::~MainWindow() {
-    // Kapatma sırasında callback'ler tetiklenmemeli (use-after-free riski)
+    if (m_autosaveTimer)  m_autosaveTimer->stop();
     if (m_autoHydroTimer) m_autoHydroTimer->stop();
     if (m_vulkanWindow) {
         m_vulkanWindow->SetMousePressCallback({});
@@ -168,7 +217,13 @@ void MainWindow::SetDocument(core::Document* doc) {
     }
     RefreshLayerPanel();
     RebuildCADEntityCache();
+    RefreshFloorSelector();
+    RefreshTextOverlay();
     UpdateUI();
+    if (doc && !doc->GetFilePath().empty()) {
+        QFileInfo fi(QString::fromStdString(doc->GetFilePath()));
+        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(fi.baseName()));
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -347,6 +402,7 @@ void MainWindow::CreateActions() {
 
     m_actHidrofor = new QAction("Hidrofor Boyutlandirma...", this);
     m_actHidrofor->setToolTip("Kritik devre analizi sonucuna gore hidrofor/pompa secimi");
+    m_actHidrofor->setShortcut(QKeySequence("F6"));
     connect(m_actHidrofor, &QAction::triggered, this, &MainWindow::OnHidrofor);
 
     m_actNormSelection = new QAction("Hesap Normu...", this);
@@ -368,6 +424,7 @@ void MainWindow::CreateActions() {
 
     m_actWordRapor = new QAction("Word Rapor Olustur (.docx)...", this);
     m_actWordRapor->setToolTip("Hesap foyu + kritik devre + armatur listesi OOXML .docx olarak kaydet (Microsoft Word acar)");
+    m_actWordRapor->setShortcut(QKeySequence("F7"));
     connect(m_actWordRapor, &QAction::triggered, this, &MainWindow::OnWordRapor);
 
     m_actYagmurSuyu = new QAction("Yagmur Suyu Modulu...", this);
@@ -523,6 +580,9 @@ void MainWindow::CreateMenus() {
     fileMenu->addAction(m_actSetProjectsRoot);
     fileMenu->addAction(m_actOpenProjectFolder);
     fileMenu->addSeparator();
+    m_recentMenu = fileMenu->addMenu("Son Açılan Projeler");
+    UpdateRecentProjects();
+    fileMenu->addSeparator();
     fileMenu->addAction(m_actExit);
 
     // Düzen
@@ -564,6 +624,25 @@ void MainWindow::CreateMenus() {
         actExtend->setShortcut(Qt::Key_X | Qt::NoModifier);
         actExtend->setToolTip("Seçili sınıra kadar çizgiyi uzat (TRIM tersi)");
         connect(actExtend, &QAction::triggered, this, &MainWindow::OnExtend);
+
+        editMenu->addSeparator();
+        auto* actScale = editMenu->addAction("Ölçekle (Scale)...");
+        actScale->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
+        connect(actScale, &QAction::triggered, this, &MainWindow::OnScale);
+
+        auto* actRotate = editMenu->addAction("Döndür (Rotate)...");
+        actRotate->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+        connect(actRotate, &QAction::triggered, this, &MainWindow::OnRotate);
+
+        auto* actStretch = editMenu->addAction("Esnet (Stretch)...");
+        actStretch->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
+        connect(actStretch, &QAction::triggered, this, &MainWindow::OnStretch);
+
+        editMenu->addSeparator();
+        auto* actWBlock = editMenu->addAction("W-Block (Blok Kaydet)...");
+        actWBlock->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
+        actWBlock->setToolTip("Seçili nesneleri tutma noktası ile DXF dosyasına kaydet");
+        connect(actWBlock, &QAction::triggered, this, &MainWindow::OnWBlock);
     }
 
     // Çizim
@@ -608,6 +687,14 @@ void MainWindow::CreateMenus() {
     viewMenu->addAction(m_actLayerVisibility);
     viewMenu->addSeparator();
     viewMenu->addAction(m_actSnapIntersection);
+    viewMenu->addSeparator();
+    auto* actDarkMode = viewMenu->addAction("Koyu Tema");
+    actDarkMode->setCheckable(true);
+    actDarkMode->setChecked(m_darkMode);
+    connect(actDarkMode, &QAction::toggled, this, [this](bool on) {
+        m_darkMode = on;
+        OnToggleDarkMode();
+    });
 
     // Analiz
     auto* analyzeMenu = menuBar()->addMenu("&Analiz");
@@ -661,6 +748,18 @@ void MainWindow::CreateMenus() {
         actKatalog->setToolTip("Wavin / Valsir / Henco boru katalogu ve secimi (KATALOG)");
         connect(actKatalog, &QAction::triggered, this, &MainWindow::OnUreticiKatalog);
         analyzeMenu->addAction(actKatalog);
+
+        analyzeMenu->addSeparator();
+        auto* actClash = new QAction("Cakisma Analizi (Clash)...", this);
+        actClash->setToolTip("MEP borulari ile mimari elemanlar arasindaki cakismalari tespit et (CAKISMA)");
+        actClash->setShortcut(QKeySequence("Ctrl+Shift+C"));
+        connect(actClash, &QAction::triggered, this, &MainWindow::OnClashDetect);
+        analyzeMenu->addAction(actClash);
+
+        auto* actClashRpt = new QAction("Cakisma Raporu...", this);
+        actClashRpt->setToolTip("Son cakisma analizini Excel/PDF olarak disa aktar (CAKISMA-RAPOR)");
+        connect(actClashRpt, &QAction::triggered, this, &MainWindow::OnClashReport);
+        analyzeMenu->addAction(actClashRpt);
     }
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
@@ -668,11 +767,31 @@ void MainWindow::CreateMenus() {
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actPrintLayout);
 
-    // Mimari
+    // Mimari (FineSANI AutoBLD eşdeğeri)
     auto* mimariMenu = menuBar()->addMenu("&Mimari");
     mimariMenu->addAction(m_actMimariBelirle);
-    mimariMenu->addSeparator();
     mimariMenu->addAction(m_actFloorAlignment);
+    mimariMenu->addSeparator();
+    mimariMenu->addAction(m_actCopyFloor);
+    mimariMenu->addSeparator();
+    auto* actSymbolPalette = mimariMenu->addAction("Sembol Kütüphanesi...");
+    actSymbolPalette->setToolTip("FineSANI 'Yapı Elemanları Kütüphaneleri' eşdeğeri");
+    connect(actSymbolPalette, &QAction::triggered, this, [this]() {
+        if (m_symbolDock) { m_symbolDock->show(); m_symbolDock->raise(); }
+    });
+    mimariMenu->addSeparator();
+    auto* actEkranCizimi = mimariMenu->addAction("Ekran Çizimi (Kat DXF)...");
+    actEkranCizimi->setToolTip("Aktif katın DXF export'u — FineSANI 'Ekran Çizimi' eşdeğeri");
+    connect(actEkranCizimi, &QAction::triggered, this, &MainWindow::OnExportFloorDXF);
+    mimariMenu->addSeparator();
+    auto* actArchReport = mimariMenu->addAction("Mimari Eleman Raporu...");
+    actArchReport->setToolTip("Mahal bazlı: Duvar/Kapı/Pencere/Kolon/Kiriş tespiti ve sayımı");
+    connect(actArchReport, &QAction::triggered, this, &MainWindow::OnArchElementReport);
+
+    auto* actPlanView2 = mimariMenu->addAction("Plan Görünümü");
+    connect(actPlanView2, &QAction::triggered, this, &MainWindow::OnPlanView);
+    auto* actIsoView2 = mimariMenu->addAction("Aksonometrik Görünüm");
+    connect(actIsoView2, &QAction::triggered, this, &MainWindow::OnIsometricView);
 
     auto* helpMenu = menuBar()->addMenu("&Yardım");
     auto* actHelp  = helpMenu->addAction("Kullanıcı Kılavuzu (F1)");
@@ -797,6 +916,23 @@ void MainWindow::CreateDockPanels() {
     addDockWidget(Qt::RightDockWidgetArea, m_stDock);
     tabifyDockWidget(m_pbrDock, m_stDock);
 
+    // Sembol Paleti — interaktif sembol kütüphanesi (Su/Gaz/Isıtma/Yangın kategorili)
+    m_symbolDock  = new QDockWidget("Sembol Paleti", this);
+    m_symbolPanel = new SymbolPalettePanel(this);
+    m_symbolDock->setWidget(m_symbolPanel);
+    m_symbolDock->setMinimumWidth(240);
+    addDockWidget(Qt::RightDockWidgetArea, m_symbolDock);
+    tabifyDockWidget(m_stDock, m_symbolDock);
+
+    connect(m_symbolPanel, &SymbolPalettePanel::FixtureTypeSelected,
+            this, [this](const QString& fixtureType) {
+                m_selectedFixtureType = fixtureType;
+                m_currentToolMode  = ToolMode::PlaceFixture;
+                m_drawState        = DrawState::WaitingFirstPoint;
+                statusBar()->showMessage(
+                    QString("Sembol Paleti [%1]: Yerleştirme noktasını tıklayın").arg(fixtureType));
+            });
+
     connect(m_stPanel, &STFixturePanel::FixtureSelected,
             this,      &MainWindow::OnSTFixtureSelected);
     connect(m_stPanel, &STFixturePanel::SmartPointModeChanged,
@@ -828,15 +964,19 @@ void MainWindow::CreateDockPanels() {
     auto* btnLayIso    = new QPushButton("İzole (LAYISO)");
     auto* btnLayUnIso  = new QPushButton("İzole Kaldır");
     auto* btnPurge     = new QPushButton("Temizle (PURGE)");
+    auto* btnLayStd    = new QPushButton("Şablon...");
     btnLayIso->setFixedHeight(22);
     btnLayUnIso->setFixedHeight(22);
     btnPurge->setFixedHeight(22);
+    btnLayStd->setFixedHeight(22);
     btnLayIso->setToolTip("Seçili entity'nin katmanını izole et — diğerlerini gizle (LAYISO)");
     btnLayUnIso->setToolTip("İzolasyonu geri al — tüm katmanları eski haline döndür (LAYUNISO)");
     btnPurge->setToolTip("Kullanılmayan katmanları ve blokları sil (PURGE)");
+    btnLayStd->setToolTip("Hazır katman şablonu uygula — TS/ISO/AIA (KATMAN-STANDART)");
     layToolRow2->addWidget(btnLayIso);
     layToolRow2->addWidget(btnLayUnIso);
     layToolRow2->addWidget(btnPurge);
+    layToolRow2->addWidget(btnLayStd);
     layVBox->addLayout(layToolRow2);
 
     // QTreeWidget: 4 sütun — G (görünür), K (kilit), D (dondur), İsim
@@ -973,6 +1113,7 @@ void MainWindow::CreateDockPanels() {
     connect(btnLayIso,   &QPushButton::clicked, this, &MainWindow::OnLayIso);
     connect(btnLayUnIso, &QPushButton::clicked, this, &MainWindow::OnLayUnIso);
     connect(btnPurge,    &QPushButton::clicked, this, &MainWindow::OnPurge);
+    connect(btnLayStd,   &QPushButton::clicked, this, &MainWindow::OnLayerStandard);
 
     // Log Panel
     m_logPanel = new QDockWidget("Analiz Logu", this);
@@ -1145,6 +1286,14 @@ void MainWindow::OnOpen() {
         setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
             QString::fromStdString(pm.GetProjectName())));
         statusBar()->showMessage(QString("Proje açıldı: %1").arg(filePath), 3000);
+        // Recent projects güncelle
+        QSettings settings("VKT", "MekanikTesisatDraw");
+        QStringList recent = settings.value("recentProjects").toStringList();
+        recent.removeAll(filePath);
+        recent.prepend(filePath);
+        while (recent.size() > 10) recent.removeLast();
+        settings.setValue("recentProjects", recent);
+        UpdateRecentProjects();
     } else {
         QMessageBox::critical(this, "Hata", "Proje dosyası açılamadı!");
     }
@@ -1159,6 +1308,14 @@ void MainWindow::OnSave() {
     }
 
     if (m_document->Save(m_document->GetFilePath())) {
+        // Pencere başlığını güncelle
+        QFileInfo fi(QString::fromStdString(m_document->GetFilePath()));
+        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(fi.baseName()));
+        // Autosave dosyasını temizle (başarılı kayıttan sonra)
+        QString autoPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                         + "/vkt_autosave.vkt";
+        QFile::remove(autoPath);
+        m_autosavePath = QString::fromStdString(m_document->GetFilePath()) + ".autosave";
         statusBar()->showMessage("Proje kaydedildi", 3000);
     } else {
         QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
@@ -1185,9 +1342,13 @@ void MainWindow::OnSaveAs() {
     pm.SetActiveProject(fi.dir().absolutePath().toStdString());
 
     if (m_document->Save(filePath.toStdString())) {
-        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(
-            QString::fromStdString(pm.GetProjectName())));
+        setWindowTitle(QString("VKT - FINE SANI++ — %1").arg(fi.baseName()));
+        QString autoPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+                         + "/vkt_autosave.vkt";
+        QFile::remove(autoPath);
+        m_autosavePath = filePath + ".autosave";
         statusBar()->showMessage(QString("Proje kaydedildi: %1").arg(filePath), 3000);
+        UpdateRecentProjects();
     } else {
         QMessageBox::critical(this, "Hata", "Proje kaydedilemedi!");
     }
@@ -1318,6 +1479,108 @@ void MainWindow::OnImportDXF() {
             ScanForFixtureBlocks();
         }
     }
+}
+
+// ============================================================
+//  MİMARİ ELEMAN RAPORU — Mahal bazlı yapı özeti
+// ============================================================
+void MainWindow::OnArchElementReport() {
+    if (!m_document || !m_spaceManager) return;
+
+    // 1. CAD entity'lerden raw pointer listesi oluştur
+    std::vector<cad::Entity*> rawPtrs;
+    for (const auto& e : m_document->GetCADEntities()) {
+        if (e) rawPtrs.push_back(e.get());
+    }
+
+    // 2. Mimari elemanları tespit et
+    auto archElements = m_spaceManager->DetectArchElements(rawPtrs);
+
+    // 3. Mahallere ata
+    m_spaceManager->AssignArchElementsToSpaces(archElements);
+
+    // 4. Genel özet
+    std::map<cad::ArchElementType, int> globalCounts;
+    for (const auto& e : archElements)
+        globalCounts[e.type]++;
+
+    QString msg;
+    msg += "<h3>Mimari Eleman Raporu</h3>";
+    msg += QString("<p>Toplam <b>%1</b> mimari eleman tespit edildi.</p>").arg(archElements.size());
+
+    msg += "<table border='1' cellspacing='0' cellpadding='4'>";
+    msg += "<tr style='background:#2c3e50; color:white'><th>Eleman Tipi</th><th>Adet</th></tr>";
+    for (const auto& [type, count] : globalCounts) {
+        msg += QString("<tr><td>%1</td><td><b>%2</b></td></tr>")
+            .arg(cad::ArchElement::TypeName(type)).arg(count);
+    }
+    msg += "</table><br>";
+
+    // 5. Mahal bazlı detay
+    auto spaces = m_spaceManager->GetAllSpaces();
+    if (!spaces.empty()) {
+        msg += "<h4>Mahal Bazlı Dağılım</h4>";
+        msg += "<table border='1' cellspacing='0' cellpadding='4'>";
+        msg += "<tr style='background:#34495e; color:white'>"
+               "<th>Mahal</th><th>Tip</th><th>Brüt Alan (m²)</th><th>Net Alan (m²)</th>"
+               "<th>Duvar</th><th>Kapı</th><th>Pencere</th><th>Kolon</th><th>Kiriş</th></tr>";
+
+        for (const auto* sp : spaces) {
+            double brut = sp->GetArea();
+            double net  = sp->GetNetArea();
+            msg += QString("<tr><td><b>%1</b></td><td>%2</td><td>%3</td><td>%4</td>"
+                           "<td>%5</td><td>%6</td><td>%7</td><td>%8</td><td>%9</td></tr>")
+                .arg(QString::fromStdString(sp->GetName()))
+                .arg(QString::fromStdString(cad::Space::SpaceTypeToString(sp->GetSpaceType())))
+                .arg(brut, 0, 'f', 2)
+                .arg(net, 0, 'f', 2)
+                .arg(sp->CountArchElements(cad::ArchElementType::Wall))
+                .arg(sp->CountArchElements(cad::ArchElementType::Door))
+                .arg(sp->CountArchElements(cad::ArchElementType::Window))
+                .arg(sp->CountArchElements(cad::ArchElementType::Column))
+                .arg(sp->CountArchElements(cad::ArchElementType::Beam));
+        }
+        msg += "</table><br>";
+    }
+
+    // 6. Atanmamış elemanlar (hiçbir mahale ait olmayanlar)
+    int unassigned = 0;
+    for (const auto& e : archElements) {
+        bool found = false;
+        for (const auto* sp : spaces) {
+            for (const auto& se : sp->GetArchElements()) {
+                if (se.entityId == e.entityId) { found = true; break; }
+            }
+            if (found) break;
+        }
+        if (!found) ++unassigned;
+    }
+    if (unassigned > 0) {
+        msg += QString("<p><i>%1 eleman hiçbir mahale atanamadı (mahal sınırları dışında).</i></p>")
+            .arg(unassigned);
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Mimari Eleman Raporu");
+    dlg.resize(700, 500);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(msg);
+    layout->addWidget(browser);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    layout->addWidget(btn);
+
+    if (m_logList) {
+        m_logList->addItem(QString("[MIMARI] %1 eleman tespit: %2 duvar, %3 kapi, %4 pencere, %5 kolon, %6 kiris")
+            .arg(archElements.size())
+            .arg(globalCounts[cad::ArchElementType::Wall])
+            .arg(globalCounts[cad::ArchElementType::Door])
+            .arg(globalCounts[cad::ArchElementType::Window])
+            .arg(globalCounts[cad::ArchElementType::Column])
+            .arg(globalCounts[cad::ArchElementType::Beam]));
+    }
+    dlg.exec();
 }
 
 // ============================================================
@@ -1624,6 +1887,335 @@ void MainWindow::OnSelectAll() {
 }
 
 // ============================================================
+//  SCALE (ÖLÇEKLE) — FineSANI uyumlu
+// ============================================================
+void MainWindow::OnScale() {
+    if (!m_document) return;
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+    if (ids.empty()) {
+        statusBar()->showMessage("Önce entity seçin, sonra SCALE komutunu çalıştırın", 2000);
+        return;
+    }
+
+    bool ok;
+    double factor = QInputDialog::getDouble(this, "Ölçekle (Scale)",
+        "Ölçek faktörü:\n"
+        "  0.001 = mm→m  |  1000 = m→mm\n"
+        "  0.01 = cm→m   |  100  = m→cm\n"
+        "  2.0  = 2 katı |  0.5  = yarıya küçült",
+        1.0, 0.0001, 1000000.0, 6, &ok);
+    if (!ok || std::abs(factor - 1.0) < 1e-12) return;
+
+    // Ölçekleme merkezi: seçimin BBox merkezi
+    double cx = 0, cy = 0;
+    int cnt = 0;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        auto c = it->second->GetBounds().GetCenter();
+        cx += c.x; cy += c.y; ++cnt;
+    }
+    if (cnt > 0) { cx /= cnt; cy /= cnt; }
+
+    // Undo snapshot
+    auto& docEnts = m_document->GetCADEntitiesMutable();
+    std::vector<cad::EntityId> snapIds;
+    std::vector<std::unique_ptr<cad::Entity>> snapshots;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        snapIds.push_back(eid);
+        snapshots.push_back(it->second->Clone());
+    }
+
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        cad::Entity* e = it->second;
+        e->Move({-cx, -cy, 0});
+        e->Scale({factor, factor, 1.0});
+        e->Move({cx, cy, 0});
+    }
+
+    auto cmd = std::make_unique<core::TransformCADEntitiesCommand>(
+        docEnts, std::move(snapIds), std::move(snapshots));
+    m_document->ExecuteCommand(std::move(cmd));
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(
+        QString("%1 entity ×%2 ölçeklendi (Ctrl+Z geri al)").arg(ids.size()).arg(factor), 2000);
+}
+
+// ============================================================
+//  ROTATE (DÖNDÜR) — serbest açı
+// ============================================================
+void MainWindow::OnRotate() {
+    if (!m_document) return;
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+    if (ids.empty()) {
+        statusBar()->showMessage("Önce entity seçin, sonra ROTATE komutunu çalıştırın", 2000);
+        return;
+    }
+
+    bool ok;
+    double angle = QInputDialog::getDouble(this, "Döndür (Rotate)",
+        "Dönüş açısı (derece, saat yönünün tersi pozitif):",
+        90.0, -360.0, 360.0, 2, &ok);
+    if (!ok || std::abs(angle) < 1e-9) return;
+
+    // Döndürme merkezi: seçimin BBox merkezi
+    double cx = 0, cy = 0;
+    int cnt = 0;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        auto c = it->second->GetBounds().GetCenter();
+        cx += c.x; cy += c.y; ++cnt;
+    }
+    if (cnt > 0) { cx /= cnt; cy /= cnt; }
+
+    // Undo snapshot
+    auto& docEnts = m_document->GetCADEntitiesMutable();
+    std::vector<cad::EntityId> snapIds;
+    std::vector<std::unique_ptr<cad::Entity>> snapshots;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        snapIds.push_back(eid);
+        snapshots.push_back(it->second->Clone());
+    }
+
+    double rad = angle * 3.14159265358979323846 / 180.0;
+    double cosA = std::cos(rad), sinA = std::sin(rad);
+
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        cad::Entity* e = it->second;
+
+        if (e->GetType() == cad::EntityType::Line) {
+            auto* ln = static_cast<cad::Line*>(e);
+            auto rotPt = [&](geom::Vec3 p) -> geom::Vec3 {
+                double rx = (p.x - cx) * cosA - (p.y - cy) * sinA + cx;
+                double ry = (p.x - cx) * sinA + (p.y - cy) * cosA + cy;
+                return {rx, ry, p.z};
+            };
+            ln->SetStart(rotPt(ln->GetStart()));
+            ln->SetEnd(rotPt(ln->GetEnd()));
+        } else {
+            e->Move({-cx, -cy, 0});
+            e->Rotate(angle);
+            e->Move({cx, cy, 0});
+        }
+    }
+
+    auto cmd = std::make_unique<core::TransformCADEntitiesCommand>(
+        docEnts, std::move(snapIds), std::move(snapshots));
+    m_document->ExecuteCommand(std::move(cmd));
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(
+        QString("%1 entity %2° döndürüldü (Ctrl+Z geri al)").arg(ids.size()).arg(angle), 2000);
+}
+
+// ============================================================
+//  STRETCH (ESNET) — vertex bazlı deformasyon
+// ============================================================
+void MainWindow::OnStretch() {
+    if (!m_document) return;
+    std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+    if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+    if (ids.empty()) {
+        statusBar()->showMessage("Önce entity seçin, sonra STRETCH komutunu çalıştırın", 2000);
+        return;
+    }
+
+    bool ok;
+    double dx = QInputDialog::getDouble(this, "Esnet (Stretch) — X",
+        "X yönünde uzatma (mm, - sola, + sağa):", 0.0, -1e6, 1e6, 1, &ok);
+    if (!ok) return;
+    double dy = QInputDialog::getDouble(this, "Esnet (Stretch) — Y",
+        "Y yönünde uzatma (mm, - aşağı, + yukarı):", 0.0, -1e6, 1e6, 1, &ok);
+    if (!ok) return;
+    if (std::abs(dx) < 1e-9 && std::abs(dy) < 1e-9) return;
+
+    // Seçimin BBox'ı — sağ yarıdaki vertex'leri taşı (AutoCAD crossing stretch)
+    double minX = 1e30, maxX = -1e30, minY = 1e30, maxY = -1e30;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        auto bb = it->second->GetBounds();
+        if (bb.min.x < minX) minX = bb.min.x;
+        if (bb.max.x > maxX) maxX = bb.max.x;
+        if (bb.min.y < minY) minY = bb.min.y;
+        if (bb.max.y > maxY) maxY = bb.max.y;
+    }
+    double midX = (minX + maxX) / 2.0;
+    double midY = (minY + maxY) / 2.0;
+
+    // Undo snapshot
+    auto& docEnts = m_document->GetCADEntitiesMutable();
+    std::vector<cad::EntityId> snapIds;
+    std::vector<std::unique_ptr<cad::Entity>> snapshots;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        snapIds.push_back(eid);
+        snapshots.push_back(it->second->Clone());
+    }
+
+    int stretched = 0;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it == m_cadEntityCache.end() || !it->second) continue;
+        cad::Entity* e = it->second;
+
+        if (e->GetType() == cad::EntityType::Line) {
+            auto* ln = static_cast<cad::Line*>(e);
+            geom::Vec3 s = ln->GetStart(), en = ln->GetEnd();
+            bool movedS = false, movedE = false;
+            if (s.x > midX || (std::abs(dx) < 1e-9 && s.y > midY)) {
+                s.x += dx; s.y += dy; movedS = true;
+            }
+            if (en.x > midX || (std::abs(dx) < 1e-9 && en.y > midY)) {
+                en.x += dx; en.y += dy; movedE = true;
+            }
+            if (movedS) ln->SetStart(s);
+            if (movedE) ln->SetEnd(en);
+            if (movedS || movedE) ++stretched;
+        } else if (e->GetType() == cad::EntityType::Polyline) {
+            auto* pl = static_cast<cad::Polyline*>(e);
+            bool any = false;
+            for (size_t vi = 0; vi < pl->GetVertexCount(); ++vi) {
+                auto v = pl->GetVertex(vi);
+                if (v.pos.x > midX || (std::abs(dx) < 1e-9 && v.pos.y > midY)) {
+                    v.pos.x += dx; v.pos.y += dy;
+                    pl->SetVertex(vi, v);
+                    any = true;
+                }
+            }
+            if (any) ++stretched;
+        } else {
+            // Diğer entity tipleri için basit Move
+            auto c = e->GetBounds().GetCenter();
+            if (c.x > midX || (std::abs(dx) < 1e-9 && c.y > midY)) {
+                e->Move({dx, dy, 0}); ++stretched;
+            }
+        }
+    }
+
+    auto cmd = std::make_unique<core::TransformCADEntitiesCommand>(
+        docEnts, std::move(snapIds), std::move(snapshots));
+    m_document->ExecuteCommand(std::move(cmd));
+    m_document->SetModified(true);
+    InvalidateRenderer();
+    ComputeGrips();
+    statusBar()->showMessage(
+        QString("STRETCH: %1/%2 entity deform edildi (Ctrl+Z geri al)")
+            .arg(stretched).arg(ids.size()), 3000);
+}
+
+// ============================================================
+//  WBLOCK — Nesne seç + tutma noktası + DWG/DXF kaydet
+// ============================================================
+void MainWindow::OnWBlock() {
+    if (!m_document) return;
+
+    // 1. Kaynak seçimi: "Nesneler" (seçili) veya "Tüm çizim"
+    QStringList kaynaklar = {"Seçili nesneler", "Tüm çizim"};
+    bool ok;
+    QString kaynak = QInputDialog::getItem(this, "W-Block — Blok Oluştur",
+        "Kaynak:", kaynaklar, 0, false, &ok);
+    if (!ok) return;
+
+    std::vector<cad::Entity*> selectedEnts;
+    if (kaynak == "Seçili nesneler") {
+        std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+        if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+        if (ids.empty()) {
+            QMessageBox::information(this, "W-Block",
+                "Önce nesneleri seçin, sonra WBLOCK komutunu çalıştırın.\n"
+                "Seçim: Ctrl+A (Tümü) veya tıklayarak tek tek seçim.");
+            return;
+        }
+        for (auto eid : ids) {
+            auto it = m_cadEntityCache.find(eid);
+            if (it != m_cadEntityCache.end() && it->second)
+                selectedEnts.push_back(it->second);
+        }
+    } else {
+        for (const auto& e : m_document->GetCADEntities()) {
+            if (e) selectedEnts.push_back(e.get());
+        }
+    }
+
+    if (selectedEnts.empty()) {
+        QMessageBox::warning(this, "W-Block", "Herhangi bir nesne seçilmedi.");
+        return;
+    }
+
+    // 2. Tutma noktası (base point) — FineSANI'deki kolon köşesi referansı
+    double refX = 0, refY = 0;
+    QStringList refOptions = {"Seçimin sol-alt köşesi (otomatik)", "Koordinat gir"};
+    QString refChoice = QInputDialog::getItem(this, "W-Block — Tutma Noktası",
+        "Referans (tutma) noktası:", refOptions, 0, false, &ok);
+    if (!ok) return;
+
+    if (refChoice == refOptions[0]) {
+        // Otomatik: BBox sol-alt
+        double minX = 1e30, minY = 1e30;
+        for (auto* e : selectedEnts) {
+            auto bb = e->GetBounds();
+            if (bb.min.x < minX) minX = bb.min.x;
+            if (bb.min.y < minY) minY = bb.min.y;
+        }
+        refX = minX; refY = minY;
+    } else {
+        refX = QInputDialog::getDouble(this, "Tutma Noktası X", "X:", 0.0, -1e9, 1e9, 2, &ok);
+        if (!ok) return;
+        refY = QInputDialog::getDouble(this, "Tutma Noktası Y", "Y:", 0.0, -1e9, 1e9, 2, &ok);
+        if (!ok) return;
+    }
+
+    // 3. Dosya kaydetme yolu
+    auto& pm = core::ProjectManager::Instance();
+    QString defDir = pm.HasActiveProject()
+        ? QString::fromStdString(pm.GetMimariFolder())
+        : QDir::homePath();
+
+    QString path = QFileDialog::getSaveFileName(this, "W-Block — Dosya Kaydet",
+        defDir, "DXF Dosyası (*.dxf);;DWG Dosyası (*.dwg)");
+    if (path.isEmpty()) return;
+
+    // 4. Entity'leri klonla ve referans noktasına göre öteleme uygula
+    std::vector<std::unique_ptr<cad::Entity>> clones;
+    for (auto* e : selectedEnts) {
+        auto clone = e->Clone();
+        if (clone) {
+            clone->Move({-refX, -refY, 0});
+            clones.push_back(std::move(clone));
+        }
+    }
+
+    // 5. DXF olarak yaz
+    cad::DXFWriter writer;
+    mep::NetworkGraph emptyNet;
+    if (writer.Write(path.toStdString(), clones, emptyNet, "W-Block")) {
+        statusBar()->showMessage(
+            QString("W-Block kaydedildi: %1 (%2 nesne, ref=%3,%4)")
+                .arg(QFileInfo(path).fileName()).arg(clones.size()).arg(refX, 0, 'f', 1).arg(refY, 0, 'f', 1), 5000);
+        if (m_logList) m_logList->addItem(QString("[WBLOCK] %1 → %2 nesne")
+            .arg(QFileInfo(path).fileName()).arg(clones.size()));
+    } else {
+        QMessageBox::warning(this, "W-Block", "Dosya yazılamadı: " + path);
+    }
+}
+
+// ============================================================
 //  MIRROR (AYNA)  — #7
 // ============================================================
 void MainWindow::OnMirror() {
@@ -1656,22 +2248,38 @@ void MainWindow::OnMirror() {
     }
     if (cnt > 0) { cx /= cnt; cy /= cnt; }
 
+    // Undo snapshot
+    auto& docEnts = m_document->GetCADEntitiesMutable();
+    std::vector<cad::EntityId> snapIds;
+    std::vector<std::unique_ptr<cad::Entity>> snapshots;
+    for (auto eid : ids) {
+        auto it = m_cadEntityCache.find(eid);
+        if (it != m_cadEntityCache.end() && it->second) {
+            snapIds.push_back(eid);
+            snapshots.push_back(it->second->Clone());
+        }
+    }
+
     int eksNo = eksenler.indexOf(secim);
     for (auto eid : ids) {
         auto it = m_cadEntityCache.find(eid);
         if (it == m_cadEntityCache.end() || !it->second) continue;
         cad::Entity* e = it->second;
-        if (eksNo == 0)      // yatay: Y koordinatları ters
+        if (eksNo == 0)
             e->Mirror({cx - 1, cy, 0}, {cx + 1, cy, 0});
-        else if (eksNo == 1) // dikey: X koordinatları ters
+        else if (eksNo == 1)
             e->Mirror({cx, cy - 1, 0}, {cx, cy + 1, 0});
-        else                 // 180° döndür (her ikisi de)
+        else
             e->Rotate(180.0);
     }
+
+    auto cmd = std::make_unique<core::TransformCADEntitiesCommand>(
+        docEnts, std::move(snapIds), std::move(snapshots));
+    m_document->ExecuteCommand(std::move(cmd));
     m_document->SetModified(true);
     InvalidateRenderer();
     ComputeGrips();
-    statusBar()->showMessage(QString("%1 entity yansıtıldı").arg(ids.size()), 2000);
+    statusBar()->showMessage(QString("%1 entity yansıtıldı (Ctrl+Z geri al)").arg(ids.size()), 2000);
 }
 
 // ============================================================
@@ -1679,6 +2287,7 @@ void MainWindow::OnMirror() {
 // ============================================================
 void MainWindow::OnOffset() {
     if (!m_document) return;
+    if (m_vulkanWindow) m_vulkanWindow->WaitForCADBuild();
 
     // Seçili entity kontrolü
     std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
@@ -1732,14 +2341,19 @@ void MainWindow::OnOffset() {
         if (yonIdx == 1 || yonIdx == 2) makeOffset(-dist);
     }
 
-    for (auto& ne : newEnts)
+    std::vector<cad::EntityId> addedIds;
+    for (auto& ne : newEnts) {
+        addedIds.push_back(ne->GetId());
         entities.push_back(std::move(ne));
+    }
 
+    auto cmd = std::make_unique<core::AddCADEntitiesCommand>(entities, std::move(addedIds));
+    m_document->ExecuteCommand(std::move(cmd));
     m_document->SetModified(true);
     RebuildCADEntityCache();
     InvalidateRenderer();
     statusBar()->showMessage(
-        QString("%1 entity offset edildi (%2 mm)").arg(ids.size() * (yonIdx == 2 ? 2 : 1)).arg(dist), 2000);
+        QString("%1 entity offset edildi (Ctrl+Z geri al)").arg(ids.size() * (yonIdx == 2 ? 2 : 1)), 2000);
 }
 
 // ============================================================
@@ -1775,6 +2389,7 @@ void MainWindow::OnCopy() {
 }
 
 void MainWindow::OnPaste() {
+    if (m_vulkanWindow) m_vulkanWindow->WaitForCADBuild();
     if (!m_document || m_clipboard.empty()) {
         statusBar()->showMessage("Panoda entity yok — önce Ctrl+C ile kopyalayın", 2000); return;
     }
@@ -1787,24 +2402,28 @@ void MainWindow::OnPaste() {
         "Y öteleme (mm, 0=aynı konum):", 50.0, -1e6, 1e6, 0, &ok);
     if (!ok) return;
 
-    auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
-        m_document->GetCADEntities());
+    auto& entities = m_document->GetCADEntitiesMutable();
 
     m_selectedCADEntityIds.clear();
+    std::vector<cad::EntityId> addedIds;
     for (const auto& src : m_clipboard) {
         auto clone = src->Clone();
         if (!clone) continue;
         clone->Move(geom::Vec3(ox, oy, 0));
+        addedIds.push_back(clone->GetId());
         m_selectedCADEntityIds.insert(clone->GetId());
         entities.push_back(std::move(clone));
     }
+
+    auto cmd = std::make_unique<core::AddCADEntitiesCommand>(entities, std::move(addedIds));
+    m_document->ExecuteCommand(std::move(cmd));
     m_document->SetModified(true);
     RebuildCADEntityCache();
     if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
         m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds(m_selectedCADEntityIds);
     InvalidateRenderer();
     statusBar()->showMessage(
-        QString("%1 entity yapıştırıldı (+%2, +%3 mm)").arg(m_clipboard.size()).arg(ox).arg(oy), 2000);
+        QString("%1 entity yapıştırıldı (Ctrl+Z geri al)").arg(m_clipboard.size()), 2000);
 }
 
 void MainWindow::OnDelete() {
@@ -2185,12 +2804,25 @@ void MainWindow::RunAutoHydro() {
         return 200.0;
     };
 
-    // Solver'ı sessizce çalıştır (flowRate_m3s doldurur)
     mep::HydraulicSolver solver(network);
     solver.Solve();
     solver.SolveDrainage();
     solver.SolveGas();
     solver.SolveHeating();
+    solver.SolveElectric();
+    solver.SolveVentilation();
+
+    // Solver uyarı/hata bildirimlerini status bar + log'a yaz
+    if (solver.HasErrors()) {
+        QString errMsg;
+        for (const auto& e : solver.GetErrors()) errMsg += QString::fromStdString(e) + "; ";
+        statusBar()->showMessage("Hidrolik HATA: " + errMsg, 5000);
+        if (m_logList) m_logList->addItem("[HATA] " + errMsg);
+    }
+    for (const auto& w : solver.GetWarnings()) {
+        if (m_logList) m_logList->addItem("[UYARI] " + QString::fromStdString(w));
+    }
+    if (solver.HasErrors()) return;
 
     // ── Topoloji tabanlı downstream LU (DFS) ─────────────────
     // Her edge için: o edge'in "ilerisi"ndeki fixture'ların toplam LU'su
@@ -2312,50 +2944,39 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 
     // Delete — seçili CAD entity(ler) veya MEP node sil
     if (event->key() == Qt::Key_Delete && m_document) {
-        // Çoklu box seçimi (önce kontrol et)
-        if (!m_selectedCADEntityIds.empty()) {
-            auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
-                m_document->GetCADEntities());
-            size_t before = entities.size();
-            entities.erase(std::remove_if(entities.begin(), entities.end(),
-                [this](const std::unique_ptr<cad::Entity>& e) {
-                    return e && m_selectedCADEntityIds.count(e->GetId());
-                }), entities.end());
-            size_t deleted = before - entities.size();
-            m_selectedCADEntityIds.clear();
-            m_selectedCADEntityId = 0;
-            ClearGrips();
-            if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-                m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
-            m_document->SetModified(true);
-            RebuildCADEntityCache();
-            InvalidateRenderer();
-            UpdateUI();
-            statusBar()->showMessage(QString("%1 CAD entity silindi").arg(deleted), 2000);
-            event->accept();
-            return;
-        }
-        // Tek tıklama seçimi
-        if (m_selectedCADEntityId != 0) {
-            auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
-                m_document->GetCADEntities());
-            auto it = std::find_if(entities.begin(), entities.end(),
-                [this](const std::unique_ptr<cad::Entity>& e) {
-                    return e && e->GetId() == m_selectedCADEntityId;
-                });
-            if (it != entities.end()) {
-                entities.erase(it);
+        // Çoklu veya tekli CAD entity silme (undo destekli)
+        {
+            std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+            if (ids.empty() && m_selectedCADEntityId != 0) ids.push_back(m_selectedCADEntityId);
+            if (!ids.empty()) {
+                auto& entities = m_document->GetCADEntitiesMutable();
+                auto cmd = std::make_unique<core::DeleteCADEntitiesCommand>(entities, ids);
+                std::vector<std::unique_ptr<cad::Entity>> removed;
+                for (auto eid : ids) {
+                    for (auto it = entities.begin(); it != entities.end(); ++it) {
+                        if (*it && (*it)->GetId() == eid) {
+                            removed.push_back(std::move(*it));
+                            entities.erase(it);
+                            break;
+                        }
+                    }
+                }
+                cmd->StashRemoved(std::move(removed));
+                m_document->ExecuteCommand(std::move(cmd));
+                m_selectedCADEntityIds.clear();
                 m_selectedCADEntityId = 0;
-                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+                ClearGrips();
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+                }
                 m_document->SetModified(true);
                 RebuildCADEntityCache();
-                InvalidateRenderer();
-                UpdateUI();
-                statusBar()->showMessage("CAD entity silindi", 2000);
+                InvalidateRenderer(); UpdateUI();
+                statusBar()->showMessage(QString("%1 entity silindi (Ctrl+Z geri al)").arg(ids.size()), 2000);
+                event->accept();
+                return;
             }
-            event->accept();
-            return;
         }
         if (m_selectedNodeId != 0) {
             auto& network = m_document->GetNetwork();
@@ -2904,43 +3525,58 @@ void MainWindow::OnBosaltmaNoktasi() {
 //  UYGULAMA KATMAN GÖRÜNÜRLÜĞܠ— Supply/HotWater/Drainage katmanlarını bağımsız göster/gizle
 void MainWindow::OnLayerVisibility() {
     QDialog dlg(this);
-    dlg.setWindowTitle("Katman Gorunurlugu");
-    dlg.setMinimumWidth(280);
+    dlg.setWindowTitle("MEP Katman Gorunurlugu");
+    dlg.setMinimumWidth(320);
 
-    auto* cb1 = new QCheckBox("Temiz Su (Supply) — mavi boru");
-    auto* cb2 = new QCheckBox("Sicak Su (HotWater) — kirmizi boru");
-    auto* cb3 = new QCheckBox("Pis Su (Drainage) — kahverengi boru");
+    auto* cb1 = new QCheckBox("Temiz Su (Supply) — mavi");
+    auto* cb2 = new QCheckBox("Sicak Su (HotWater) — kirmizi");
+    auto* cb3 = new QCheckBox("Pis Su (Drainage) — kahverengi");
+    auto* cb4 = new QCheckBox("Dogal Gaz — sari");
+    auto* cb5 = new QCheckBox("Isitma (Heating) — turuncu");
+    auto* cb6 = new QCheckBox("Yangin (FireLine) — koyu kirmizi");
+    auto* cb7 = new QCheckBox("Elektrik — turuncu");
+    auto* cb8 = new QCheckBox("Havalandirma (Duct) — yesil");
     cb1->setChecked(m_showTemizSu);
     cb2->setChecked(m_showSicakSu);
     cb3->setChecked(m_showPisSu);
+    cb4->setChecked(m_showGas);
+    cb5->setChecked(m_showHeating);
+    cb6->setChecked(m_showFire);
+    cb7->setChecked(m_showElectric);
+    cb8->setChecked(m_showDuct);
 
     auto* btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(btns, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
 
     auto* lay = new QVBoxLayout(&dlg);
-    lay->addWidget(new QLabel("<b>Hangi katmanlar gorunsun?</b>"));
-    lay->addWidget(cb1);
-    lay->addWidget(cb2);
-    lay->addWidget(cb3);
+    lay->addWidget(new QLabel("<b>Hangi MEP katmanlari gorunsun?</b>"));
+    lay->addWidget(cb1); lay->addWidget(cb2); lay->addWidget(cb3);
+    lay->addWidget(new QLabel("<hr>"));
+    lay->addWidget(cb4); lay->addWidget(cb5); lay->addWidget(cb6);
+    lay->addWidget(new QLabel("<hr>"));
+    lay->addWidget(cb7); lay->addWidget(cb8);
     lay->addWidget(btns);
 
     if (dlg.exec() != QDialog::Accepted) return;
 
-    m_showTemizSu = cb1->isChecked();
-    m_showSicakSu = cb2->isChecked();
-    m_showPisSu   = cb3->isChecked();
+    m_showTemizSu  = cb1->isChecked();
+    m_showSicakSu  = cb2->isChecked();
+    m_showPisSu    = cb3->isChecked();
+    m_showGas      = cb4->isChecked();
+    m_showHeating  = cb5->isChecked();
+    m_showFire     = cb6->isChecked();
+    m_showElectric = cb7->isChecked();
+    m_showDuct     = cb8->isChecked();
 
-    // Renderer'a bildir — GPU vertex buffer yeniden oluşturulacak
-    if (m_vulkanWindow)
+    if (m_vulkanWindow) {
         m_vulkanWindow->SetLayerVisibility(m_showTemizSu, m_showSicakSu, m_showPisSu);
+        m_vulkanWindow->GetRenderer()->SetExtendedVisibility(
+            m_showGas, m_showHeating, m_showFire, m_showElectric, m_showDuct);
+    }
 
     RefreshTextOverlay();
-    statusBar()->showMessage(
-        QString("Katman gorunurlugu: TemizSu=%1 SicakSu=%2 PisSu=%3")
-        .arg(m_showTemizSu ? "ACIK" : "KAPALI")
-        .arg(m_showSicakSu ? "ACIK" : "KAPALI")
-        .arg(m_showPisSu   ? "ACIK" : "KAPALI"), 3000);
+    statusBar()->showMessage("MEP katman gorunurlugu guncellendi", 3000);
 }
 
 void MainWindow::OnActiveFloorChanged(int index) {
@@ -2976,6 +3612,21 @@ void MainWindow::RefreshFloorSelector() {
                                   m_floorSelector->count() - 1);
     m_floorSelector->setCurrentIndex(m_activeFloorIndex);
     m_floorSelector->blockSignals(false);
+
+    // Kalıcı status bar kat göstergesi güncelle
+    if (m_floorStatusLabel) {
+        const auto& fl = m_floorManager.GetFloors();
+        if (m_activeFloorIndex < (int)fl.size()) {
+            const auto& f = fl[m_activeFloorIndex];
+            m_floorStatusLabel->setText(
+                QString("Kat:%1 %2 Kot:%3 m")
+                    .arg(m_activeFloorIndex + 1)
+                    .arg(QString::fromStdString(f.label))
+                    .arg(f.elevation_m, 0, 'f', 2));
+        } else {
+            m_floorStatusLabel->setText("Kat:1 Zemin Kot:0.00 m");
+        }
+    }
 }
 
 double MainWindow::GetActiveFloorZ() const {
@@ -3193,7 +3844,19 @@ void MainWindow::OnCopyFloor() {
 }
 
 void MainWindow::OnSelectSpace() {
-    std::cout << "Mahal seçimi aktif (B-Rep engine)" << std::endl;
+    if (!m_spaceManager || !m_document) return;
+    // unique_ptr → raw pointer dönüşümü
+    std::vector<cad::Entity*> rawPtrs;
+    rawPtrs.reserve(m_document->GetCADEntities().size());
+    for (const auto& e : m_document->GetCADEntities())
+        if (e) rawPtrs.push_back(e.get());
+    auto candidates = m_spaceManager->DetectSpacesFromEntities(rawPtrs);
+    for (auto& c : candidates)
+        m_spaceManager->CreateSpace(c.boundary, c.suggestedName);
+    if (m_spacePanel) m_spacePanel->RefreshList();
+    statusBar()->showMessage(
+        QString("Mahal tespiti tamamlandi — %1 mahal bulundu")
+            .arg(m_spaceManager->GetSpaceCount()), 4000);
 }
 
 void MainWindow::OnCalculateLoads() {
@@ -3280,23 +3943,52 @@ void MainWindow::OnDeleteSpace(unsigned long long spaceId) {
 }
 
 void MainWindow::OnPropertiesUpdated() {
-    std::cout << "Property güncellendi" << std::endl;
+    if (!m_document || m_selectedEdgeId == 0) return;
+    auto* edge = m_document->GetNetwork().GetEdge(m_selectedEdgeId);
+    if (!edge) return;
+
+    // Çap güncelle
+    bool ok = false;
+    double dn = m_propDiameter->text().toDouble(&ok);
+    if (ok && dn > 0) edge->diameter_mm = dn;
+
+    // Zeta güncelle
+    double zeta = m_propZeta->text().toDouble(&ok);
+    if (ok && zeta >= 0) edge->zeta = zeta;
+
+    // Eğim güncelle (drenaj)
+    double slope = m_propSlope->text().toDouble(&ok);
+    if (ok && slope >= 0) edge->slope = slope;
+
+    m_document->SetModified(true);
+    if (m_autoHydroTimer) m_autoHydroTimer->start(600);
+    statusBar()->showMessage(
+        QString("Edge #%1 güncellendi — DN%2, ζ=%3")
+            .arg(m_selectedEdgeId).arg(edge->diameter_mm).arg(edge->zeta), 3000);
 }
 
 void MainWindow::OnDiameterChanged(const QString& text) {
-    std::cout << "Çap değişti: " << text.toStdString() << std::endl;
+    OnPropertiesUpdated();
 }
 
 void MainWindow::OnMaterialChanged(const QString& text) {
-    std::cout << "Malzeme değişti: " << text.toStdString() << std::endl;
+    if (!m_document || m_selectedEdgeId == 0) return;
+    auto* edge = m_document->GetNetwork().GetEdge(m_selectedEdgeId);
+    if (!edge) return;
+    edge->material = text.toStdString();
+    auto& db = mep::Database::Instance();
+    auto pipeData = db.GetPipe(text.toStdString());
+    edge->roughness_mm = pipeData.roughness_mm;
+    m_document->SetModified(true);
+    if (m_autoHydroTimer) m_autoHydroTimer->start(600);
 }
 
 void MainWindow::OnZetaChanged(const QString& text) {
-    std::cout << "Zeta değişti: " << text.toStdString() << std::endl;
+    OnPropertiesUpdated();
 }
 
 void MainWindow::OnSlopeChanged(const QString& text) {
-    std::cout << "Egim degisti: " << text.toStdString() << std::endl;
+    OnPropertiesUpdated();
 }
 
 // ============================================================
@@ -3337,9 +4029,8 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
 
         // Seçim modundayken: yakın MEP node veya CAD entity kontekst menüsü
         auto& network = m_document->GetNetwork();
-        const double nodePickR = 3000.0; // 3m world birim (zoom'a göre)
+        const double nodePickR = 3000.0;
 
-        // En yakın MEP node'unu bul
         uint32_t nearNodeId = 0;
         double nearDist = nodePickR;
         for (const auto& [nid, nd] : network.GetNodeMap()) {
@@ -3348,12 +4039,13 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
             if (d < nearDist) { nearDist = d; nearNodeId = nid; }
         }
 
+        bool hasCADSelection = (m_selectedCADEntityId != 0 || !m_selectedCADEntityIds.empty());
+
         if (nearNodeId != 0) {
             const mep::Node& nd = *network.GetNode(nearNodeId);
-            ctxMenu.setTitle(QString("Node #%1").arg(nearNodeId));
-            ctxMenu.addAction(QString("Özellikler: %1 — %2")
-                .arg(QString::fromStdString(nd.fixtureType.empty() ? nd.label : nd.fixtureType))
-                .arg(nearNodeId))->setEnabled(false);
+            ctxMenu.addAction(QString("Node #%1: %2")
+                .arg(nearNodeId)
+                .arg(QString::fromStdString(nd.fixtureType.empty() ? nd.label : nd.fixtureType)))->setEnabled(false);
             ctxMenu.addSeparator();
             ctxMenu.addAction("Node Sil", this, [this, nearNodeId]() {
                 auto& net = m_document->GetNetwork();
@@ -3366,41 +4058,99 @@ void MainWindow::HandleMousePress(double worldX, double worldY, Qt::MouseButton 
                 statusBar()->showMessage(QString("Node #%1 silindi").arg(nearNodeId), 2000);
             });
             ctxMenu.addAction("Seçim Temizle", this, [this]() {
-                m_selectedNodeId = 0;
-                m_selectedEdgeId = 0;
+                m_selectedNodeId = 0; m_selectedEdgeId = 0;
             });
-        } else if (m_selectedCADEntityId != 0) {
-            ctxMenu.addAction(QString("Seçili CAD entity #%1").arg(m_selectedCADEntityId))->setEnabled(false);
+        } else if (hasCADSelection) {
+            int selCount = m_selectedCADEntityIds.empty() ? 1 : (int)m_selectedCADEntityIds.size();
+            ctxMenu.addAction(QString("%1 nesne seçili").arg(selCount))->setEnabled(false);
             ctxMenu.addSeparator();
-            ctxMenu.addAction("CAD Entity Sil (Delete)", this, [this]() {
-                auto& entities = const_cast<std::vector<std::unique_ptr<cad::Entity>>&>(
-                    m_document->GetCADEntities());
-                auto it = std::find_if(entities.begin(), entities.end(),
-                    [this](const std::unique_ptr<cad::Entity>& e) {
-                        return e && e->GetId() == m_selectedCADEntityId;
-                    });
-                if (it != entities.end()) {
-                    entities.erase(it);
-                    m_selectedCADEntityId = 0;
-                    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
-                        m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
-                    m_document->SetModified(true);
-                    InvalidateRenderer();
-                    UpdateUI();
+
+            // FineSANI sağ tık menüsü: Taşı/Sil/Aynala/Döndür/Ölçekle/Esnet/Kopyala/Özellikler
+            ctxMenu.addAction("Taşı (Move)", this, [this]() {
+                bool ok;
+                double dx = QInputDialog::getDouble(this, "Taşı — X", "X öteleme (mm):", 0, -1e6, 1e6, 1, &ok);
+                if (!ok) return;
+                double dy = QInputDialog::getDouble(this, "Taşı — Y", "Y öteleme (mm):", 0, -1e6, 1e6, 1, &ok);
+                if (!ok) return;
+                std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+                if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+                // Undo snapshot
+                auto& docEnts = m_document->GetCADEntitiesMutable();
+                std::vector<cad::EntityId> snapIds;
+                std::vector<std::unique_ptr<cad::Entity>> snapshots;
+                for (auto eid : ids) {
+                    auto it = m_cadEntityCache.find(eid);
+                    if (it != m_cadEntityCache.end() && it->second) {
+                        snapIds.push_back(eid);
+                        snapshots.push_back(it->second->Clone());
+                    }
                 }
+                for (auto eid : ids) {
+                    auto it = m_cadEntityCache.find(eid);
+                    if (it != m_cadEntityCache.end() && it->second)
+                        it->second->Move({dx, dy, 0});
+                }
+                auto cmd = std::make_unique<core::TransformCADEntitiesCommand>(
+                    docEnts, std::move(snapIds), std::move(snapshots));
+                m_document->ExecuteCommand(std::move(cmd));
+                m_document->SetModified(true);
+                InvalidateRenderer(); ComputeGrips();
             });
-            ctxMenu.addAction("Seçimi Kaldır (ESC)", this, [this]() {
-                m_selectedCADEntityId = 0;
-                if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+            ctxMenu.addAction("Sil (Delete)", this, [this]() {
+                if (m_vulkanWindow) m_vulkanWindow->WaitForCADBuild();
+                std::vector<cad::EntityId> ids(m_selectedCADEntityIds.begin(), m_selectedCADEntityIds.end());
+                if (m_selectedCADEntityId != 0 && ids.empty()) ids.push_back(m_selectedCADEntityId);
+                if (ids.empty()) return;
+
+                auto& entities = m_document->GetCADEntitiesMutable();
+                auto cmd = std::make_unique<core::DeleteCADEntitiesCommand>(entities, ids);
+
+                std::vector<std::unique_ptr<cad::Entity>> removed;
+                for (auto eid : ids) {
+                    for (auto it = entities.begin(); it != entities.end(); ++it) {
+                        if (*it && (*it)->GetId() == eid) {
+                            removed.push_back(std::move(*it));
+                            entities.erase(it);
+                            break;
+                        }
+                    }
+                }
+                cmd->StashRemoved(std::move(removed));
+                m_document->ExecuteCommand(std::move(cmd));
+                m_selectedCADEntityId = 0; m_selectedCADEntityIds.clear();
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
                     m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+                }
+                m_document->SetModified(true);
+                RebuildCADEntityCache();
+                InvalidateRenderer(); UpdateUI();
+            });
+            ctxMenu.addAction("Aynala (Mirror)", this, &MainWindow::OnMirror);
+            ctxMenu.addAction("Döndür (Rotate)", this, &MainWindow::OnRotate);
+            ctxMenu.addAction("Ölçekle (Scale)", this, &MainWindow::OnScale);
+            ctxMenu.addAction("Esnet (Stretch)", this, &MainWindow::OnStretch);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Kopyala (Ctrl+C)", this, &MainWindow::OnCopy);
+            ctxMenu.addAction("Geri Al (Ctrl+Z)", this, &MainWindow::OnUndo);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Seçimi Kaldır", this, [this]() {
+                m_selectedCADEntityId = 0; m_selectedCADEntityIds.clear();
+                if (m_vulkanWindow && m_vulkanWindow->GetRenderer()) {
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityId(0);
+                    m_vulkanWindow->GetRenderer()->SetHighlightCADEntityIds({});
+                }
             });
         } else {
             // Boş alan — genel menü
-            ctxMenu.addAction("Zoom Extents (Tümünü Göster)", this, &MainWindow::OnZoomExtents);
+            ctxMenu.addAction("Zoom Extents", this, &MainWindow::OnZoomExtents);
             ctxMenu.addSeparator();
             ctxMenu.addAction("Seçim Modu", this, &MainWindow::OnSelectMode);
             ctxMenu.addAction("Boru Çiz", this, &MainWindow::OnDrawPipe);
             ctxMenu.addAction("Pis Su Borusu", this, &MainWindow::OnDrawDrainPipe);
+            ctxMenu.addSeparator();
+            ctxMenu.addAction("Tümünü Seç (Ctrl+A)", this, &MainWindow::OnSelectAll);
+            ctxMenu.addAction("Yapıştır (Ctrl+V)", this, &MainWindow::OnPaste);
             ctxMenu.addSeparator();
             ctxMenu.addAction("Geri Al (Ctrl+Z)", this, &MainWindow::OnUndo);
             ctxMenu.addAction("Yinele (Ctrl+Y)", this, &MainWindow::OnRedo);
@@ -4402,6 +5152,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Gaz     : GAZ  GAZ-SAYAC  GAZ-CIHAZ/KOMBI/OCAK");
             m_logList->addItem("Isitma  : ISITMA  DONUS  KAZAN/BOILER  RADYATOR");
             m_logList->addItem("Yangin  : YANGIN  SPRINKLER  YANGIN-POMPA  EN12845");
+            m_logList->addItem("Elektrik: ELEKTRIK  PANO  PRIZ  AYDINLATMA");
+            m_logList->addItem("HVAC    : KANAL/DUCT  AHU  DIFUZOR/MENFEZ");
             m_logList->addItem("Baglama : BAGLA/CONNECT  (armaturu boru hattina bagla)");
             m_logList->addItem("Pis Su  : PIS-SU  YER-SUZGECI  ROGAR  AKILLI(-BAGLANTI)  BOSALTMA");
             m_logList->addItem("Kontrol : KABUL/ACCEPT  (tesisati dogrula+numaralandir)");
@@ -4410,6 +5162,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
             m_logList->addItem("Hesap   : DN-OVERRIDE  KESIF  GUNCELLE  FOSEPTIK  PIS-HESAP  EMDIRME  PIS-CUKUR  PIS-POMPA  GENLESIM  YAGMUR-ALAN  NORM-KARSILASTIR  HESAP-KARARI  BIRLESIK-MOD");
             m_logList->addItem("Duzen   : TUMU(Ctrl+A)  MIRROR/AYNA  ORTHO(F8)  UNDO  REDO");
             m_logList->addItem("Diger   : SAVE  EXPORT-DXF  KAT-DXF  UZAKLIK  MIMARI  HIZALAMA  KOLON  PAFTA  ABOUT");
+            m_logList->addItem("Enerji  : GUNES/SOLAR  ISI-POMPASI/HP  GENLESIM");
+            m_logList->addItem("Export  : IFC/BIM  IZOMETRIK  REVIZYON  KATMAN-STANDART");
         }
     } else if (c == "BAGLA" || c == "CONNECT") {
         OnConnectFixture();
@@ -4436,6 +5190,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnBOM();
     } else if (c == "RISER" || c == "KOLON-SEMA") {
         OnRiserDiagram();
+    } else if (c == "WBLOCK" || c == "W-BLOCK" || c == "BLOK-OLUSTUR") {
+        OnWBlock();
+    } else if (c == "IZOMETRIK" || c == "ISOMETRIC" || c == "ISO-SEMA") {
+        OnIsometricDiagram();
+    } else if (c == "GUNES" || c == "SOLAR" || c == "GUNES-KOLLEKTOR") {
+        OnSolarCollector();
+    } else if (c == "ISI-POMPASI" || c == "HEAT-PUMP" || c == "HP") {
+        OnHeatPump();
     } else if (c == "DN-OVERRIDE" || c == "DN-DEGISTIR") {
         OnDNOverride();
     } else if (c == "GUNCELLE" || c == "CIZIMI-GUNCELLE" || c == "CIZIM-GUNCELLE") {
@@ -4512,6 +5274,85 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnPlaceFirePump();
     } else if (c == "YANGIN-SINIF" || c == "HAZARD-CLASS" || c == "EN12845") {
         OnFireHazardClass();
+    // Elektrik tesisat
+    } else if (c == "ELEKTRIK" || c == "ELECTRIC") {
+        m_currentPipeType = mep::EdgeType::Electric;
+        m_currentToolMode = ToolMode::DrawPipe;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Elektrik kablosu ciz - iki nokta tiklayin", 5000);
+    } else if (c == "PANO" || c == "PANEL" || c == "ELEC-PANEL") {
+        m_selectedFixtureType = "Elektrik Panosu";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Elektrik panosu yerlestir", 5000);
+    } else if (c == "PRIZ" || c == "SOCKET") {
+        m_selectedFixtureType = "Priz";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Priz yerlestir", 5000);
+    } else if (c == "AYDINLATMA" || c == "LIGHT") {
+        m_selectedFixtureType = "Aydinlatma";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Aydinlatma armaturu yerlestir", 5000);
+    // Havalandırma / HVAC
+    } else if (c == "KANAL" || c == "DUCT" || c == "HVAC") {
+        m_currentPipeType = mep::EdgeType::Duct;
+        m_currentToolMode = ToolMode::DrawPipe;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Hava kanali ciz - iki nokta tiklayin", 5000);
+    } else if (c == "AHU" || c == "KLIMA-SANTRALI") {
+        m_selectedFixtureType = "AHU";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Klima santrali yerlestir", 5000);
+    } else if (c == "DIFUZOR" || c == "MENFEZ" || c == "DIFFUSER") {
+        m_selectedFixtureType = "Difuzor";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Difuzor / menfez yerlestir", 5000);
+    } else if (c == "PLENUM" || c == "PLENUM-KUTU") {
+        m_selectedFixtureType = "Plenum";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Plenum kutusu yerlestir", 5000);
+    } else if (c == "DAMPER" || c == "HAVA-KESICI") {
+        m_selectedFixtureType = "Damper";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Damper yerlestir", 5000);
+    } else if (c == "FLEKS" || c == "FLEX-DUCT" || c == "FLEKS-KANAL") {
+        m_selectedFixtureType = "FlexDuct";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("Fleksibil kanal baglanti yerlestir", 5000);
+    } else if (c == "VAV" || c == "VAV-BOX") {
+        m_selectedFixtureType = "VAVBox";
+        m_currentToolMode = ToolMode::PlaceFixture;
+        m_drawState = DrawState::WaitingFirstPoint;
+        statusBar()->showMessage("VAV kutusu yerlestir", 5000);
+    } else if (c == "HVAC-BOM" || c == "KANAL-METRAJ" || c == "HVAC-KESIF") {
+        OnBOM();
+    } else if (c == "KANAL-KESIT" || c == "DUCT-SIZE") {
+        if (!m_document || m_selectedEdgeId == 0) {
+            statusBar()->showMessage("Once bir kanal secin, sonra KANAL-KESIT komutunu calistirin", 3000);
+        } else {
+            auto* edge = m_document->GetNetwork().GetEdge(m_selectedEdgeId);
+            if (edge && edge->type == mep::EdgeType::Duct) {
+                bool ok;
+                double w = QInputDialog::getDouble(this, "Kanal Kesiti", "Genislik (mm):", edge->ductWidth_mm > 0 ? edge->ductWidth_mm : 400, 50, 2000, 0, &ok);
+                if (!ok) return;
+                double h = QInputDialog::getDouble(this, "Kanal Kesiti", "Yukseklik (mm):", edge->ductHeight_mm > 0 ? edge->ductHeight_mm : 300, 50, 1500, 0, &ok);
+                if (!ok) return;
+                edge->ductWidth_mm = w;
+                edge->ductHeight_mm = h;
+                m_document->SetModified(true);
+                ScheduleAutoHydro();
+                statusBar()->showMessage(QString("Kanal kesiti: %1×%2 mm").arg(w).arg(h), 3000);
+            } else {
+                statusBar()->showMessage("Secili kenar bir kanal degil", 2000);
+            }
+        }
     // Otomatik ölçülendirme
     } else if (c == "AUTO-OLCULENDIR" || c == "OLCULENDIR" || c == "DIM-AUTO" || c == "BOYUTLA") {
         OnAutoOlculendir();
@@ -4521,6 +5362,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
     // Üretici katalog
     } else if (c == "KATALOG" || c == "URETICI" || c == "MANUFACTURER") {
         OnUreticiKatalog();
+    // Mimari eleman tanıma
+    } else if (c == "MIMARI-RAPOR" || c == "ARCH-REPORT" || c == "MAHAL-RAPOR" || c == "YAPI-RAPOR") {
+        OnArchElementReport();
+    // Clash detection
+    } else if (c == "CAKISMA" || c == "CLASH" || c == "CLASH-DETECT") {
+        OnClashDetect();
+    } else if (c == "CAKISMA-RAPOR" || c == "CLASH-REPORT" || c == "CLASH-RAPOR") {
+        OnClashReport();
     } else if (c == "KABUL" || c == "ACCEPT" || c == "TESISAT-KABUL") {
         OnTesistatKabul();
     } else if (c == "PIS-SU" || c == "DRAINAGE-PIPE" || c == "DRAIN-PIPE") {
@@ -4553,6 +5402,28 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnLayerStateRestore();
     } else if (c == "LAYERSTATE-LISTE" || c == "LS-LIST") {
         OnLayerStateList();
+    } else if (c == "KATMAN-STANDART" || c == "LAYER-STANDARD" || c == "LS-TEMPLATE") {
+        OnLayerStandard();
+    } else if (c == "REVIZYON" || c == "REVISION" || c == "REV") {
+        OnRevision();
+    } else if (c == "IFC" || c == "IFC-EXPORT" || c == "BIM") {
+        if (!m_document) return;
+        auto& pm = core::ProjectManager::Instance();
+        QString defPath = pm.HasActiveProject()
+            ? QString::fromStdString(pm.GetRaporFolder()) + "proje.ifc"
+            : QDir::homePath() + "/proje.ifc";
+        QString path = QFileDialog::getSaveFileName(this, "IFC Export",
+            defPath, "IFC Dosyası (*.ifc)");
+        if (!path.isEmpty()) {
+            core::IfcExporter exporter(m_document->GetNetwork(), m_floorManager);
+            if (exporter.Export(path.toStdString(),
+                pm.HasActiveProject() ? pm.GetProjectName() : "VKT Projesi")) {
+                statusBar()->showMessage("IFC kaydedildi: " + path, 5000);
+                if (m_logList) m_logList->addItem("[IFC] " + QFileInfo(path).fileName());
+            } else {
+                QMessageBox::warning(this, "IFC Export", "Dosya yazılamadı!");
+            }
+        }
     } else if (c == "KOPYA-KAT" || c == "FLOOR-COPY") {
         OnCopyFloor();
     } else if (c == "ZOOM-EXTENTS" || c == "ZE") {
@@ -4597,6 +5468,14 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnTrim();
     } else if (c == "EXTEND" || c == "UZAT" || c == "EX") {
         OnExtend();
+    } else if (c == "SCALE" || c == "OLCEKLE" || c == "SC") {
+        OnScale();
+    } else if (c == "ROTATE" || c == "DONDUR" || c == "RO" || c == "ROT") {
+        OnRotate();
+    } else if (c == "STRETCH" || c == "ESNET" || c == "S") {
+        OnStretch();
+    } else if (c == "KATOPSI" || c == "PLAN" || c == "PLAN-GORUNUM") {
+        OnPlanView();
     } else if (c == "ORTHO" || c == "F8") {
         m_orthoMode = !m_orthoMode;
         statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
@@ -4670,10 +5549,16 @@ void MainWindow::RefreshTextOverlay() {
     // ── MEP Edge label'ları (DN boyutu, boru etiketi) ─────────
     const auto& network = m_document->GetNetwork();
     for (const auto& [eid, edge] : network.GetEdgeMap()) {
-        // Katman görünürlük filtresi (overlay labels)
-        if (edge.type == mep::EdgeType::Supply   && !m_showTemizSu) continue;
-        if (edge.type == mep::EdgeType::HotWater && !m_showSicakSu) continue;
-        if (edge.type == mep::EdgeType::Drainage && !m_showPisSu)   continue;
+        // Katman görünürlük filtresi (overlay labels) — tüm MEP disiplinleri
+        if (edge.type == mep::EdgeType::Supply        && !m_showTemizSu)  continue;
+        if (edge.type == mep::EdgeType::HotWater      && !m_showSicakSu)  continue;
+        if (edge.type == mep::EdgeType::Drainage       && !m_showPisSu)    continue;
+        if (edge.type == mep::EdgeType::Gas            && !m_showGas)      continue;
+        if (edge.type == mep::EdgeType::Heating        && !m_showHeating)  continue;
+        if (edge.type == mep::EdgeType::HeatingReturn  && !m_showHeating)  continue;
+        if (edge.type == mep::EdgeType::FireLine       && !m_showFire)     continue;
+        if (edge.type == mep::EdgeType::Electric       && !m_showElectric) continue;
+        if (edge.type == mep::EdgeType::Duct           && !m_showDuct)     continue;
 
         if (edge.label.empty()) continue;
 
@@ -5505,113 +6390,165 @@ void MainWindow::OnBOM() {
         return;
     }
 
-    // Boru metrajlari — DN'e gore grupla
-    std::map<int, double> pipeLength_m; // DN → toplam uzunluk
-    std::map<int, int>    pipeCount;    // DN → adet
-    std::map<std::string, std::map<int, double>> byMaterial; // material → {DN → length}
+    auto& db = mep::Database::Instance();
+    auto dnPriceFactor = [](int dn) -> double {
+        if (dn <= 16) return 0.8; if (dn <= 20) return 1.0; if (dn <= 25) return 1.3;
+        if (dn <= 32) return 1.7; if (dn <= 40) return 2.3; if (dn <= 50) return 3.0;
+        if (dn <= 63) return 4.0; if (dn <= 75) return 5.5; if (dn <= 90) return 7.0;
+        return 10.0;
+    };
+
+    // Disiplin isimleri
+    auto edgeTypeName = [](mep::EdgeType t) -> QString {
+        switch (t) {
+            case mep::EdgeType::Supply:        return "Temiz Su";
+            case mep::EdgeType::HotWater:      return "Sıcak Su";
+            case mep::EdgeType::Drainage:      return "Pis Su / Drenaj";
+            case mep::EdgeType::Vent:          return "Havalandırma Borusu";
+            case mep::EdgeType::Gas:           return "Doğal Gaz";
+            case mep::EdgeType::Heating:       return "Isıtma Gidiş";
+            case mep::EdgeType::HeatingReturn: return "Isıtma Dönüş";
+            case mep::EdgeType::FireLine:      return "Yangın Hattı";
+            case mep::EdgeType::Electric:      return "Elektrik";
+            case mep::EdgeType::Duct:          return "HVAC Kanal";
+            default: return "Diğer";
+        }
+    };
+
+    // Disiplin bazlı gruplama: EdgeType → {DN/kesit → (uzunluk, adet)}
+    struct SizeGroup { double length_m = 0; int count = 0; std::string material; };
+    std::map<mep::EdgeType, std::map<std::string, SizeGroup>> byDiscipline;
 
     for (const auto& [eid, edge] : network.GetEdgeMap()) {
-        int dn = static_cast<int>(std::round(edge.diameter_mm));
-        pipeLength_m[dn] += edge.length_m;
-        pipeCount[dn]++;
-        byMaterial[edge.material][dn] += edge.length_m;
+        std::string sizeKey;
+        if (edge.IsRectangularDuct()) {
+            sizeKey = std::to_string((int)edge.ductWidth_mm) + "x"
+                    + std::to_string((int)edge.ductHeight_mm);
+        } else {
+            sizeKey = "DN" + std::to_string((int)std::round(edge.diameter_mm));
+        }
+        auto& sg = byDiscipline[edge.type][sizeKey];
+        sg.length_m += edge.length_m;
+        sg.count++;
+        if (sg.material.empty()) sg.material = edge.material;
     }
 
-    // Baglanti elemanlari — node derecesinden tur tahmini
-    int nTee    = 0; // T-parcasi: degree == 3
-    int nElbow  = 0; // dirsek: degree == 2 (junction)
-    int nFixture = 0;
-    int nSource  = 0;
-    int nDrain   = 0;
-
+    // Bağlantı elemanları
+    int nTee = 0, nElbow = 0, nFixture = 0, nSource = 0, nDrain = 0;
+    int nAHU = 0, nDiffuser = 0, nPlenum = 0, nDamper = 0;
     for (const auto& [nid, node] : network.GetNodeMap()) {
         auto edges = network.GetConnectedEdges(nid);
-        int deg = static_cast<int>(edges.size());
+        int deg = (int)edges.size();
         switch (node.type) {
-            case mep::NodeType::Fixture: ++nFixture; break;
-            case mep::NodeType::Source:  ++nSource;  break;
-            case mep::NodeType::Drain:   ++nDrain;   break;
+            case mep::NodeType::Fixture:  ++nFixture; break;
+            case mep::NodeType::Source:   ++nSource;  break;
+            case mep::NodeType::Drain:    ++nDrain;   break;
+            case mep::NodeType::AHU:      ++nAHU;     break;
+            case mep::NodeType::Diffuser: ++nDiffuser; break;
+            case mep::NodeType::Plenum:   ++nPlenum;  break;
+            case mep::NodeType::Damper:   ++nDamper;  break;
             case mep::NodeType::Junction:
-                if (deg >= 3) ++nTee;
-                else if (deg == 2) ++nElbow;
+                if (deg >= 3) ++nTee; else if (deg == 2) ++nElbow;
                 break;
             default: break;
         }
     }
 
-    // Rapor olustur
+    // HTML rapor
     QString msg;
-    msg += "<h3>Kesif Listesi / Malzeme Dokumu (BOM)</h3>";
-    // Maliyet tahmini — malzeme bazlı birim fiyat
-    auto& db = mep::Database::Instance();
-    std::string mainMat = m_devreParams.mainPipeMat.toStdString();
-    double unitPrice = db.GetPipe(mainMat).unitPrice_TL;
-    // Çap katsayısı: DN'e göre fiyat orantılı artış (DN20=1x, DN25=1.3x, DN32=1.7x, vb.)
-    auto dnPriceFactor = [](int dn) -> double {
-        if (dn <= 16) return 0.8;
-        if (dn <= 20) return 1.0;
-        if (dn <= 25) return 1.3;
-        if (dn <= 32) return 1.7;
-        if (dn <= 40) return 2.3;
-        if (dn <= 50) return 3.0;
-        if (dn <= 63) return 4.0;
-        if (dn <= 75) return 5.5;
-        if (dn <= 90) return 7.0;
-        return 10.0;
-    };
+    msg += "<h3>Keşif Listesi / Malzeme Dökümü (BOM)</h3>";
+    msg += QString("<small>Toplam %1 disiplin, %2 hat, %3 düğüm</small><br><br>")
+        .arg(byDiscipline.size()).arg(network.GetEdgeCount()).arg(network.GetNodeCount());
 
-    msg += "<b>Boru Metrajlari ve Maliyet Tahmini:</b><br>";
-    msg += QString("<small>Malzeme: %1 — Birim fiyat (DN20): %2 TL/m</small><br>")
-               .arg(QString::fromStdString(mainMat)).arg(unitPrice, 0, 'f', 0);
-    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
-    msg += "<tr><th>DN (mm)</th><th>Uzunluk (m)</th><th>Parca</th><th>Birim Fiyat (TL/m)</th><th>Tutar (TL)</th></tr>";
+    double grandTotalLength = 0, grandTotalCost = 0;
 
-    double totalLength = 0.0, totalCost = 0.0;
-    for (const auto& [dn, len] : pipeLength_m) {
-        double price  = unitPrice * dnPriceFactor(dn);
-        double cost   = len * price;
-        totalCost    += cost;
-        msg += QString("<tr><td>DN%1</td><td>%2</td><td>%3</td><td>%4</td><td><b>%5</b></td></tr>")
-                   .arg(dn).arg(len, 0, 'f', 2).arg(pipeCount[dn])
-                   .arg(price, 0, 'f', 0).arg(cost, 0, 'f', 0);
-        totalLength += len;
+    for (const auto& [eType, sizeMap] : byDiscipline) {
+        QString typeName = edgeTypeName(eType);
+        bool isDuct = (eType == mep::EdgeType::Duct);
+        QString sizeHeader = isDuct ? "Boyut" : "DN (mm)";
+
+        msg += QString("<b style='color:%1'>■ %2</b><br>")
+            .arg(isDuct ? "#2ecc71" : eType == mep::EdgeType::Supply ? "#3498db"
+                : eType == mep::EdgeType::HotWater ? "#e74c3c"
+                : eType == mep::EdgeType::Drainage ? "#8b4513"
+                : eType == mep::EdgeType::Gas ? "#f1c40f"
+                : eType == mep::EdgeType::FireLine ? "#c0392b"
+                : eType == mep::EdgeType::Electric ? "#e67e22" : "#95a5a6")
+            .arg(typeName);
+
+        msg += "<table border='1' cellspacing='0' cellpadding='3'>";
+        msg += QString("<tr><th>%1</th><th>Malzeme</th><th>Uzunluk (m)</th><th>Parça</th><th>Tahmini Maliyet (TL)</th></tr>")
+            .arg(sizeHeader);
+
+        double discLen = 0, discCost = 0;
+        for (const auto& [sizeKey, sg] : sizeMap) {
+            double price = db.GetPipe(sg.material).unitPrice_TL;
+            if (!isDuct) {
+                int dn = 20;
+                try { dn = std::stoi(sizeKey.substr(2)); } catch (...) {}
+                price *= dnPriceFactor(dn);
+            } else {
+                price = std::max(price, 130.0);
+            }
+            double cost = sg.length_m * price;
+            discLen  += sg.length_m;
+            discCost += cost;
+            msg += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td></tr>")
+                .arg(QString::fromStdString(sizeKey))
+                .arg(QString::fromStdString(sg.material))
+                .arg(sg.length_m, 0, 'f', 2).arg(sg.count)
+                .arg(cost, 0, 'f', 0);
+        }
+        msg += QString("<tr style='background:#e8f4e8'><td colspan='2'><b>Alt Toplam</b></td>"
+                       "<td><b>%1 m</b></td><td><b>%2</b></td><td><b>%3 TL</b></td></tr>")
+            .arg(discLen, 0, 'f', 2).arg((int)sizeMap.size()).arg(discCost, 0, 'f', 0);
+        msg += "</table><br>";
+        grandTotalLength += discLen;
+        grandTotalCost   += discCost;
     }
-    msg += QString("<tr style='background:#e8f4e8'><td><b>TOPLAM</b></td><td><b>%1 m</b></td>"
-                   "<td><b>%2</b></td><td>—</td><td><b>%3 TL</b></td></tr>")
-               .arg(totalLength, 0, 'f', 2).arg((int)network.GetEdgeCount())
-               .arg(totalCost, 0, 'f', 0);
+
+    // Fire + işçilik
+    constexpr double kWaste = 7.0, kLabor = 35.0;
+    double wasteCost = grandTotalCost * kWaste / 100.0;
+    double laborCost = grandTotalCost * kLabor / 100.0;
+    double grandTotal = grandTotalCost + wasteCost + laborCost;
+
+    msg += "<b>Maliyet Özeti:</b><br><table border='1' cellspacing='0' cellpadding='3'>";
+    msg += QString("<tr><td>Malzeme (net)</td><td style='text-align:right'><b>%1 TL</b></td></tr>").arg(grandTotalCost, 0, 'f', 0);
+    msg += QString("<tr><td>Fire payı (%1%)</td><td style='text-align:right'>%2 TL</td></tr>").arg(kWaste, 0, 'f', 0).arg(wasteCost, 0, 'f', 0);
+    msg += QString("<tr><td>İşçilik (%1%)</td><td style='text-align:right'>%2 TL</td></tr>").arg(kLabor, 0, 'f', 0).arg(laborCost, 0, 'f', 0);
+    msg += QString("<tr style='background:#fff3cd'><td><b>GENEL TOPLAM</b></td><td style='text-align:right'><b>%1 TL</b></td></tr>").arg(grandTotal, 0, 'f', 0);
     msg += "</table><br>";
 
-    msg += "<b>Baglanti Elemanlari (tahmini):</b><br>";
-    msg += "<table border='1' cellspacing='0' cellpadding='3'>";
+    // Bağlantı elemanları — tüm disiplinler
+    msg += "<b>Bağlantı Elemanları:</b><br><table border='1' cellspacing='0' cellpadding='3'>";
     msg += "<tr><th>Eleman</th><th>Adet</th></tr>";
-    msg += QString("<tr><td>T-parca</td><td>%1</td></tr>").arg(nTee);
-    msg += QString("<tr><td>Dirsek</td><td>%1</td></tr>").arg(nElbow);
-    msg += QString("<tr><td>Armatur baglantisi</td><td>%1</td></tr>").arg(nFixture);
-    msg += QString("<tr><td>Kaynak (giris)</td><td>%1</td></tr>").arg(nSource);
-    msg += QString("<tr><td>Tahliye noktasi</td><td>%1</td></tr>").arg(nDrain);
+    if (nTee)      msg += QString("<tr><td>T-parça</td><td>%1</td></tr>").arg(nTee);
+    if (nElbow)    msg += QString("<tr><td>Dirsek</td><td>%1</td></tr>").arg(nElbow);
+    if (nFixture)  msg += QString("<tr><td>Armatür bağlantısı</td><td>%1</td></tr>").arg(nFixture);
+    if (nSource)   msg += QString("<tr><td>Su kaynağı</td><td>%1</td></tr>").arg(nSource);
+    if (nDrain)    msg += QString("<tr><td>Tahliye noktası</td><td>%1</td></tr>").arg(nDrain);
+    if (nAHU)      msg += QString("<tr><td>Klima santrali (AHU)</td><td>%1</td></tr>").arg(nAHU);
+    if (nDiffuser) msg += QString("<tr><td>Difüzör / Menfez</td><td>%1</td></tr>").arg(nDiffuser);
+    if (nPlenum)   msg += QString("<tr><td>Plenum kutusu</td><td>%1</td></tr>").arg(nPlenum);
+    if (nDamper)   msg += QString("<tr><td>Damper</td><td>%1</td></tr>").arg(nDamper);
     msg += "</table>";
 
     QDialog dlg(this);
-    dlg.setWindowTitle("Kesif Listesi / BOM");
-    dlg.resize(500, 450);
+    dlg.setWindowTitle("Keşif Listesi / BOM — Disiplin Bazlı");
+    dlg.resize(600, 550);
     auto* layout = new QVBoxLayout(&dlg);
-    auto* label = new QLabel(msg, &dlg);
-    label->setTextFormat(Qt::RichText);
-    label->setWordWrap(true);
-    layout->addWidget(label);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(msg);
+    layout->addWidget(browser);
     auto* btn = new QPushButton("Kapat", &dlg);
     connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
     layout->addWidget(btn);
 
-    // Log'a da yaz
     if (m_logList) {
-        m_logList->addItem(QString("BOM: Toplam %1 m boru, %2 T, %3 dirsek")
-            .arg(totalLength, 0, 'f', 2).arg(nTee).arg(nElbow));
-        for (const auto& [dn, len] : pipeLength_m)
-            m_logList->addItem(QString("  DN%1: %2 m").arg(dn).arg(len, 0, 'f', 2));
+        m_logList->addItem(QString("BOM: %1 m toplam, %2 disiplin, %3 TL")
+            .arg(grandTotalLength, 0, 'f', 2).arg(byDiscipline.size()).arg(grandTotal, 0, 'f', 0));
     }
-
     dlg.exec();
 }
 
@@ -6233,6 +7170,534 @@ void MainWindow::OnLayerStateList() {
         "LAYERSTATE anlık görüntüleri:\n" + info.join("\n"));
 }
 
+// ═══════════════════════════════════════════════════════════
+//  KATMAN-STANDART — hazır katman şablonu uygula (TS/ISO/AIA)
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnLayerStandard() {
+    if (!m_document) return;
+
+    QStringList presets = {
+        "TS/MEP — Türkiye MEP standartı (VKT varsayılan)",
+        "ISO 13567 — Uluslararası yapı katman standartı",
+        "AIA CAD Layer Guidelines — Amerikan mimar standartı"
+    };
+
+    bool ok;
+    QString choice = QInputDialog::getItem(this, "Katman Şablonu",
+        "Uygulanacak katman standardını seçin:", presets, 0, false, &ok);
+    if (!ok) return;
+
+    // Şablon tanımları: {isim, grup, R, G, B}
+    struct LayerDef { const char* name; const char* group; int r, g, b; };
+
+    static const LayerDef kTS[] = {
+        {"DUVAR",           "Mimari",       220, 220, 220},
+        {"KAPI-PENCERE",    "Mimari",       180, 180, 180},
+        {"KOLON",           "Mimari",       200, 200, 200},
+        {"KIRIS",           "Mimari",       190, 190, 190},
+        {"PENCERE",         "Mimari",       170, 210, 230},
+        {"KAPI",            "Mimari",       170, 200, 170},
+        {"TAVAN",           "Mimari",       160, 160, 160},
+        {"ZEMIN",           "Mimari",       140, 140, 140},
+        {"VKT-TEMIZ-SU",    "Su Tesisat",     0, 170, 255},
+        {"VKT-SICAK-SU",    "Su Tesisat",   255,  60,  60},
+        {"VKT-ATIK-SU",     "Su Tesisat",   139,  90,  43},
+        {"VKT-GAZ",         "Gaz",          255, 255,   0},
+        {"VKT-ISITMA",      "Isitma",       255, 140,   0},
+        {"VKT-ISITMA-DONUS","Isitma",       200,  90,   0},
+        {"VKT-YANGIN",      "Yangin",       200,   0,   0},
+        {"VKT-DIM",         "Olculendirme",   0, 200, 200},
+        {"VKT-NODE",        "MEP",          200, 200, 200},
+        {"0",               "",             255, 255, 255},
+    };
+
+    static const LayerDef kISO[] = {
+        {"A-WALL",          "Architecture", 220, 220, 220},
+        {"A-DOOR",          "Architecture", 180, 180, 180},
+        {"A-COLS",          "Architecture", 200, 200, 200},
+        {"P-PIPE-SUPP",     "Plumbing",       0, 170, 255},
+        {"P-PIPE-SANR",     "Plumbing",     139,  90,  43},
+        {"M-HVAC-DUCT",     "Mechanical",   100, 200, 100},
+        {"E-POWR",          "Electrical",   255, 200,   0},
+        {"F-SPKL",          "Fire",         200,   0,   0},
+        {"G-ANNO-DIMS",     "Annotation",     0, 200, 200},
+        {"0",               "",             255, 255, 255},
+    };
+
+    static const LayerDef kAIA[] = {
+        {"A-WALL",          "Architecture", 220, 220, 220},
+        {"A-DOOR",          "Architecture", 180, 180, 180},
+        {"P-PIPE",          "Plumbing",       0, 170, 255},
+        {"P-DRAIN",         "Plumbing",     139,  90,  43},
+        {"M-DUCT",          "Mechanical",   100, 200, 100},
+        {"E-POWER",         "Electrical",   255, 200,   0},
+        {"F-SPRNK",         "Fire",         200,   0,   0},
+        {"A-ANNO-DIMS",     "Annotation",     0, 200, 200},
+        {"G-ANNO-TEXT",     "Annotation",   200, 200, 200},
+        {"0",               "",             255, 255, 255},
+    };
+
+    const LayerDef* defs = kTS;
+    int count = static_cast<int>(sizeof(kTS)/sizeof(kTS[0]));
+    if (choice.startsWith("ISO")) {
+        defs = kISO; count = static_cast<int>(sizeof(kISO)/sizeof(kISO[0]));
+    } else if (choice.startsWith("AIA")) {
+        defs = kAIA; count = static_cast<int>(sizeof(kAIA)/sizeof(kAIA[0]));
+    }
+
+    auto& layerMap = m_document->GetLayersMutable();
+    for (int i = 0; i < count; ++i) {
+        const auto& d = defs[i];
+        std::string n(d.name);
+        if (layerMap.find(n) == layerMap.end())
+            layerMap[n] = cad::Layer(n);
+        layerMap[n].SetGroup(d.group);
+        layerMap[n].SetColor(cad::Color((uint8_t)d.r, (uint8_t)d.g, (uint8_t)d.b));
+    }
+
+    m_document->SetModified(true);
+    RefreshLayerPanel();
+    statusBar()->showMessage(
+        QString("Katman şablonu uygulandı: %1 — %2 katman").arg(choice.section(' ', 0, 0)).arg(count), 5000);
+    if (m_logList)
+        m_logList->addItem(QString("[KATMAN-STANDART] %1").arg(choice.section(' ', 0, 0)));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SON AÇILAN PROJELER (Recent Projects)
+// ═══════════════════════════════════════════════════════════
+void MainWindow::UpdateRecentProjects() {
+    if (!m_recentMenu) return;
+    m_recentMenu->clear();
+
+    QSettings settings("VKT", "MekanikTesisatDraw");
+    QStringList recent = settings.value("recentProjects").toStringList();
+
+    if (recent.isEmpty()) {
+        m_recentMenu->addAction("(boş)")->setEnabled(false);
+        return;
+    }
+
+    for (const auto& path : recent) {
+        QFileInfo fi(path);
+        auto* act = m_recentMenu->addAction(
+            QString("%1  (%2)").arg(fi.baseName(), fi.absolutePath()));
+        connect(act, &QAction::triggered, this, [this, path]() {
+            OnRecentProject(path);
+        });
+    }
+
+    m_recentMenu->addSeparator();
+    auto* clearAct = m_recentMenu->addAction("Listeyi Temizle");
+    connect(clearAct, &QAction::triggered, this, [this]() {
+        QSettings s("VKT", "MekanikTesisatDraw");
+        s.remove("recentProjects");
+        UpdateRecentProjects();
+    });
+}
+
+void MainWindow::OnRecentProject(const QString& path) {
+    if (!QFile::exists(path)) {
+        QMessageBox::warning(this, "Dosya Bulunamadı",
+            QString("Proje dosyası bulunamadı:\n%1").arg(path));
+        return;
+    }
+    QFileInfo fi(path);
+    auto& pm = core::ProjectManager::Instance();
+    pm.SetActiveProject(fi.dir().absolutePath().toStdString());
+
+    auto& app = core::Application::Instance();
+    auto* doc = app.OpenDocument(path.toStdString());
+    if (doc) {
+        SetDocument(doc);
+        setWindowTitle(QString("VKT - FINE SANI++ - %1").arg(fi.baseName()));
+        statusBar()->showMessage("Proje açıldı: " + path, 3000);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DARK MODE / THEME
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnToggleDarkMode() {
+    QSettings settings("VKT", "MekanikTesisatDraw");
+    settings.setValue("darkMode", m_darkMode);
+
+    if (m_darkMode) {
+        static_cast<QApplication*>(QApplication::instance())->setStyleSheet(
+            "QMainWindow { background: #1e1e1e; }"
+            "QWidget { background: #252526; color: #cccccc; }"
+            "QMenuBar { background: #2d2d2d; color: #cccccc; }"
+            "QMenuBar::item:selected { background: #3e3e42; }"
+            "QMenu { background: #2d2d2d; color: #cccccc; border: 1px solid #3e3e42; }"
+            "QMenu::item:selected { background: #094771; }"
+            "QToolBar { background: #2d2d2d; border: none; }"
+            "QDockWidget { titlebar-close-icon: none; }"
+            "QDockWidget::title { background: #2d2d2d; padding: 4px; }"
+            "QPushButton { background: #3c3c3c; color: #cccccc; border: 1px solid #555; padding: 3px 8px; }"
+            "QPushButton:hover { background: #4a4a4a; }"
+            "QTreeWidget { background: #1e1e1e; color: #cccccc; border: 1px solid #3e3e42; }"
+            "QTreeWidget::item:selected { background: #094771; }"
+            "QListWidget { background: #1e1e1e; color: #cccccc; }"
+            "QListWidget::item:selected { background: #094771; }"
+            "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; }"
+            "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; }"
+            "QTabWidget::pane { border: 1px solid #3e3e42; }"
+            "QTabBar::tab { background: #2d2d2d; color: #999; padding: 4px 12px; }"
+            "QTabBar::tab:selected { background: #1e1e1e; color: #cccccc; }"
+            "QStatusBar { background: #007acc; color: white; }"
+            "QScrollBar:vertical { background: #2d2d2d; width: 12px; }"
+            "QScrollBar::handle:vertical { background: #555; min-height: 20px; }"
+        );
+    } else {
+        static_cast<QApplication*>(QApplication::instance())->setStyleSheet("");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REVİZYON TAKİBİ — ISO 7200
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnRevision() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Revizyon Ekle — ISO 7200");
+    dlg.setMinimumWidth(400);
+    auto* vl = new QVBoxLayout(&dlg);
+
+    auto* form = new QFormLayout;
+    auto* edRevNo   = new QLineEdit(QString("R%1").arg(m_revisions.size()));
+    auto* edDate    = new QLineEdit(QDate::currentDate().toString("dd.MM.yyyy"));
+    auto* edDesc    = new QLineEdit;
+    auto* edAuthor  = new QLineEdit;
+
+    QSettings s("VKT", "MekanikTesisatDraw");
+    edAuthor->setText(s.value("lastAuthor", "").toString());
+
+    form->addRow("Revizyon No:", edRevNo);
+    form->addRow("Tarih:", edDate);
+    form->addRow("Açıklama:", edDesc);
+    form->addRow("Yapan:", edAuthor);
+    vl->addLayout(form);
+
+    // Mevcut revizyonlar tablosu
+    if (!m_revisions.empty()) {
+        auto* tbl = new QTableWidget(static_cast<int>(m_revisions.size()), 4, &dlg);
+        tbl->setHorizontalHeaderLabels({"Rev", "Tarih", "Açıklama", "Yapan"});
+        tbl->horizontalHeader()->setStretchLastSection(true);
+        for (int i = 0; i < (int)m_revisions.size(); ++i) {
+            tbl->setItem(i, 0, new QTableWidgetItem(m_revisions[i].revNo));
+            tbl->setItem(i, 1, new QTableWidgetItem(m_revisions[i].date));
+            tbl->setItem(i, 2, new QTableWidgetItem(m_revisions[i].description));
+            tbl->setItem(i, 3, new QTableWidgetItem(m_revisions[i].author));
+        }
+        vl->addWidget(tbl);
+    }
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vl->addWidget(bb);
+
+    if (dlg.exec() == QDialog::Accepted) {
+        RevisionEntry rev;
+        rev.revNo = edRevNo->text();
+        rev.date = edDate->text();
+        rev.description = edDesc->text();
+        rev.author = edAuthor->text();
+        m_revisions.push_back(rev);
+
+        s.setValue("lastAuthor", rev.author);
+
+        statusBar()->showMessage(
+            QString("Revizyon eklendi: %1 — %2").arg(rev.revNo, rev.description), 5000);
+        if (m_logList)
+            m_logList->addItem(QString("[REVIZYON] %1: %2").arg(rev.revNo, rev.description));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  İZOMETRİK ŞEMA — 2.5D (30° aksonometrik) boru çizimi SVG
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnIsometricDiagram() {
+    if (!m_document) return;
+
+    const auto& net = m_document->GetNetwork();
+    if (net.GetEdgeCount() == 0) {
+        QMessageBox::information(this, "İzometrik Şema", "Tesisat ağı boş.");
+        return;
+    }
+
+    // 30° izometrik projeksiyon: x' = x×cos30 - y×cos30, y' = z + x×sin30 + y×sin30
+    constexpr double cos30 = 0.866025;
+    constexpr double sin30 = 0.5;
+    constexpr double scale = 0.15; // mm → SVG px
+    constexpr double zScale = 300.0; // Z amplification
+
+    // Bounding box
+    double minSX = 1e18, maxSX = -1e18, minSY = 1e18, maxSY = -1e18;
+    auto project = [&](double x, double y, double z) -> std::pair<double,double> {
+        double sx = (x * cos30 - y * cos30) * scale;
+        double sy = -(z * zScale + x * sin30 + y * sin30) * scale;
+        return {sx, sy};
+    };
+
+    // Pre-pass: bounds
+    for (const auto& [nid, node] : net.GetNodeMap()) {
+        auto [sx, sy] = project(node.position.x, node.position.y, node.position.z);
+        minSX = std::min(minSX, sx); maxSX = std::max(maxSX, sx);
+        minSY = std::min(minSY, sy); maxSY = std::max(maxSY, sy);
+    }
+    double margin = 40.0;
+    double w = maxSX - minSX + margin * 2;
+    double h = maxSY - minSY + margin * 2;
+    double ox = -minSX + margin;
+    double oy = -minSY + margin;
+
+    // SVG build
+    std::ostringstream svg;
+    svg << std::fixed << std::setprecision(2);
+    svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << w << "' height='" << h << "' "
+        << "viewBox='0 0 " << w << " " << h << "' "
+        << "style='background:white;font-family:Arial,sans-serif'>\n";
+    svg << "<text x='10' y='18' font-size='14' font-weight='bold'>VKT İzometrik Şema</text>\n";
+
+    // Edge'ler
+    auto getColor = [](mep::EdgeType t) -> std::string {
+        switch (t) {
+            case mep::EdgeType::Supply:        return "#0088ff";
+            case mep::EdgeType::HotWater:      return "#ff3322";
+            case mep::EdgeType::Drainage:      return "#8B5A2B";
+            case mep::EdgeType::Gas:           return "#ccaa00";
+            case mep::EdgeType::Heating:       return "#ff6600";
+            case mep::EdgeType::HeatingReturn: return "#3366cc";
+            case mep::EdgeType::FireLine:      return "#cc0000";
+            case mep::EdgeType::Electric:      return "#ff8800";
+            case mep::EdgeType::Duct:          return "#44aa44";
+            default:                           return "#888888";
+        }
+    };
+
+    for (const auto& edge : net.GetEdges()) {
+        const mep::Node* nA = net.GetNode(edge.nodeA);
+        const mep::Node* nB = net.GetNode(edge.nodeB);
+        if (!nA || !nB) continue;
+        auto [x1,y1] = project(nA->position.x, nA->position.y, nA->position.z);
+        auto [x2,y2] = project(nB->position.x, nB->position.y, nB->position.z);
+        svg << "<line x1='" << x1+ox << "' y1='" << y1+oy
+            << "' x2='" << x2+ox << "' y2='" << y2+oy
+            << "' stroke='" << getColor(edge.type)
+            << "' stroke-width='2' stroke-linecap='round'/>\n";
+
+        // DN label
+        double mx = (x1+x2)*0.5 + ox, my = (y1+y2)*0.5 + oy;
+        svg << "<text x='" << mx+3 << "' y='" << my-3
+            << "' font-size='7' fill='" << getColor(edge.type)
+            << "'>DN" << static_cast<int>(edge.diameter_mm) << "</text>\n";
+    }
+
+    // Node'lar
+    for (const auto& [nid, node] : net.GetNodeMap()) {
+        auto [sx, sy] = project(node.position.x, node.position.y, node.position.z);
+        double cx = sx + ox, cy = sy + oy;
+        std::string fill = "#333333";
+        double r = 3.0;
+        if (node.type == mep::NodeType::Fixture)      { fill = "#0066cc"; r = 4; }
+        else if (node.type == mep::NodeType::Source)   { fill = "#00aa00"; r = 5; }
+        else if (node.type == mep::NodeType::Drain)    { fill = "#8B4513"; r = 5; }
+        svg << "<circle cx='" << cx << "' cy='" << cy
+            << "' r='" << r << "' fill='" << fill << "'/>\n";
+        if (!node.label.empty() && node.type != mep::NodeType::Junction)
+            svg << "<text x='" << cx+5 << "' y='" << cy-5
+                << "' font-size='7' fill='#444'>" << node.label << "</text>\n";
+    }
+
+    svg << "</svg>";
+    std::string svgStr = svg.str();
+
+    // Dialog göster
+    QDialog dlg(this);
+    dlg.setWindowTitle("İzometrik Şema (30° aksonometrik)");
+    dlg.setMinimumSize(800, 600);
+    auto* vl = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(QString::fromStdString(svgStr));
+    vl->addWidget(browser, 1);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok, &dlg);
+    auto* btnSvg = bb->addButton("SVG Kaydet", QDialogButtonBox::ActionRole);
+    auto* btnPdf = bb->addButton("PDF Kaydet", QDialogButtonBox::ActionRole);
+
+    connect(btnSvg, &QPushButton::clicked, this, [&]() {
+        QString path = QFileDialog::getSaveFileName(this, "SVG Kaydet", "", "SVG (*.svg)");
+        if (!path.isEmpty()) {
+            QFile f(path); if (f.open(QIODevice::WriteOnly))
+                f.write(QByteArray::fromStdString(svgStr));
+            statusBar()->showMessage("İzometrik SVG: " + path, 4000);
+        }
+    });
+    connect(btnPdf, &QPushButton::clicked, this, [&]() {
+        QString path = QFileDialog::getSaveFileName(this, "PDF Kaydet", "", "PDF (*.pdf)");
+        if (!path.isEmpty()) {
+            QPrinter printer(QPrinter::HighResolution);
+            printer.setOutputFormat(QPrinter::PdfFormat);
+            printer.setOutputFileName(path);
+            printer.setPageOrientation(QPageLayout::Landscape);
+            QSvgRenderer renderer(QByteArray::fromStdString(svgStr));
+            QPainter painter(&printer);
+            renderer.render(&painter);
+            painter.end();
+            statusBar()->showMessage("İzometrik PDF: " + path, 4000);
+        }
+    });
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    vl->addWidget(bb);
+    dlg.exec();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GÜNEŞ KOLEKTÖRü BOYUTLANDIRMA — TS EN 12975 / TS EN 12977
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnSolarCollector() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Güneş Kolektörü Boyutlandırma");
+    dlg.setMinimumWidth(420);
+    auto* vl = new QVBoxLayout(&dlg);
+
+    auto* form = new QFormLayout;
+    auto* edPersons = new QSpinBox; edPersons->setRange(1, 500); edPersons->setValue(4);
+    auto* edDailyL  = new QSpinBox; edDailyL->setRange(20, 100); edDailyL->setValue(50);
+    auto* cbCity    = new QComboBox;
+    cbCity->addItems({"İstanbul (1400 kWh/m²)", "Ankara (1550 kWh/m²)", "Antalya (1700 kWh/m²)",
+                      "İzmir (1600 kWh/m²)", "Trabzon (1200 kWh/m²)"});
+    auto* edEfficiency = new QSpinBox; edEfficiency->setRange(30, 90); edEfficiency->setValue(60);
+    edEfficiency->setSuffix(" %");
+    form->addRow("Kişi sayısı:", edPersons);
+    form->addRow("Kişi başı günlük su (L):", edDailyL);
+    form->addRow("Güneşlenme bölgesi:", cbCity);
+    form->addRow("Kolektör verimi:", edEfficiency);
+    vl->addLayout(form);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vl->addWidget(bb);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    int persons = edPersons->value();
+    double dailyL = edDailyL->value();
+    double irradiance[] = {1400, 1550, 1700, 1600, 1200};
+    double G = irradiance[cbCity->currentIndex()]; // kWh/m²/yıl
+    double eta = edEfficiency->value() / 100.0;
+    double dT = 35.0; // °C (10→45)
+    double cp = 4.186; // kJ/(kg·K)
+
+    double dailyEnergy_kWh = persons * dailyL * dT * cp / 3600.0;
+    double annualEnergy_kWh = dailyEnergy_kWh * 365.0;
+    double solarFraction = 0.65; // %65 solar katkı
+    double collectorArea = (annualEnergy_kWh * solarFraction) / (G * eta);
+    double tankVolume_L = persons * dailyL * 1.5;
+    int panelCount = static_cast<int>(std::ceil(collectorArea / 2.0)); // 2m² panel
+
+    QString result = QString(
+        "<h3>Güneş Kolektörü Boyutlandırma Sonuçları</h3>"
+        "<table border='1' cellpadding='4' style='border-collapse:collapse'>"
+        "<tr><td><b>Günlük sıcak su ihtiyacı</b></td><td>%1 L/gün</td></tr>"
+        "<tr><td><b>Günlük enerji ihtiyacı</b></td><td>%2 kWh/gün</td></tr>"
+        "<tr><td><b>Yıllık enerji ihtiyacı</b></td><td>%3 kWh/yıl</td></tr>"
+        "<tr><td><b>Solar katkı oranı</b></td><td>%65</td></tr>"
+        "<tr><td><b>Gerekli kolektör alanı</b></td><td><b>%4 m²</b></td></tr>"
+        "<tr><td><b>Panel sayısı (2m²)</b></td><td><b>%5 adet</b></td></tr>"
+        "<tr><td><b>Depo hacmi</b></td><td><b>%6 L</b></td></tr>"
+        "</table>"
+    ).arg(persons * static_cast<int>(dailyL))
+     .arg(dailyEnergy_kWh, 0, 'f', 1)
+     .arg(annualEnergy_kWh, 0, 'f', 0)
+     .arg(collectorArea, 0, 'f', 1)
+     .arg(panelCount)
+     .arg(static_cast<int>(tankVolume_L));
+
+    QMessageBox::information(this, "Güneş Kolektörü", result);
+    if (m_logList) m_logList->addItem(QString("[GUNES] %1m² kolektör, %2L depo").arg(collectorArea,0,'f',1).arg((int)tankVolume_L));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ISI POMPASI BOYUTLANDIRMA — EN 14511 / EN 15450
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnHeatPump() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Isı Pompası Boyutlandırma");
+    dlg.setMinimumWidth(420);
+    auto* vl = new QVBoxLayout(&dlg);
+
+    auto* form = new QFormLayout;
+    auto* edArea   = new QSpinBox; edArea->setRange(10, 10000); edArea->setValue(120); edArea->setSuffix(" m²");
+    auto* edHeatLoss = new QSpinBox; edHeatLoss->setRange(10, 200); edHeatLoss->setValue(50); edHeatLoss->setSuffix(" W/m²");
+    auto* cbType  = new QComboBox;
+    cbType->addItems({"Hava-Su (COP 3.5)", "Toprak-Su (COP 4.5)", "Su-Su (COP 5.0)"});
+    auto* edHotWater = new QSpinBox; edHotWater->setRange(0, 5000); edHotWater->setValue(200); edHotWater->setSuffix(" L/gün");
+    form->addRow("Isıtma alanı:", edArea);
+    form->addRow("Özgül ısı kaybı:", edHeatLoss);
+    form->addRow("Pompa tipi:", cbType);
+    form->addRow("Sıcak su ihtiyacı:", edHotWater);
+    vl->addLayout(form);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(bb, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    vl->addWidget(bb);
+
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    double area = edArea->value();
+    double qSpec = edHeatLoss->value();
+    double cop[] = {3.5, 4.5, 5.0};
+    double COP = cop[cbType->currentIndex()];
+    double hotWaterL = edHotWater->value();
+
+    double heatLoad_kW = area * qSpec / 1000.0;
+    double hwLoad_kW = hotWaterL * 35.0 * 4.186 / (3600.0 * 8.0); // 8 saat spread
+    double totalLoad_kW = heatLoad_kW + hwLoad_kW;
+    double elecPower_kW = totalLoad_kW / COP;
+    double annualEnergy_kWh = totalLoad_kW * 2000.0; // 2000 saat/yıl
+    double annualElec_kWh = annualEnergy_kWh / COP;
+
+    // Standart model önerisi
+    struct HPModel { const char* name; double kW; };
+    static const HPModel models[] = {
+        {"VKT-HP05", 5}, {"VKT-HP08", 8}, {"VKT-HP12", 12},
+        {"VKT-HP16", 16}, {"VKT-HP22", 22}, {"VKT-HP30", 30},
+        {"VKT-HP45", 45}, {"VKT-HP60", 60}
+    };
+    std::string modelName = "VKT-HP60";
+    for (auto& m : models) {
+        if (m.kW >= totalLoad_kW) { modelName = m.name; break; }
+    }
+
+    QString result = QString(
+        "<h3>Isı Pompası Boyutlandırma — EN 14511</h3>"
+        "<table border='1' cellpadding='4' style='border-collapse:collapse'>"
+        "<tr><td><b>Isıtma yükü</b></td><td>%1 kW</td></tr>"
+        "<tr><td><b>Sıcak su yükü</b></td><td>%2 kW</td></tr>"
+        "<tr><td><b>Toplam termal yük</b></td><td><b>%3 kW</b></td></tr>"
+        "<tr><td><b>COP (%4)</b></td><td>%5</td></tr>"
+        "<tr><td><b>Elektrik gücü</b></td><td>%6 kW</td></tr>"
+        "<tr><td><b>Yıllık enerji</b></td><td>%7 kWh</td></tr>"
+        "<tr><td><b>Yıllık elektrik</b></td><td>%8 kWh</td></tr>"
+        "<tr><td><b>Önerilen model</b></td><td><b>%9</b></td></tr>"
+        "</table>"
+    ).arg(heatLoad_kW, 0, 'f', 1)
+     .arg(hwLoad_kW, 0, 'f', 1)
+     .arg(totalLoad_kW, 0, 'f', 1)
+     .arg(cbType->currentText())
+     .arg(COP)
+     .arg(elecPower_kW, 0, 'f', 1)
+     .arg(annualEnergy_kWh, 0, 'f', 0)
+     .arg(annualElec_kWh, 0, 'f', 0)
+     .arg(QString::fromStdString(modelName));
+
+    QMessageBox::information(this, "Isı Pompası", result);
+    if (m_logList) m_logList->addItem(QString("[ISI-POMPASI] %1 kW, model=%2").arg(totalLoad_kW,0,'f',1).arg(QString::fromStdString(modelName)));
+}
+
 void MainWindow::OnCizimiGuncelle() {
     if (!m_document) return;
 
@@ -6448,7 +7913,8 @@ void MainWindow::OnExportDXF() {
                            m_document->GetCADEntities(),
                            m_document->GetNetwork(),
                            projName.toStdString(),
-                           &m_document->GetBlockRegistry());
+                           &m_document->GetBlockRegistry(),
+                           &m_document->GetLayers());
 
     if (ok) {
         auto blockCount = m_document->GetBlockRegistry().Size();
@@ -6550,7 +8016,8 @@ void MainWindow::OnExportFloorDXF() {
                             floorEntities,
                             floorNet,
                             kat.label,
-                            &m_document->GetBlockRegistry());
+                            &m_document->GetBlockRegistry(),
+                            &m_document->GetLayers());
     if (ok3) {
         statusBar()->showMessage(
             QString("Kat DXF kaydedildi: %1 (%2 entity, %3 boru)")
@@ -7569,6 +9036,175 @@ void MainWindow::OnUreticiKatalog() {
     dlg.exec();
 }
 
+// ═══════════════════════════════════════════════════════════
+//  CLASH DETECTION — 3D çakışma analizi + viewport highlight
+// ═══════════════════════════════════════════════════════════
+void MainWindow::OnClashDetect() {
+    if (!m_document) return;
+
+    mep::ClashEngine engine(
+        m_document->GetNetwork(),
+        m_document->GetCADEntities()
+    );
+    m_lastClashResults = engine.RunAnalysis();
+
+    // Extract clashing edge IDs for viewport highlight
+    std::vector<uint32_t> clashEdgeIds;
+    clashEdgeIds.reserve(m_lastClashResults.size());
+    for (const auto& r : m_lastClashResults)
+        clashEdgeIds.push_back(r.edgeId);
+
+    if (m_vulkanWindow)
+        m_vulkanWindow->SetClashHighlightEdges(clashEdgeIds);
+
+    // Build summary HTML
+    int hardCount = 0, softCount = 0;
+    for (const auto& r : m_lastClashResults) {
+        if (r.severity == mep::ClashSeverity::Hard) ++hardCount;
+        else ++softCount;
+    }
+
+    QString html = "<html><body>";
+    html += QString("<h3>Çakışma Analizi Sonuçları</h3>");
+    html += QString("<p><b>Toplam:</b> %1 çakışma — "
+                    "<span style='color:red'>%2 Hard</span> | "
+                    "<span style='color:orange'>%3 Soft</span></p>")
+                .arg(m_lastClashResults.size()).arg(hardCount).arg(softCount);
+
+    if (!m_lastClashResults.empty()) {
+        html += "<table border='1' cellpadding='3' style='border-collapse:collapse'>"
+                "<tr style='background:#ddd'><th>#</th><th>Tip</th><th>Boru ID</th>"
+                "<th>Mimari ID</th><th>Konum (m)</th><th>Açıklama</th></tr>";
+
+        for (const auto& r : m_lastClashResults) {
+            QString sev = (r.severity == mep::ClashSeverity::Hard)
+                ? "<span style='color:red'>Hard</span>"
+                : "<span style='color:orange'>Soft</span>";
+            QString pos = QString("(%1, %2, %3)")
+                .arg(r.clashPoint.x, 0, 'f', 2)
+                .arg(r.clashPoint.y, 0, 'f', 2)
+                .arg(r.clashPoint.z, 0, 'f', 2);
+            html += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td><td>%5</td><td>%6</td></tr>")
+                .arg(r.id).arg(sev)
+                .arg(r.edgeId)
+                .arg(static_cast<unsigned long long>(r.architecturalId))
+                .arg(pos)
+                .arg(QString::fromStdString(r.description));
+        }
+        html += "</table>";
+    } else {
+        html += "<p style='color:green'><b>Çakışma tespit edilmedi.</b></p>";
+    }
+    html += "</body></html>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Çakışma Analizi");
+    dlg.setMinimumWidth(700);
+    dlg.setMinimumHeight(420);
+    auto* vl = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(html);
+    vl->addWidget(browser);
+
+    auto* bb = new QDialogButtonBox(QDialogButtonBox::Ok);
+    auto* btnRpt = bb->addButton("Rapor Kaydet...", QDialogButtonBox::ActionRole);
+    connect(btnRpt, &QPushButton::clicked, this, &MainWindow::OnClashReport);
+    auto* btnClear = bb->addButton("Vurgulamayi Kaldir", QDialogButtonBox::ActionRole);
+    connect(btnClear, &QPushButton::clicked, this, [&]() {
+        if (m_vulkanWindow) m_vulkanWindow->ClearClashHighlight();
+    });
+    connect(bb, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    vl->addWidget(bb);
+
+    statusBar()->showMessage(
+        QString("Çakışma: %1 Hard, %2 Soft — çakışan borular kırmızı")
+            .arg(hardCount).arg(softCount), 8000);
+    if (m_logList)
+        m_logList->addItem(QString("[CLASH] %1 hard + %2 soft").arg(hardCount).arg(softCount));
+
+    dlg.exec();
+}
+
+void MainWindow::OnClashReport() {
+    if (m_lastClashResults.empty()) {
+        QMessageBox::information(this, "Çakışma Raporu",
+            "Henüz çakışma analizi yapılmadı.\nÖnce 'Çakışma Analizi' çalıştırın.");
+        return;
+    }
+
+    QString defPath;
+    auto& pm = core::ProjectManager::Instance();
+    if (pm.HasActiveProject())
+        defPath = QString::fromStdString(pm.GetRaporFolder()) + "cakisma_raporu.xls";
+    else
+        defPath = QDir::homePath() + "/cakisma_raporu.xls";
+
+    QString path = QFileDialog::getSaveFileName(this, "Çakışma Raporunu Kaydet",
+                                                defPath, "Excel (*.xls);;PDF (*.pdf)");
+    if (path.isEmpty()) return;
+
+    if (path.endsWith(".pdf", Qt::CaseInsensitive)) {
+        // PDF rapor — HTML via QPrinter
+        QPrinter printer(QPrinter::HighResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setOutputFileName(path);
+        printer.setPageOrientation(QPageLayout::Landscape);
+        printer.setPageSize(QPageSize::A4);
+
+        QTextDocument doc;
+        QString html = "<html><body><h2>Çakışma Analizi Raporu</h2>"
+                       "<table border='1' cellpadding='4' style='border-collapse:collapse;font-size:10pt'>"
+                       "<tr style='background:#ccc'><th>#</th><th>Tip</th><th>Boru ID</th>"
+                       "<th>Mimari ID</th><th>X(m)</th><th>Y(m)</th><th>Z(m)</th><th>Açıklama</th></tr>";
+        for (const auto& r : m_lastClashResults) {
+            QString sev = (r.severity == mep::ClashSeverity::Hard) ? "Hard" : "Soft";
+            html += QString("<tr><td>%1</td><td><b>%2</b></td><td>%3</td><td>%4</td>"
+                            "<td>%5</td><td>%6</td><td>%7</td><td>%8</td></tr>")
+                .arg(r.id).arg(sev).arg(r.edgeId)
+                .arg(static_cast<unsigned long long>(r.architecturalId))
+                .arg(r.clashPoint.x, 0, 'f', 2)
+                .arg(r.clashPoint.y, 0, 'f', 2)
+                .arg(r.clashPoint.z, 0, 'f', 2)
+                .arg(QString::fromStdString(r.description));
+        }
+        html += "</table></body></html>";
+        doc.setHtml(html);
+        doc.print(&printer);
+        statusBar()->showMessage("Çakışma raporu PDF'e kaydedildi: " + path, 6000);
+    } else {
+        // XLS rapor
+        using Row = std::vector<std::string>;
+        std::vector<Row> rows;
+        rows.push_back({"#","Tip","Boru ID","Mimari ID","X(m)","Y(m)","Z(m)","Aciklama"});
+        for (const auto& r : m_lastClashResults) {
+            rows.push_back({
+                std::to_string(r.id),
+                (r.severity == mep::ClashSeverity::Hard) ? "Hard" : "Soft",
+                std::to_string(r.edgeId),
+                std::to_string(static_cast<unsigned long long>(r.architecturalId)),
+                QString::number(r.clashPoint.x, 'f', 2).toStdString(),
+                QString::number(r.clashPoint.y, 'f', 2).toStdString(),
+                QString::number(r.clashPoint.z, 'f', 2).toStdString(),
+                r.description
+            });
+        }
+
+        // Write simple XLS (tab-delimited BIFF2-compatible)
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream ts(&f);
+            ts.setEncoding(QStringConverter::Utf8);
+            for (const auto& row : rows) {
+                QStringList cols;
+                for (const auto& c : row) cols << QString::fromStdString(c);
+                ts << cols.join("\t") << "\n";
+            }
+            f.close();
+        }
+        statusBar()->showMessage("Çakışma raporu kaydedildi: " + path, 6000);
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Birleşik Yerleştirme Modu toggle
 // ─────────────────────────────────────────────────────────────────────────────
@@ -7611,39 +9247,62 @@ void MainWindow::RefreshLayerPanel() {
     for (const auto& [name, _] : layers) names.push_back(name);
     std::sort(names.begin(), names.end());
 
-    for (const auto& name : names) {
-        const cad::Layer& layer = layers.at(name);
-        auto* item = new QTreeWidgetItem(m_layerList);
+    // Grup → parent item haritası
+    std::unordered_map<std::string, QTreeWidgetItem*> groupItems;
 
-        // Sütun 0 — Görünür (G)
+    auto makeLayerRow = [&](const cad::Layer& layer,
+                            const std::string& name,
+                            QTreeWidgetItem* parent) -> QTreeWidgetItem* {
+        QTreeWidgetItem* item = parent
+            ? new QTreeWidgetItem(parent)
+            : new QTreeWidgetItem(m_layerList);
+
         item->setText(0, layer.IsVisible() ? "●" : "○");
-        item->setForeground(0, layer.IsVisible() ? QColor(80, 200, 80) : QColor(120, 120, 120));
+        item->setForeground(0, layer.IsVisible() ? QColor(80,200,80) : QColor(120,120,120));
         item->setToolTip(0, layer.IsVisible() ? "Görünür — tıkla: gizle" : "Gizli — tıkla: göster");
 
-        // Sütun 1 — Kilitli (K)
-        item->setText(1, layer.IsLocked() ? "🔒" : "🔓");
-        item->setToolTip(1, layer.IsLocked() ? "Kilitli (seçilemez) — tıkla: kilidi kaldır" : "Serbest — tıkla: kilitle");
+        item->setText(1, layer.IsLocked() ? "L" : "-");
+        item->setForeground(1, layer.IsLocked() ? QColor(255,180,0) : QColor(80,80,80));
+        item->setToolTip(1, layer.IsLocked() ? "Kilitli — tıkla: aç" : "Serbest — tıkla: kilitle");
 
-        // Sütun 2 — Dondurulmuş (D)
-        item->setText(2, layer.IsFrozen() ? "❄" : "·");
-        item->setForeground(2, layer.IsFrozen() ? QColor(100, 180, 255) : QColor(80, 80, 80));
-        item->setToolTip(2, layer.IsFrozen() ? "Dondurulmuş (render'a girmiyor) — tıkla: çöz" : "Aktif — tıkla: dondur");
+        item->setText(2, layer.IsFrozen() ? "F" : "-");
+        item->setForeground(2, layer.IsFrozen() ? QColor(100,180,255) : QColor(80,80,80));
+        item->setToolTip(2, layer.IsFrozen() ? "Dondurulmuş — tıkla: çöz" : "Aktif — tıkla: dondur");
 
-        // Sütun 3 — Katman adı (renkli)
         item->setText(3, QString::fromStdString(name));
         cad::Color col = layer.GetColor();
         QColor qcol(col.r, col.g, col.b);
-        // Koyu arka plan varsa açık rengi beyaza çek
-        if (col.r < 30 && col.g < 30 && col.b < 30) qcol = QColor(180, 180, 180);
+        if (col.r < 30 && col.g < 30 && col.b < 30) qcol = QColor(180,180,180);
         item->setForeground(3, qcol);
 
-        // Donmuş veya kilitli satırları soluk göster
         if (layer.IsFrozen() || !layer.IsVisible()) {
             for (int c = 0; c < 4; ++c)
-                item->setForeground(c, QColor(70, 70, 70));
-            item->setForeground(3, QColor(90, 90, 90));
+                item->setForeground(c, QColor(70,70,70));
+        }
+        return item;
+    };
+
+    for (const auto& name : names) {
+        const cad::Layer& layer = layers.at(name);
+        const std::string& grp  = layer.GetGroup();
+
+        if (grp.empty()) {
+            makeLayerRow(layer, name, nullptr);
+        } else {
+            // Grup klasörü yoksa oluştur
+            if (groupItems.find(grp) == groupItems.end()) {
+                auto* gItem = new QTreeWidgetItem(m_layerList);
+                gItem->setText(3, QString::fromStdString(grp));
+                gItem->setForeground(3, QColor(200, 200, 120));
+                QFont f = gItem->font(3); f.setBold(true);
+                gItem->setFont(3, f);
+                gItem->setExpanded(true);
+                groupItems[grp] = gItem;
+            }
+            makeLayerRow(layer, name, groupItems[grp]);
         }
     }
+    m_layerList->setRootIsDecorated(!groupItems.empty());
     m_layerList->blockSignals(false);
 }
 

@@ -83,6 +83,34 @@ const std::vector<Node>& NetworkGraph::GetNodes() const {
 uint32_t NetworkGraph::AddEdge(const Edge& edge) {
     Edge newEdge = edge;
     newEdge.id = m_nextEdgeId++;
+
+    // Tip bazlı sensible default'lar (kullanıcı henüz atamadıysa)
+    if (newEdge.roughness_mm < 1e-9) {
+        switch (newEdge.type) {
+            case EdgeType::Supply: case EdgeType::HotWater:
+            case EdgeType::Drainage: case EdgeType::Vent:
+                newEdge.roughness_mm = 0.0015; break;
+            case EdgeType::Gas: case EdgeType::Heating:
+            case EdgeType::HeatingReturn: case EdgeType::FireLine:
+                newEdge.roughness_mm = 0.045;  break;
+            case EdgeType::Electric:
+                newEdge.roughness_mm = 0.0;    break;
+            case EdgeType::Duct:
+                newEdge.roughness_mm = 0.15;   break;
+            default:
+                newEdge.roughness_mm = 0.0015; break;
+        }
+    }
+    if (newEdge.slope < 1e-9 && newEdge.type == EdgeType::Drainage)
+        newEdge.slope = 0.02;
+
+    // Duct tipi için varsayılan dikdörtgen kesit
+    if (newEdge.type == EdgeType::Duct && newEdge.ductWidth_mm < 1e-9) {
+        newEdge.ductWidth_mm  = 400.0;
+        newEdge.ductHeight_mm = 300.0;
+        if (newEdge.material == "PVC") newEdge.material = "Galvaniz Kanal";
+    }
+
     m_edgeMap[newEdge.id] = newEdge;
 
     // Adjacency list güncelle

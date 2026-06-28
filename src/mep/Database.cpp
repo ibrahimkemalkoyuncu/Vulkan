@@ -79,6 +79,108 @@ void Database::InitializePipes() {
     steel.unitPrice_TL = 95.0;
     steel.availableDiameters_mm = {15, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150, 200};
     m_pipes["Çelik"] = steel;
+
+    // PEX-a (çapraz bağlı polietilen — yerden ısıtma, modern konut)
+    PipeData pexa;
+    pexa.material = "PEX-a";
+    pexa.roughness_mm = 0.007;
+    pexa.unitPrice_TL = 70.0;
+    pexa.availableDiameters_mm = {12, 16, 20, 25, 32, 40, 50, 63};
+    m_pipes["PEX-a"] = pexa;
+
+    // PPR (polipropilen random — sıcak/soğuk su, yaygın)
+    PipeData ppr;
+    ppr.material = "PPR";
+    ppr.roughness_mm = 0.007;
+    ppr.unitPrice_TL = 50.0;
+    ppr.availableDiameters_mm = {20, 25, 32, 40, 50, 63, 75, 90, 110};
+    m_pipes["PPR"] = ppr;
+
+    // Galvaniz Çelik (eski bina renovasyon)
+    PipeData galv;
+    galv.material = "Galvaniz";
+    galv.roughness_mm = 0.15;
+    galv.unitPrice_TL = 110.0;
+    galv.availableDiameters_mm = {15, 20, 25, 32, 40, 50, 65, 80, 100, 125, 150};
+    m_pipes["Galvaniz"] = galv;
+
+    // Paslanmaz Çelik 304 (hastane, gıda tesisi)
+    PipeData ss304;
+    ss304.material = "Paslanmaz 304";
+    ss304.roughness_mm = 0.015;
+    ss304.unitPrice_TL = 350.0;
+    ss304.availableDiameters_mm = {15, 20, 25, 32, 40, 50, 65, 80, 100};
+    m_pipes["Paslanmaz 304"] = ss304;
+
+    // HDPE (yüksek yoğunluklu polietilen — dış hat, altyapı)
+    PipeData hdpe;
+    hdpe.material = "HDPE";
+    hdpe.roughness_mm = 0.007;
+    hdpe.unitPrice_TL = 55.0;
+    hdpe.availableDiameters_mm = {20, 25, 32, 40, 50, 63, 75, 90, 110, 125, 160, 200, 250, 315};
+    m_pipes["HDPE"] = hdpe;
+
+    // PE-RT (yükseltilmiş sıcaklık polietilen — yerden ısıtma)
+    PipeData pert;
+    pert.material = "PE-RT";
+    pert.roughness_mm = 0.007;
+    pert.unitPrice_TL = 65.0;
+    pert.availableDiameters_mm = {12, 16, 20, 25, 32};
+    m_pipes["PE-RT"] = pert;
+
+    // Kompozit (çok katmanlı — PEX/Al/PEX)
+    PipeData composite;
+    composite.material = "Kompozit";
+    composite.roughness_mm = 0.007;
+    composite.unitPrice_TL = 85.0;
+    composite.availableDiameters_mm = {16, 20, 25, 32, 40, 50, 63};
+    m_pipes["Kompozit"] = composite;
+
+    // Pik Döküm (drenaj, yangın)
+    PipeData castIron;
+    castIron.material = "Pik Döküm";
+    castIron.roughness_mm = 0.26;
+    castIron.unitPrice_TL = 180.0;
+    castIron.availableDiameters_mm = {50, 75, 100, 125, 150, 200, 250, 300};
+    m_pipes["Pik Döküm"] = castIron;
+
+    // Tıbbi Bakır (EN 13348 — hastane gaz, medikal)
+    PipeData medCopper;
+    medCopper.material = "Tıbbi Bakır";
+    medCopper.roughness_mm = 0.0015;
+    medCopper.unitPrice_TL = 280.0;
+    medCopper.availableDiameters_mm = {12, 15, 18, 22, 28, 35, 42, 54};
+    m_pipes["Tıbbi Bakır"] = medCopper;
+
+    // Paslanmaz Çelik 316L (deniz suyu, kimya tesisi)
+    PipeData ss316;
+    ss316.material = "Paslanmaz 316L";
+    ss316.roughness_mm = 0.015;
+    ss316.unitPrice_TL = 450.0;
+    ss316.availableDiameters_mm = {15, 20, 25, 32, 40, 50, 65, 80, 100};
+    m_pipes["Paslanmaz 316L"] = ss316;
+
+    // ── HVAC Kanal Malzemeleri ──
+    PipeData galvDuct;
+    galvDuct.material = "Galvaniz Kanal";
+    galvDuct.roughness_mm = 0.15;
+    galvDuct.unitPrice_TL = 130.0;
+    galvDuct.availableDiameters_mm = {100, 125, 150, 200, 250, 300, 350, 400, 500, 600, 800};
+    m_pipes["Galvaniz Kanal"] = galvDuct;
+
+    PipeData flexDuct;
+    flexDuct.material = "Flex Kanal";
+    flexDuct.roughness_mm = 3.0;
+    flexDuct.unitPrice_TL = 85.0;
+    flexDuct.availableDiameters_mm = {100, 125, 150, 200, 250, 300};
+    m_pipes["Flex Kanal"] = flexDuct;
+
+    PipeData izoleDuct;
+    izoleDuct.material = "İzoleli Kanal";
+    izoleDuct.roughness_mm = 0.9;
+    izoleDuct.unitPrice_TL = 180.0;
+    izoleDuct.availableDiameters_mm = {100, 125, 150, 200, 250, 300, 350, 400, 500};
+    m_pipes["İzoleli Kanal"] = izoleDuct;
 }
 
 void Database::InitializeZetas() {
@@ -100,18 +202,43 @@ void Database::InitializeZetas() {
 void Database::InitializePumps() {
     // Standart sirkülasyon / hidrofar pompaları (head m, flow m³/h, kW)
     m_pumps = {
+        // Sirkülasyon pompaları (ısıtma)
         {"Wilo Yonos PICO 25/1-4",   4.0,   2.0,  0.04},
         {"Grundfos UPS 25-40",        4.0,   3.5,  0.06},
         {"Wilo Stratos 25/1-8",       8.0,   4.5,  0.08},
+        {"Grundfos ALPHA3 25-60",    6.0,   3.0,  0.05},
+        {"Wilo Stratos MAXO 30/0.5-12", 12.0, 8.0, 0.25},
+        // Hidrofor pompaları (temiz su basınçlandırma)
         {"Grundfos CM 3-4",          30.0,   3.0,  0.37},
         {"Grundfos CM 5-5",          45.0,   5.0,  0.55},
-        {"Wilo MVI 204",             40.0,  20.0,  1.10},
         {"Grundfos CM 10-3",         30.0,  10.0,  0.75},
-        {"Wilo MVI 406",             60.0,  40.0,  2.20},
+        {"Grundfos CM 15-2",         20.0,  15.0,  1.10},
         {"Grundfos CM 25-3",         30.0,  25.0,  1.50},
+        // Dikey milli pompa (yüksek bina)
+        {"Wilo MVI 204",             40.0,  20.0,  1.10},
+        {"Wilo MVI 406",             60.0,  40.0,  2.20},
+        {"Wilo MVI 408",             80.0,  40.0,  3.00},
         {"Wilo MVI 810",             80.0,  80.0,  5.50},
+        {"Wilo MVI 1606",           100.0, 160.0, 11.00},
+        {"Wilo MVI 1610",           150.0, 160.0, 15.00},
+        // CR serisi (yüksek basınç)
+        {"Grundfos CR 3-10",         60.0,   3.0,  1.50},
+        {"Grundfos CR 5-12",         90.0,   5.0,  2.20},
         {"Grundfos CR 10-12",       120.0,  10.0,  5.50},
-        {"Wilo MVI 1605",           150.0, 160.0, 15.00},
+        {"Grundfos CR 15-8",         80.0,  15.0,  4.00},
+        {"Grundfos CR 20-10",       100.0,  20.0,  5.50},
+        {"Grundfos CR 32-6",         60.0,  32.0,  5.50},
+        {"Grundfos CR 45-3",         30.0,  45.0,  5.50},
+        // Büyük paket hidrofor
+        {"Wilo Helix V 2202",        50.0,  22.0,  2.20},
+        {"Wilo Helix V 3604",       100.0,  36.0,  4.00},
+        {"Wilo Helix V 5202",        50.0,  52.0,  5.50},
+        {"Grundfos Hydro MPC-E 2",   80.0,  40.0,  4.00},
+        {"Grundfos Hydro MPC-E 4",  120.0,  80.0, 11.00},
+        {"Grundfos Hydro MPC-E 6",  150.0, 120.0, 15.00},
+        // Yangın pompası (EN 12845)
+        {"Wilo-SCP 150-350",        100.0, 540.0, 55.00},
+        {"Grundfos NK 80-250",       60.0, 120.0, 18.50},
     };
 }
 

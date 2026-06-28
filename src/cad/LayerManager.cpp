@@ -180,6 +180,8 @@ void LayerManager::CreateStandardMEPLayers() {
     CreateLayer("DUVAR", Color::White())->SetDescription("Mimari duvarlar");
     CreateLayer("PENCERE", Color::Cyan())->SetDescription("Pencereler");
     CreateLayer("KAPI", Color::Green())->SetDescription("Kapılar");
+    CreateLayer("KOLON", Color{255, 165, 0, 255})->SetDescription("Taşıyıcı kolonlar");
+    CreateLayer("KIRIS", Color{255, 140, 0, 255})->SetDescription("Kirişler");
     
     // Temiz Su
     auto* temizSu = CreateLayer("BORU-TEMIZ-SU", Color::Blue());

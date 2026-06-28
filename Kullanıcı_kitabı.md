@@ -2191,4 +2191,153 @@ Tespit edilen armatürler turuncu daire ile gösterilir. Yanlış tespit edilenl
 
 ---
 
+## Bölüm 41 — Scale / Rotate / Stretch Komutları {#scale-rotate-stretch}
+
+### Ölçekle (Scale)
+Seçili entity'leri büyütme veya küçültme. Mimari DWG metre değilse bu komutla dönüştürün.
+
+| Adım | İşlem |
+|------|-------|
+| 1 | Entity'leri seçin (tıklama veya Ctrl+A) |
+| 2 | `SCALE` / `OLCEKLE` / `SC` yazın veya **Düzen → Ölçekle** |
+| 3 | Ölçek faktörü girin (0.001 = mm→m, 1000 = m→mm) |
+
+Kısayol: **Ctrl+Shift+S** — Ctrl+Z ile geri alınabilir.
+
+### Döndür (Rotate)
+Seçili entity'leri serbest açıyla döndürme.
+
+| Adım | İşlem |
+|------|-------|
+| 1 | Entity seçin |
+| 2 | `ROTATE` / `DONDUR` / `RO` veya **Düzen → Döndür** |
+| 3 | Açı girin (derece, saat yönünün tersi pozitif) |
+
+Kısayol: **Ctrl+R** — Line entity'ler geometrik olarak döndürülür.
+
+### Esnet (Stretch)
+Seçili entity'lerin sağ yarısındaki vertex'leri X/Y yönünde uzatma.
+
+| Adım | İşlem |
+|------|-------|
+| 1 | Entity seçin |
+| 2 | `STRETCH` / `ESNET` / `S` veya **Düzen → Esnet** |
+| 3 | X ve Y uzatma değerlerini girin (mm) |
+
+Kısayol: **Ctrl+Shift+E**
+
+---
+
+## Bölüm 42 — W-Block (Blok Kaydet) {#wblock}
+
+FineSANI'deki W-Block iş akışının VKT karşılığı. Mimari çizimden kat planı çıkarmak için kullanılır.
+
+### İş Akışı
+
+1. Mimari DWG'yi açın (Dosya → Aç)
+2. Kat planını seçin (Ctrl+A veya kutu seçim)
+3. `WBLOCK` / `W-BLOCK` veya **Düzen → W-Block** (Ctrl+Shift+W)
+4. Kaynak: "Seçili nesneler" veya "Tüm çizim"
+5. Tutma noktası: Otomatik (sol-alt) veya koordinat girin
+6. Dosya adı ve yolu belirleyin → DXF olarak kaydedilir
+
+> **İpucu:** Tutma noktası tüm katlarda aynı fiziksel noktayı (kolon köşesi, asansör kenarı) seçin — katlar üst üste hizalanır.
+
+---
+
+## Bölüm 43 — Mimari Eleman Tanıma {#mimari-eleman}
+
+DWG/DXF'den import edilen mimari elemanları otomatik tanıma ve mahallere atama.
+
+### Tanınan Elemanlar
+
+| Eleman | Layer İsimleri | Blok İsimleri |
+|--------|---------------|---------------|
+| Duvar | DUVAR, WALL, A-WALL | — |
+| Kolon | KOLON, COLUMN, S-COLS | COL*, COLUMN* |
+| Kiriş | KIRIS, BEAM, S-BEAM | — |
+| Kapı | KAPI, DOOR, A-DOOR | DOOR*, KAPI*, DR* |
+| Pencere | PENCERE, WINDOW, A-GLAZ | WINDOW*, PENCERE*, WN* |
+
+### Komut
+`MIMARI-RAPOR` / `ARCH-REPORT` / `MAHAL-RAPOR` veya **Mimari → Mimari Eleman Raporu**
+
+### Rapor İçeriği
+- Genel özet: eleman tipi × adet tablosu
+- Mahal bazlı dağılım: her oda için Brüt Alan / **Net Alan** / Duvar / Kapı / Pencere / Kolon / Kiriş
+- Net Alan = Brüt Alan − Kolon alanları
+
+---
+
+## Bölüm 44 — HVAC Kanal Sistemi {#hvac}
+
+### Kanal Çizimi
+`KANAL` / `DUCT` komutuyla hava kanalı çizilir. Varsayılan kesit 400×300 mm dikdörtgen.
+
+### Kanal Kesit Atama
+1. Kanalı seçin (tıklayın)
+2. `KANAL-KESIT` / `DUCT-SIZE` komutunu yazın
+3. Genişlik ve yükseklik girin (mm)
+
+### HVAC Elemanları
+
+| Komut | Eleman | Açıklama |
+|-------|--------|----------|
+| `AHU` | Klima Santrali | Hava kaynağı (Air Handling Unit) |
+| `DIFUZOR` | Difüzör/Menfez | Hava çıkışı |
+| `PLENUM` | Plenum Kutusu | Dağıtım kutusu |
+| `DAMPER` | Damper | Hava kesici/ayar |
+| `FLEKS` | Fleksibıl Bağlantı | Esnek kanal |
+| `VAV` | VAV Kutusu | Değişken hava hacimli |
+
+### Keşif Listesi (BOM)
+`BOM` / `KESIF` veya `HVAC-BOM` komutu artık **disiplin bazlı** çalışır:
+- Temiz Su / Sıcak Su / Pis Su / Gaz / Isıtma / Yangın / HVAC Kanal / Elektrik ayrı tablolarda
+- Dikdörtgen kanallar "400×300" formatında gösterilir
+- HVAC bağlantı elemanları (AHU/Difüzör/Plenum/Damper) sayılır
+
+### Kanal Malzemeleri
+
+| Malzeme | Pürüzlülük (mm) | Fiyat (TL/m) |
+|---------|-----------------|-------------|
+| Galvaniz Kanal | 0.15 | 130 |
+| Flex Kanal | 3.0 | 85 |
+| İzoleli Kanal | 0.9 | 180 |
+
+---
+
+## Bölüm 45 — Veri Güvenliği {#veri-guvenligi}
+
+### Otomatik Kayıt (Autosave)
+- Her 60 saniyede bir otomatik kayıt yapılır
+- Kayıt yeri: `%TEMP%/vkt_autosave.vkt`
+- Değişiklik yoksa kayıt atlanır
+
+### Crash Recovery
+Uygulama beklenmedik şekilde kapanırsa, bir sonraki açılışta:
+> "Önceki oturumdan otomatik kayıt bulundu. Geri yüklemek ister misiniz?"
+
+### Atomic Save
+Proje kaydederken:
+1. `.tmp` uzantılı geçici dosyaya yazılır
+2. Mevcut dosya `.bak` olarak yedeklenir
+3. Geçici dosya asıl dosya adına rename edilir
+4. Yedek silinir
+
+Bu sayede kayıt sırasında çökme olursa dosya bozulmaz.
+
+### Undo/Redo Kapsamı
+
+| İşlem | Undo Desteği |
+|-------|-------------|
+| Scale / Rotate / Stretch | ✅ Ctrl+Z |
+| Mirror / Offset | ✅ Ctrl+Z |
+| Delete (tuş + menü) | ✅ Ctrl+Z |
+| Paste | ✅ Ctrl+Z |
+| Drag (mouse sürükleme) | ✅ Ctrl+Z |
+| Grip Edit | ✅ Ctrl+Z |
+| Boru/Armatür ekleme | ✅ Ctrl+Z |
+
+---
+
 *VKT v1.0.0 — © 2026 — TS EN 806-3 · EN 12056-2 · EN 12056-3 · DIN 1988-300 · TS 822 · EN 12566-1 uyumlu*

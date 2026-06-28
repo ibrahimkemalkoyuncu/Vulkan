@@ -53,6 +53,7 @@ private slots:
     void OnDosyaSec();
     void OnYenile();
     void OnSil();
+    void OnKullanilan();
     void OnRowSelected();
 
 private:
@@ -71,8 +72,9 @@ private:
     QDoubleSpinBox* m_spnGlobalRefY = nullptr;
 
     QPushButton*    m_btnYenile    = nullptr;
+    QPushButton*    m_btnKullanilan= nullptr;
     QPushButton*    m_btnSil       = nullptr;
-    QCheckBox*      m_chkKopyala   = nullptr;  ///< Dosyayı proje mimari/ klasörüne kopyala
+    QCheckBox*      m_chkKopyala   = nullptr;
 
     QTableWidget*   m_table     = nullptr;
 

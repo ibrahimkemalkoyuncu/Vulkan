@@ -16,6 +16,7 @@
 #include <QTreeWidget>
 #include <QKeyEvent>
 #include <QTimer>
+#include <QLabel>
 #include <memory>
 #include <vector>
 #include <array>
@@ -24,6 +25,7 @@
 #include <unordered_set>
 #include "core/Document.hpp"
 #include "mep/NetworkGraph.hpp"
+#include "mep/ClashDetection.hpp"
 #include "core/FloorManager.hpp"
 #include "core/ProjectManager.hpp"
 #include "cad/SpaceManager.hpp"
@@ -35,6 +37,7 @@
 #include "ui/SnapOverlay.hpp"
 #include "ui/PBRMaterialEditor.hpp"
 #include "ui/STFixturePanel.hpp"
+#include "ui/SymbolPalettePanel.hpp"
 #include "ui/DevreSecenekleriDialog.hpp"
 #include "cad/SnapManager.hpp"
 #include "cad/EntityGrid.hpp"
@@ -266,6 +269,10 @@ private slots:
     // Üretici Katalog — Wavin/Valsir/Henco boru veritabanı
     void OnUreticiKatalog();
 
+    // Clash Detection — 3D çakışma analizi + viewport highlight + rapor
+    void OnClashDetect();
+    void OnClashReport();
+
     // Birleşik Yerleştirme Modu — PlaceFixture bitince otomatik BAGLA moduna gir
     void OnBirleskMod();
 
@@ -285,7 +292,12 @@ private slots:
     void OnPaste();
     void OnTrim();
     void OnExtend();
-    void ScanForFixtureBlocks(); // DWG import sonrası oto-fixture tanıma
+    void OnScale();
+    void OnRotate();
+    void OnStretch();
+    void OnWBlock();
+    void OnArchElementReport();
+    void ScanForFixtureBlocks();
 
     // Property değişiklikleri
     void OnPropertiesUpdated();
@@ -302,6 +314,7 @@ private:
     void UpdateUI();
 
     core::Document* m_document = nullptr;
+    std::unique_ptr<core::Document> m_ownedDocument;
 
     // Vulkan rendering penceresi
     render::VulkanWindow* m_vulkanWindow = nullptr;
@@ -342,6 +355,9 @@ private:
 
     QDockWidget*            m_stDock       = nullptr;
     STFixturePanel*         m_stPanel      = nullptr;
+
+    QDockWidget*            m_symbolDock   = nullptr;
+    SymbolPalettePanel*     m_symbolPanel  = nullptr;
 
     // Komut satırı
     CommandBar*  m_commandBar  = nullptr;
@@ -477,9 +493,14 @@ private:
     QString m_moveToLayerTarget; // OnMoveToLayer için hedef katman adı
 
     // Uygulama Katman Görünürlüğü — MEP katmanlarını bağımsız göster/gizle
-    bool m_showTemizSu = true;
-    bool m_showSicakSu = true;
-    bool m_showPisSu   = true;
+    bool m_showTemizSu  = true;
+    bool m_showSicakSu  = true;
+    bool m_showPisSu    = true;
+    bool m_showGas      = true;
+    bool m_showHeating  = true;
+    bool m_showFire     = true;
+    bool m_showElectric = true;
+    bool m_showDuct     = true;
 
     // Ana Tahliye (Boşaltma) Noktası — işaretlenmiş Drain node
     uint32_t m_mainDrainNodeId = 0;
@@ -527,7 +548,12 @@ private:
 
     // Gerçek zamanlı hidrolik debounce zamanlayıcısı
     QTimer* m_autoHydroTimer = nullptr;
-    bool    m_hydraulicRanRecently = false; ///< RunAutoHydro başarıyla çalıştıysa true
+    bool    m_hydraulicRanRecently = false;
+
+    // Autosave (60s interval)
+    QTimer* m_autosaveTimer = nullptr;
+    QString m_autosavePath;
+    QLabel* m_floorStatusLabel = nullptr;
 
     // Mimari kat yönetimi
     core::FloorManager m_floorManager;
@@ -554,6 +580,24 @@ private:
     bool m_birleskMod = false;
     QAction* m_actBirleskMod = nullptr;
 
+    // Clash Detection — son analiz sonuçları (OnClashReport için saklanır)
+    std::vector<mep::ClashResult> m_lastClashResults;
+
+    // Son Açılan Projeler
+    QMenu* m_recentMenu = nullptr;
+
+    // Dark mode
+    bool m_darkMode = true;
+
+    // Revizyon kayıtları
+    struct RevisionEntry {
+        QString revNo;
+        QString date;
+        QString description;
+        QString author;
+    };
+    std::vector<RevisionEntry> m_revisions;
+
     // Mouse event handler'lari
     void HandleMousePress(double worldX, double worldY, Qt::MouseButton button);
     void HandleMouseMove(double worldX, double worldY);
@@ -574,6 +618,14 @@ private:
     void OnLayerStateSave();   ///< LAYERSTATE — adlı anlık görüntü kaydet
     void OnLayerStateRestore();///< LAYERSTATE — anlık görüntüyü geri yükle
     void OnLayerStateList();   ///< Kayıtlı durumları listele
+    void OnLayerStandard();    ///< KATMAN-STANDART — hazır katman şablonu uygula
+    void OnRecentProject(const QString& path); ///< Son projelerden aç
+    void UpdateRecentProjects();               ///< Menüyü güncelle
+    void OnToggleDarkMode();                   ///< Açık/Koyu tema geçişi
+    void OnRevision();                         ///< REVIZYON — revizyon kaydı ekle
+    void OnIsometricDiagram();                 ///< IZOMETRIK — 2.5D izometrik boru şeması
+    void OnSolarCollector();                   ///< GUNES — güneş kolektörü boyutlandırma
+    void OnHeatPump();                         ///< ISI-POMPASI — ısı pompası boyutlandırma
     // Renderer layer map + CAD dirty flag + text overlay tek çağrıyla yenile
     void InvalidateRenderer();
     // EntityId->ptr ve snap flat-list cache'lerini yenile (import/delete sonrası çağır)
