@@ -54,6 +54,8 @@ struct ZetaData {
  */
 struct PumpData {
     std::string model;          ///< Model adı
+    std::string brand;          ///< Marka (Grundfos, Wilo, vb.)
+    std::string category;       ///< Kategori (Sirkülasyon, Hidrofor, Dikey Milli, Paket Hidrofor, Yangın)
     double maxHead_m  = 0.0;    ///< Maksimum yükseklik (m)
     double maxFlow_m3h = 0.0;   ///< Maksimum debi (m³/h)
     double ratedPower_kW = 0.0; ///< Anma gücü (kW)

@@ -200,45 +200,44 @@ void Database::InitializeZetas() {
 }
 
 void Database::InitializePumps() {
-    // Standart sirkülasyon / hidrofar pompaları (head m, flow m³/h, kW)
     m_pumps = {
         // Sirkülasyon pompaları (ısıtma)
-        {"Wilo Yonos PICO 25/1-4",   4.0,   2.0,  0.04},
-        {"Grundfos UPS 25-40",        4.0,   3.5,  0.06},
-        {"Wilo Stratos 25/1-8",       8.0,   4.5,  0.08},
-        {"Grundfos ALPHA3 25-60",    6.0,   3.0,  0.05},
-        {"Wilo Stratos MAXO 30/0.5-12", 12.0, 8.0, 0.25},
+        {"Wilo Yonos PICO 25/1-4",      "Wilo",     "Sirkulasyon",     4.0,   2.0,  0.04},
+        {"Grundfos UPS 25-40",           "Grundfos", "Sirkulasyon",     4.0,   3.5,  0.06},
+        {"Wilo Stratos 25/1-8",          "Wilo",     "Sirkulasyon",     8.0,   4.5,  0.08},
+        {"Grundfos ALPHA3 25-60",        "Grundfos", "Sirkulasyon",     6.0,   3.0,  0.05},
+        {"Wilo Stratos MAXO 30/0.5-12",  "Wilo",     "Sirkulasyon",    12.0,   8.0,  0.25},
         // Hidrofor pompaları (temiz su basınçlandırma)
-        {"Grundfos CM 3-4",          30.0,   3.0,  0.37},
-        {"Grundfos CM 5-5",          45.0,   5.0,  0.55},
-        {"Grundfos CM 10-3",         30.0,  10.0,  0.75},
-        {"Grundfos CM 15-2",         20.0,  15.0,  1.10},
-        {"Grundfos CM 25-3",         30.0,  25.0,  1.50},
+        {"Grundfos CM 3-4",              "Grundfos", "Hidrofor",       30.0,   3.0,  0.37},
+        {"Grundfos CM 5-5",              "Grundfos", "Hidrofor",       45.0,   5.0,  0.55},
+        {"Grundfos CM 10-3",             "Grundfos", "Hidrofor",       30.0,  10.0,  0.75},
+        {"Grundfos CM 15-2",             "Grundfos", "Hidrofor",       20.0,  15.0,  1.10},
+        {"Grundfos CM 25-3",             "Grundfos", "Hidrofor",       30.0,  25.0,  1.50},
         // Dikey milli pompa (yüksek bina)
-        {"Wilo MVI 204",             40.0,  20.0,  1.10},
-        {"Wilo MVI 406",             60.0,  40.0,  2.20},
-        {"Wilo MVI 408",             80.0,  40.0,  3.00},
-        {"Wilo MVI 810",             80.0,  80.0,  5.50},
-        {"Wilo MVI 1606",           100.0, 160.0, 11.00},
-        {"Wilo MVI 1610",           150.0, 160.0, 15.00},
+        {"Wilo MVI 204",                 "Wilo",     "Dikey Milli",    40.0,  20.0,  1.10},
+        {"Wilo MVI 406",                 "Wilo",     "Dikey Milli",    60.0,  40.0,  2.20},
+        {"Wilo MVI 408",                 "Wilo",     "Dikey Milli",    80.0,  40.0,  3.00},
+        {"Wilo MVI 810",                 "Wilo",     "Dikey Milli",    80.0,  80.0,  5.50},
+        {"Wilo MVI 1606",                "Wilo",     "Dikey Milli",   100.0, 160.0, 11.00},
+        {"Wilo MVI 1610",                "Wilo",     "Dikey Milli",   150.0, 160.0, 15.00},
         // CR serisi (yüksek basınç)
-        {"Grundfos CR 3-10",         60.0,   3.0,  1.50},
-        {"Grundfos CR 5-12",         90.0,   5.0,  2.20},
-        {"Grundfos CR 10-12",       120.0,  10.0,  5.50},
-        {"Grundfos CR 15-8",         80.0,  15.0,  4.00},
-        {"Grundfos CR 20-10",       100.0,  20.0,  5.50},
-        {"Grundfos CR 32-6",         60.0,  32.0,  5.50},
-        {"Grundfos CR 45-3",         30.0,  45.0,  5.50},
-        // Büyük paket hidrofor
-        {"Wilo Helix V 2202",        50.0,  22.0,  2.20},
-        {"Wilo Helix V 3604",       100.0,  36.0,  4.00},
-        {"Wilo Helix V 5202",        50.0,  52.0,  5.50},
-        {"Grundfos Hydro MPC-E 2",   80.0,  40.0,  4.00},
-        {"Grundfos Hydro MPC-E 4",  120.0,  80.0, 11.00},
-        {"Grundfos Hydro MPC-E 6",  150.0, 120.0, 15.00},
+        {"Grundfos CR 3-10",             "Grundfos", "Dikey Milli",    60.0,   3.0,  1.50},
+        {"Grundfos CR 5-12",             "Grundfos", "Dikey Milli",    90.0,   5.0,  2.20},
+        {"Grundfos CR 10-12",            "Grundfos", "Dikey Milli",   120.0,  10.0,  5.50},
+        {"Grundfos CR 15-8",             "Grundfos", "Dikey Milli",    80.0,  15.0,  4.00},
+        {"Grundfos CR 20-10",            "Grundfos", "Dikey Milli",   100.0,  20.0,  5.50},
+        {"Grundfos CR 32-6",             "Grundfos", "Dikey Milli",    60.0,  32.0,  5.50},
+        {"Grundfos CR 45-3",             "Grundfos", "Dikey Milli",    30.0,  45.0,  5.50},
+        // Paket hidrofor
+        {"Wilo Helix V 2202",            "Wilo",     "Paket Hidrofor", 50.0,  22.0,  2.20},
+        {"Wilo Helix V 3604",            "Wilo",     "Paket Hidrofor",100.0,  36.0,  4.00},
+        {"Wilo Helix V 5202",            "Wilo",     "Paket Hidrofor", 50.0,  52.0,  5.50},
+        {"Grundfos Hydro MPC-E 2",       "Grundfos", "Paket Hidrofor", 80.0,  40.0,  4.00},
+        {"Grundfos Hydro MPC-E 4",       "Grundfos", "Paket Hidrofor",120.0,  80.0, 11.00},
+        {"Grundfos Hydro MPC-E 6",       "Grundfos", "Paket Hidrofor",150.0, 120.0, 15.00},
         // Yangın pompası (EN 12845)
-        {"Wilo-SCP 150-350",        100.0, 540.0, 55.00},
-        {"Grundfos NK 80-250",       60.0, 120.0, 18.50},
+        {"Wilo-SCP 150-350",             "Wilo",     "Yangin",        100.0, 540.0, 55.00},
+        {"Grundfos NK 80-250",           "Grundfos", "Yangin",         60.0, 120.0, 18.50},
     };
 }
 

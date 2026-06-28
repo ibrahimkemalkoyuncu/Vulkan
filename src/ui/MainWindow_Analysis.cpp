@@ -437,34 +437,143 @@ void MainWindow::OnHidrofor() {
     solver.Solve();
     auto result = solver.CalculateCriticalPath();
 
-    QString msg;
-    msg += QString("<h3>Hidrofor / Pompa Boyutlandirma</h3>");
-    msg += QString("<table border='0' cellspacing='4'>");
-    msg += QString("<tr><td><b>Kritik devre kaybi:</b></td><td><font color='red'><b>%1 mSS</b></font></td></tr>")
-               .arg(result.totalHeadLoss_m, 0, 'f', 2);
-    msg += QString("<tr><td><b>Gerekli pompa basma yuksekligi:</b></td><td><font color='red'><b>%1 mSS</b></font></td></tr>")
-               .arg(result.requiredPumpHead_m, 0, 'f', 2);
-    msg += QString("<tr><td><b>Gerekli debi:</b></td><td>%1 m³/h</td></tr>")
-               .arg(result.requiredFlow_m3h, 0, 'f', 2);
-    msg += QString("</table><hr>");
-    msg += QString("<b>Onerilen Ekipman:</b><br>");
-    msg += QString("Model: %1<br>").arg(QString::fromStdString(result.suggestedPumpModel));
-    msg += QString("Maks. basinc: %1 mSS<br>").arg(result.suggestedPumpHead_m, 0, 'f', 1);
-    msg += QString("Maks. debi: %1 m³/h<br>").arg(result.suggestedPumpFlow_m3h, 0, 'f', 1);
-    msg += QString("Guc: %1 kW").arg(result.suggestedPumpPower_kW, 0, 'f', 2);
-
-    QMessageBox dlg(this);
+    QDialog dlg(this);
     dlg.setWindowTitle("Hidrofor Boyutlandirma (TS EN 806-3)");
-    dlg.setTextFormat(Qt::RichText);
-    dlg.setText(msg);
-    dlg.setIcon(QMessageBox::Information);
+    dlg.resize(820, 560);
+    auto* layout = new QVBoxLayout(&dlg);
+
+    // Hesaplanan değerler
+    auto* calcGroup = new QLabel(QString(
+        "<h3>Hesaplanan Degerler</h3>"
+        "<table border='0' cellspacing='4'>"
+        "<tr><td><b>Kritik devre kaybi:</b></td><td><font color='red'><b>%1 mSS</b></font></td></tr>"
+        "<tr><td><b>Gerekli pompa basma yuksekligi:</b></td><td><font color='red'><b>%2 mSS</b></font></td></tr>"
+        "<tr><td><b>Gerekli debi:</b></td><td>%3 m³/h</td></tr>"
+        "</table>"
+    ).arg(result.totalHeadLoss_m, 0, 'f', 2)
+     .arg(result.requiredPumpHead_m, 0, 'f', 2)
+     .arg(result.requiredFlow_m3h, 0, 'f', 2), &dlg);
+    calcGroup->setTextFormat(Qt::RichText);
+    layout->addWidget(calcGroup);
+
+    // Otomatik öneri
+    auto* suggestLabel = new QLabel(QString(
+        "<b>Onerilen:</b> %1 — %2 mSS / %3 m³/h / %4 kW"
+    ).arg(QString::fromStdString(result.suggestedPumpModel))
+     .arg(result.suggestedPumpHead_m, 0, 'f', 1)
+     .arg(result.suggestedPumpFlow_m3h, 0, 'f', 1)
+     .arg(result.suggestedPumpPower_kW, 0, 'f', 2), &dlg);
+    suggestLabel->setTextFormat(Qt::RichText);
+    layout->addWidget(suggestLabel);
+
+    // Kategori filtresi
+    auto* filterRow = new QHBoxLayout();
+    filterRow->addWidget(new QLabel("Kategori:", &dlg));
+    auto* cbCategory = new QComboBox(&dlg);
+    cbCategory->addItems({"Tumu", "Hidrofor", "Dikey Milli", "Paket Hidrofor", "Sirkulasyon", "Yangin"});
+    cbCategory->setCurrentIndex(0);
+    filterRow->addWidget(cbCategory);
+    filterRow->addWidget(new QLabel("  Marka:", &dlg));
+    auto* cbBrand = new QComboBox(&dlg);
+    cbBrand->addItems({"Tumu", "Grundfos", "Wilo"});
+    filterRow->addWidget(cbBrand);
+    filterRow->addStretch();
+    layout->addLayout(filterRow);
+
+    // Pompa katalog tablosu
+    auto* table = new QTableWidget(&dlg);
+    table->setColumnCount(6);
+    table->setHorizontalHeaderLabels({"", "Model", "Marka", "Kategori", "Maks H (mSS)", "Maks Q (m³/h)", "Guc (kW)"});
+    table->setHorizontalHeaderLabels({"Model", "Marka", "Kategori", "Maks H (mSS)", "Maks Q (m³/h)", "Guc (kW)"});
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::SingleSelection);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+
+    const auto& catalog = mep::Database::Instance().GetPumpCatalog();
+
+    auto populateTable = [&]() {
+        QString catFilter = cbCategory->currentText();
+        QString brandFilter = cbBrand->currentText();
+        table->setRowCount(0);
+        int bestRow = -1;
+        double bestScore = 1e18;
+        for (const auto& p : catalog) {
+            if (catFilter != "Tumu" && QString::fromStdString(p.category) != catFilter) continue;
+            if (brandFilter != "Tumu" && QString::fromStdString(p.brand) != brandFilter) continue;
+            int row = table->rowCount();
+            table->insertRow(row);
+            table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(p.model)));
+            table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(p.brand)));
+            table->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(p.category)));
+            auto* hItem = new QTableWidgetItem(QString::number(p.maxHead_m, 'f', 1));
+            hItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table->setItem(row, 3, hItem);
+            auto* qItem = new QTableWidgetItem(QString::number(p.maxFlow_m3h, 'f', 1));
+            qItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table->setItem(row, 4, qItem);
+            auto* kwItem = new QTableWidgetItem(QString::number(p.ratedPower_kW, 'f', 2));
+            kwItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table->setItem(row, 5, kwItem);
+
+            // Uygun olan (gereksinimi karşılayan) en küçük pompayı vurgula
+            if (p.maxHead_m >= result.requiredPumpHead_m && p.maxFlow_m3h >= result.requiredFlow_m3h) {
+                double score = p.ratedPower_kW;
+                if (score < bestScore) { bestScore = score; bestRow = row; }
+            }
+            // Yetersiz olanları grimsi yap
+            if (p.maxHead_m < result.requiredPumpHead_m || p.maxFlow_m3h < result.requiredFlow_m3h) {
+                for (int c = 0; c < 6; ++c)
+                    table->item(row, c)->setForeground(QColor(100, 100, 100));
+            }
+        }
+        table->resizeColumnsToContents();
+        if (bestRow >= 0) {
+            table->selectRow(bestRow);
+            for (int c = 0; c < 6; ++c)
+                table->item(bestRow, c)->setBackground(QColor(40, 60, 40));
+        }
+    };
+    populateTable();
+
+    connect(cbCategory, &QComboBox::currentTextChanged, [&](const QString&) { populateTable(); });
+    connect(cbBrand, &QComboBox::currentTextChanged, [&](const QString&) { populateTable(); });
+    layout->addWidget(table);
+
+    // Seçili pompa bilgisi
+    auto* selLabel = new QLabel("", &dlg);
+    selLabel->setTextFormat(Qt::RichText);
+    layout->addWidget(selLabel);
+
+    connect(table, &QTableWidget::currentCellChanged, [&](int row, int, int, int) {
+        if (row < 0 || row >= table->rowCount()) return;
+        selLabel->setText(QString("<b>Secim:</b> %1 — %2 mSS / %3 m³/h / %4 kW")
+            .arg(table->item(row, 0)->text())
+            .arg(table->item(row, 3)->text())
+            .arg(table->item(row, 4)->text())
+            .arg(table->item(row, 5)->text()));
+    });
+
+    auto* btnRow = new QHBoxLayout();
+    auto* btnOk = new QPushButton("Sec ve Kapat", &dlg);
+    auto* btnCancel = new QPushButton("Kapat", &dlg);
+    btnRow->addStretch();
+    btnRow->addWidget(btnOk);
+    btnRow->addWidget(btnCancel);
+    layout->addLayout(btnRow);
+    connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
+    connect(btnOk, &QPushButton::clicked, &dlg, &QDialog::accept);
+
     dlg.exec();
 
     if (m_logList) {
+        QString selModel = (table->currentRow() >= 0)
+            ? table->item(table->currentRow(), 0)->text()
+            : QString::fromStdString(result.suggestedPumpModel);
         m_logList->addItem(QString("Hidrofor: %1 mSS / %2 m3/h → %3")
             .arg(result.requiredPumpHead_m, 0, 'f', 2)
             .arg(result.requiredFlow_m3h, 0, 'f', 2)
-            .arg(QString::fromStdString(result.suggestedPumpModel)));
+            .arg(selModel));
     }
 }
 
@@ -1013,7 +1122,15 @@ void MainWindow::OnRiserDiagram() {
     if (!RunPreflight()) return;
 
     mep::RiserDiagram riser(network, m_floorManager);
-    auto data = riser.Generate();
+
+    // Otomatik mı manuel mi?
+    QStringList genModes = {"Otomatik (topolojiden)", "Manuel (FloorManager'dan)"};
+    bool genOk = false;
+    QString genMode = QInputDialog::getItem(this, "Kolon Semasi",
+        "Olusturma yontemi:", genModes, 0, false, &genOk);
+    if (!genOk) return;
+
+    auto data = genMode.startsWith("Otomatik") ? riser.GenerateAuto() : riser.Generate();
     std::string svgContent = riser.ToSVG(data);
     std::string txtContent = riser.ToText(data);
 
@@ -1143,88 +1260,199 @@ void MainWindow::OnRiserDiagram() {
 }
 
 // ============================================================
-//  HESAP FÖYÜ — DN MANUEL OVERRIDE
+//  HESAP FÖYÜ — FineSANI uyumlu kapsamlı hesap tablosu
 // ============================================================
 void MainWindow::OnDNOverride() {
     if (!m_document) return;
     auto& network = m_document->GetNetwork();
     if (network.GetEdgeMap().empty()) {
-        QMessageBox::information(this, "DN Override",
+        QMessageBox::information(this, "Hesap Foyu",
             "Oncelikle tesisat sebekesi cizin.");
         return;
     }
 
+    // Solver'ı çalıştır — güncel Q/v/ΔH hesaplaması
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    solver.SolveDrainage();
+
     QDialog dlg(this);
-    dlg.setWindowTitle("Hesap Foyu — DN Manuel Override");
-    dlg.resize(650, 400);
+    dlg.setWindowTitle("Hesap Foyu — Temiz Su Tesisat Hesaplari");
+    dlg.resize(1050, 550);
 
     auto* layout = new QVBoxLayout(&dlg);
     auto* info   = new QLabel(
-        "<b>Boru caplarinizi asagidaki tablodan duzenleyebilirsiniz.</b><br>"
-        "Tamam'a basinca secilen degerler aninda uygulanir ve DN etiketleri guncellenir.", &dlg);
+        "<b>FineSANI uyumlu hesap foyu.</b> Soguk su ve sicak su ayri listelenir. "
+        "Secilen DN sutunundan cap degistirebilirsiniz — satir otomatik yenilenir.", &dlg);
     info->setWordWrap(true);
     layout->addWidget(info);
 
-    // Tablo: Boru ID | Tip | Malzeme | Mevcut DN | Yeni DN (editable)
     auto* table = new QTableWidget(&dlg);
     static const QStringList kDNList = {
         "16","20","25","32","40","50","63","75","90","110","125","160","200"
     };
-
-    // Edge'leri sabit sirayla al
-    std::vector<std::pair<uint32_t, const mep::Edge*>> edges;
-    for (const auto& [eid, edge] : network.GetEdgeMap())
-        edges.emplace_back(eid, &edge);
-    std::sort(edges.begin(), edges.end(),
-        [](const auto& a, const auto& b){ return a.first < b.first; });
-
-    table->setColumnCount(5);
-    table->setHorizontalHeaderLabels({"Boru ID","Tip","Malzeme","Mevcut DN","Yeni DN"});
-    table->setRowCount(static_cast<int>(edges.size()));
+    const int COL_ID = 0, COL_LABEL = 1, COL_TIP = 2, COL_MAT = 3, COL_LEN = 4,
+              COL_QNOM = 5, COL_QHES = 6, COL_DNHES = 7, COL_DNSEL = 8,
+              COL_V = 9, COL_DH = 10;
+    table->setColumnCount(11);
+    table->setHorizontalHeaderLabels({
+        "Boru No", "Etiket", "Tip", "Malzeme", "Boy (m)",
+        "Q nom (L/s)", "Q hes (L/s)", "DN Hesap", "Secilen DN",
+        "Hiz v (m/s)", "dH (mSS)"
+    });
     table->horizontalHeader()->setStretchLastSection(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    for (int row = 0; row < static_cast<int>(edges.size()); ++row) {
-        auto [eid, edge] = edges[row];
-        // Boru ID
-        auto* idItem = new QTableWidgetItem(QString::number(eid));
-        idItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        table->setItem(row, 0, idItem);
-        // Tip
-        QString tipStr = (edge->type == mep::EdgeType::Supply) ? "Temiz Su"
-                       : (edge->type == mep::EdgeType::Drainage) ? "Pis Su" : "Hava";
-        auto* tipItem = new QTableWidgetItem(tipStr);
-        tipItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        table->setItem(row, 1, tipItem);
-        // Malzeme
-        auto* matItem = new QTableWidgetItem(QString::fromStdString(edge->material));
-        matItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        table->setItem(row, 2, matItem);
-        // Mevcut DN
-        int curDN = static_cast<int>(std::round(edge->diameter_mm));
-        auto* curItem = new QTableWidgetItem(QString("DN%1").arg(curDN));
-        curItem->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
-        table->setItem(row, 3, curItem);
-        // Yeni DN: ComboBox
-        auto* combo = new QComboBox(&dlg);
+    // Edge'leri tip bazında grupla: önce Supply, sonra HotWater, sonra diğer
+    struct EdgeRow { uint32_t eid; const mep::Edge* edge; };
+    std::vector<EdgeRow> supplyEdges, hotEdges, otherEdges;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        if (edge.type == mep::EdgeType::Supply) supplyEdges.push_back({eid, &edge});
+        else if (edge.type == mep::EdgeType::HotWater) hotEdges.push_back({eid, &edge});
+        else otherEdges.push_back({eid, &edge});
+    }
+    auto sortById = [](const EdgeRow& a, const EdgeRow& b) { return a.eid < b.eid; };
+    std::sort(supplyEdges.begin(), supplyEdges.end(), sortById);
+    std::sort(hotEdges.begin(), hotEdges.end(), sortById);
+    std::sort(otherEdges.begin(), otherEdges.end(), sortById);
+
+    auto edgeTypeName = [](mep::EdgeType t) -> QString {
+        switch (t) {
+            case mep::EdgeType::Supply:   return "Soguk Su";
+            case mep::EdgeType::HotWater: return "Sicak Su";
+            case mep::EdgeType::Drainage: return "Pis Su";
+            case mep::EdgeType::Gas:      return "Gaz";
+            default: return "Diger";
+        }
+    };
+
+    auto calcVelocity = [](double Q_m3s, double DN_mm) -> double {
+        double d_m = DN_mm / 1000.0;
+        double A = M_PI * d_m * d_m / 4.0;
+        return (A > 1e-12) ? Q_m3s / A : 0.0;
+    };
+
+    auto makeReadOnly = [](QTableWidgetItem* item) {
+        item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        return item;
+    };
+
+    auto addSectionHeader = [&](const QString& title, const QColor& color) {
+        int row = table->rowCount();
+        table->insertRow(row);
+        auto* header = new QTableWidgetItem(title);
+        header->setFlags(Qt::ItemIsEnabled);
+        QFont f = header->font(); f.setBold(true); header->setFont(f);
+        header->setForeground(color);
+        table->setItem(row, 0, header);
+        for (int c = 1; c < 11; ++c) {
+            auto* empty = new QTableWidgetItem("");
+            empty->setFlags(Qt::ItemIsEnabled);
+            empty->setBackground(QColor(25, 25, 35));
+            table->setItem(row, c, empty);
+        }
+        table->item(row, 0)->setBackground(QColor(25, 25, 35));
+    };
+
+    auto addEdgeRow = [&](const EdgeRow& er) {
+        int row = table->rowCount();
+        table->insertRow(row);
+
+        table->setItem(row, COL_ID,    makeReadOnly(new QTableWidgetItem(QString::number(er.eid))));
+        table->setItem(row, COL_LABEL, makeReadOnly(new QTableWidgetItem(QString::fromStdString(er.edge->label))));
+        table->setItem(row, COL_TIP,   makeReadOnly(new QTableWidgetItem(edgeTypeName(er.edge->type))));
+        table->setItem(row, COL_MAT,   makeReadOnly(new QTableWidgetItem(QString::fromStdString(er.edge->material))));
+
+        auto* lenItem = new QTableWidgetItem(QString::number(er.edge->length_m, 'f', 2));
+        lenItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table->setItem(row, COL_LEN, makeReadOnly(lenItem));
+
+        double qNom = er.edge->nominalFlow_Ls;
+        double qHes = er.edge->flowRate_m3s * 1000.0;
+        auto* qnItem = new QTableWidgetItem(QString::number(qNom, 'f', 3));
+        qnItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table->setItem(row, COL_QNOM, makeReadOnly(qnItem));
+
+        auto* qhItem = new QTableWidgetItem(QString::number(qHes, 'f', 3));
+        qhItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table->setItem(row, COL_QHES, makeReadOnly(qhItem));
+        if (std::abs(qNom - qHes) > 0.001)
+            qhItem->setForeground(QColor(100, 150, 255));
+
+        int dnHes = static_cast<int>(std::round(er.edge->diameter_mm));
+        table->setItem(row, COL_DNHES, makeReadOnly(new QTableWidgetItem(QString("DN%1").arg(dnHes))));
+
+        // Seçilen DN — düzenlenebilir ComboBox
+        auto* combo = new QComboBox();
         combo->addItems(kDNList);
-        // Mevcut secimi bul
-        int curIdx = kDNList.indexOf(QString::number(curDN));
+        int curIdx = kDNList.indexOf(QString::number(dnHes));
         if (curIdx < 0) curIdx = 0;
         combo->setCurrentIndex(curIdx);
-        table->setCellWidget(row, 4, combo);
+        table->setCellWidget(row, COL_DNSEL, combo);
+
+        double v = calcVelocity(er.edge->flowRate_m3s, er.edge->diameter_mm);
+        auto* vItem = new QTableWidgetItem(QString::number(v, 'f', 2));
+        vItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        if (v > 2.5) vItem->setForeground(QColor(255, 80, 80));
+        else if (v < 0.3 && v > 0.001) vItem->setForeground(QColor(255, 200, 0));
+        table->setItem(row, COL_V, makeReadOnly(vItem));
+
+        auto* dhItem = new QTableWidgetItem(QString::number(er.edge->headLoss_m, 'f', 3));
+        dhItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        table->setItem(row, COL_DH, makeReadOnly(dhItem));
+
+        // DN değişince hız ve basınç kaybı yenile
+        QObject::connect(combo, &QComboBox::currentTextChanged, [=, &network](const QString& txt) {
+            double newDN = txt.toDouble();
+            mep::Edge* edge = network.GetEdge(er.eid);
+            if (!edge) return;
+            double newV = calcVelocity(edge->flowRate_m3s, newDN);
+            // Darcy-Weisbach yaklaşık basınç kaybı
+            double d_m = newDN / 1000.0;
+            double Re = (d_m > 0 && newV > 0) ? newV * d_m / 1.004e-6 : 0;
+            double f = (Re > 2300) ? 0.25 / std::pow(std::log10(edge->roughness_mm / 3700.0 / d_m + 5.74 / std::pow(Re, 0.9)), 2) : 64.0 / std::max(Re, 1.0);
+            double newDH = f * (edge->length_m / std::max(d_m, 0.001)) * (newV * newV) / (2.0 * 9.81);
+
+            table->item(row, COL_V)->setText(QString::number(newV, 'f', 2));
+            table->item(row, COL_V)->setForeground(
+                (newV > 2.5) ? QColor(255, 80, 80) :
+                (newV < 0.3 && newV > 0.001) ? QColor(255, 200, 0) : QColor(200, 200, 200));
+            table->item(row, COL_DH)->setText(QString::number(newDH, 'f', 3));
+        });
+    };
+
+    // Soğuk Su bölümü
+    if (!supplyEdges.empty()) {
+        addSectionHeader(QString::fromUtf8("── SOGUK SU HATTI (%1 boru) ──").arg(supplyEdges.size()),
+                         QColor(80, 170, 255));
+        for (const auto& er : supplyEdges) addEdgeRow(er);
     }
-    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+
+    // Sıcak Su bölümü
+    if (!hotEdges.empty()) {
+        addSectionHeader(QString::fromUtf8("── SICAK SU HATTI (%1 boru) ──").arg(hotEdges.size()),
+                         QColor(255, 100, 100));
+        for (const auto& er : hotEdges) addEdgeRow(er);
+    }
+
+    // Diğer borular
+    if (!otherEdges.empty()) {
+        addSectionHeader(QString::fromUtf8("── DIGER BORULAR (%1 boru) ──").arg(otherEdges.size()),
+                         QColor(180, 180, 180));
+        for (const auto& er : otherEdges) addEdgeRow(er);
+    }
+
     table->resizeColumnsToContents();
     layout->addWidget(table);
 
     // Toplu DN değiştirme araç çubuğu
     auto* batchRow   = new QHBoxLayout();
-    auto* batchLabel = new QLabel("<b>Seçili satırlara toplu uygula:</b>", &dlg);
+    auto* batchLabel = new QLabel("<b>Secili satirlara toplu uygula:</b>", &dlg);
     auto* batchCombo = new QComboBox(&dlg);
     batchCombo->addItems(kDNList);
-    auto* batchBtn   = new QPushButton("Seçilenlere Uygula", &dlg);
-    batchBtn->setToolTip("Tabloda işaretlenen tüm satırların DN değerini aynı anda değiştirir");
+    auto* batchBtn   = new QPushButton("Secilenlere Uygula", &dlg);
     batchRow->addWidget(batchLabel);
     batchRow->addWidget(batchCombo);
     batchRow->addWidget(batchBtn);
@@ -1234,13 +1462,9 @@ void MainWindow::OnDNOverride() {
     connect(batchBtn, &QPushButton::clicked, [&]() {
         const QString targetDN = batchCombo->currentText();
         const auto selected = table->selectionModel()->selectedRows();
-        if (selected.isEmpty()) {
-            QMessageBox::information(&dlg, "Toplu DN",
-                "Lütfen önce tabloda satır seçin (Ctrl+Tık veya Shift+Tık).");
-            return;
-        }
+        if (selected.isEmpty()) return;
         for (const auto& idx : selected) {
-            auto* combo = qobject_cast<QComboBox*>(table->cellWidget(idx.row(), 4));
+            auto* combo = qobject_cast<QComboBox*>(table->cellWidget(idx.row(), COL_DNSEL));
             if (combo) combo->setCurrentText(targetDN);
         }
         statusBar()->showMessage(
@@ -1259,7 +1483,6 @@ void MainWindow::OnDNOverride() {
 
     connect(btnCancel, &QPushButton::clicked, &dlg, &QDialog::reject);
 
-    // XLS export — mevcut ag durumunu yaz (solver once calistirilmali)
     connect(btnExport, &QPushButton::clicked, [&]() {
         auto& pm = core::ProjectManager::Instance();
         QString startDir = pm.HasActiveProject()
@@ -1267,12 +1490,8 @@ void MainWindow::OnDNOverride() {
         QString path = QFileDialog::getSaveFileName(&dlg,
             "Hesap Foyu Kaydet", startDir, "Excel Dosyasi (*.xls)");
         if (path.isEmpty()) return;
-
-        // Solver'ı çalıştır (güncel flowRate/velocity/headLoss ile)
-        mep::HydraulicSolver solver(network);
-        solver.Solve();
-        solver.SolveDrainage();
-
+        mep::HydraulicSolver s2(network);
+        s2.Solve(); s2.SolveDrainage();
         if (mep::XLSXWriter::ExportCalculationSheet(path.toStdString(), network)) {
             statusBar()->showMessage(QString("Hesap foyu kaydedildi: %1").arg(path), 3000);
             if (m_logList) m_logList->addItem(QString("Hesap foyu XLS: %1").arg(path));
@@ -1284,8 +1503,12 @@ void MainWindow::OnDNOverride() {
     connect(btnApply, &QPushButton::clicked, [&]() {
         int changed = 0;
         for (int row = 0; row < table->rowCount(); ++row) {
-            uint32_t eid = table->item(row, 0)->text().toUInt();
-            auto* combo  = qobject_cast<QComboBox*>(table->cellWidget(row, 4));
+            auto* idItem = table->item(row, COL_ID);
+            if (!idItem) continue;
+            bool ok = false;
+            uint32_t eid = idItem->text().toUInt(&ok);
+            if (!ok) continue; // section header satırı
+            auto* combo = qobject_cast<QComboBox*>(table->cellWidget(row, COL_DNSEL));
             if (!combo) continue;
             double newDN = combo->currentText().toDouble();
             mep::Edge* edge = network.GetEdge(eid);
@@ -1302,7 +1525,7 @@ void MainWindow::OnDNOverride() {
             if (m_logList)
                 m_logList->addItem(QString("DN Override: %1 boru guncellendi").arg(changed));
             statusBar()->showMessage(
-                QString("DN Override: %1 boru capl degistirildi").arg(changed));
+                QString("DN Override: %1 boru capi degistirildi").arg(changed));
         }
         dlg.accept();
     });
