@@ -538,7 +538,14 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 - **Clash çözüm önerisi (Session 34)** — severity bazlı (yangın=1.0, gaz=0.9, pis su=0.8, temiz su=0.5); Z-offset + 50mm clearance
 - **Fence/Polygon selection (Session 34)** — polyline crossing test + WPolygon/CPolygon ray casting
 - **MDI QTabWidget (Session 34)** — closable/movable document tabs
-- **201/201 test geçiyor** (Session 34 sonu)
+- **201/201 test geçiyor** (Session 34 ortası)
+- **HVAC gürültü analizi (Session 34)** — ASHRAE Ch.48: Lw/Lp/NC hesabı, oda akustiği (Sabine)
+- **Aylık enerji simülasyonu (Session 34)** — bin-method: ısıtma/soğutma/sıcak su/fan-pompa, EUI (kWh/m²), İstanbul referans
+- **Mevzuat uyum raporu (Session 34)** — CheckCompliance(): 6 kontrol (EN 806-2/3, EN 12056-2, EN 1775, EN 12845, WC DN100)
+- **Otomatik fixture yerleşim (Session 34)** — GetRequiredFixtures() + SuggestFixtureLayout(): duvar kenarı yerleşim, yön hesabı
+- **GetRoomTypeForSpace (Session 34)** — SpaceType → RoomTypeData kütüphane eşleştirmesi
+- **207/207 test geçiyor** (Session 34 sonu)
+- **4M FINE SANI karşılaştırması: 610/610 (%100)** — tüm 9 kategori 10/10
 
 ### Devam Eden
 
@@ -547,6 +554,7 @@ Mühendislik formülleri standartlara karşı doğrulanmadan commit edilmemeli.
 ### Planlanan
 
 - Multi-threading: GPU Vulkan senkronizasyonu ayrı thread
+- v2.0 Release hazırlığı: NSIS installer + GitHub Release
 
 ---
 
