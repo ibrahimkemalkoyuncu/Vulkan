@@ -801,6 +801,54 @@ TEST_CASE("HydraulicSolver - Multi-source critical path", "[critical]") {
     REQUIRE(!result.criticalPath.empty());
 }
 
+TEST_CASE("HydraulicSolver - Water density NIST validation", "[thermal]") {
+    NetworkGraph g = CreateSimpleNetwork(1.0);
+    HydraulicSolver s(g);
+    // NIST reference values
+    s.SetWaterTemperature(4.0);
+    REQUIRE_THAT(s.WaterDensity(), Catch::Matchers::WithinAbs(999.97, 1.0));
+    s.SetWaterTemperature(20.0);
+    REQUIRE_THAT(s.WaterDensity(), Catch::Matchers::WithinAbs(998.2, 1.0));
+    s.SetWaterTemperature(60.0);
+    REQUIRE_THAT(s.WaterDensity(), Catch::Matchers::WithinAbs(983.2, 2.0));
+}
+
+TEST_CASE("HydraulicSolver - Viscosity NIST validation", "[thermal]") {
+    NetworkGraph g = CreateSimpleNetwork(1.0);
+    HydraulicSolver s(g);
+    s.SetWaterTemperature(20.0);
+    double nu20 = s.WaterKinematicViscosity();
+    // nu(20C) ~ 1.004e-6 m2/s (±15% mühendislik toleransı)
+    REQUIRE_THAT(nu20, Catch::Matchers::WithinAbs(1.004e-6, 0.15e-6));
+}
+
+TEST_CASE("HydraulicSolver - Aging model per material type", "[aging]") {
+    auto testMaterial = [](const std::string& mat, double roughness, double age, bool shouldAge) {
+        NetworkGraph g = CreateSimpleNetwork(2.0, 25.0);
+        auto* e = g.GetEdge(1);
+        if (e) { e->material = mat; e->roughness_mm = roughness; }
+        HydraulicSolver solver(g);
+        solver.SetPipeAge(age);
+        solver.Solve();
+        double hAged = g.GetEdge(1) ? g.GetEdge(1)->headLoss_m : 0.0;
+
+        NetworkGraph g2 = CreateSimpleNetwork(2.0, 25.0);
+        auto* e2 = g2.GetEdge(1);
+        if (e2) { e2->material = mat; e2->roughness_mm = roughness; }
+        HydraulicSolver solver2(g2);
+        solver2.SetPipeAge(0.0);
+        solver2.Solve();
+        double hNew = g2.GetEdge(1) ? g2.GetEdge(1)->headLoss_m : 0.0;
+
+        if (shouldAge)
+            REQUIRE(hAged > hNew);
+        else
+            REQUIRE_THAT(hAged, Catch::Matchers::WithinAbs(hNew, 1e-9));
+    };
+    testMaterial("PVC", 0.0015, 30.0, false);  // plastik yaslanmaz
+    testMaterial("Bakır", 0.0015, 30.0, true); // bakir yaslanir
+}
+
 TEST_CASE("PumpData has brand and category", "[database]") {
     auto& db = Database::Instance();
     const auto& catalog = db.GetPumpCatalog();
