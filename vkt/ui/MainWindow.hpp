@@ -300,6 +300,18 @@ private slots:
     void OnArchElementReport();
     void ScanForFixtureBlocks();
 
+    // Session 34 — HVAC/Raporlama/CAD UI bağlantıları
+    void OnCoolingLoad();        ///< ASHRAE CLTD soğutma yük hesabı dialog
+    void OnPsychrometric();      ///< Psikrometrik hesap dialog
+    void OnDuctNoise();          ///< HVAC gürültü analizi dialog
+    void OnEnergySimulation();   ///< Aylık enerji simülasyonu dialog
+    void OnComplianceReport();   ///< Mevzuat uyum raporu dialog
+    void OnTechnicalSpec();      ///< Teknik şartname HTML export
+    void OnChartReport();        ///< Grafik raporlar (DN/basınç/malzeme)
+    void OnExportDWG();          ///< DWG export (DXF R2000 compat)
+    void OnFloorPressure();      ///< Kat bazlı statik basınç raporu
+    void OnAutoFixtureLayout();  ///< Otomatik fixture yerleşim önerisi
+
     // Property değişiklikleri
     void OnPropertiesUpdated();
     void OnDiameterChanged(const QString& text);

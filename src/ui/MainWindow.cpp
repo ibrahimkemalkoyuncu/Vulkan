@@ -587,6 +587,12 @@ void MainWindow::CreateMenus() {
     fileMenu->addSeparator();
     fileMenu->addAction(m_actExportDXF);
     fileMenu->addAction(m_actExportFloorDXF);
+    {
+        auto* actDWG = new QAction("DWG Olarak Kaydet...", this);
+        actDWG->setToolTip("DXF R2000 uyumlu DWG export (EXPORT-DWG)");
+        connect(actDWG, &QAction::triggered, this, &MainWindow::OnExportDWG);
+        fileMenu->addAction(actDWG);
+    }
     fileMenu->addSeparator();
     fileMenu->addAction(m_actSetProjectsRoot);
     fileMenu->addAction(m_actOpenProjectFolder);
@@ -771,6 +777,31 @@ void MainWindow::CreateMenus() {
         actClashRpt->setToolTip("Son cakisma analizini Excel/PDF olarak disa aktar (CAKISMA-RAPOR)");
         connect(actClashRpt, &QAction::triggered, this, &MainWindow::OnClashReport);
         analyzeMenu->addAction(actClashRpt);
+    }
+    analyzeMenu->addSeparator();
+    // Session 34 — yeni HVAC/rapor/BIM menü öğeleri
+    {
+        auto* hvacMenu = analyzeMenu->addMenu("HVAC Hesaplari");
+        auto* actCool  = hvacMenu->addAction("Sogutma Yuk Hesabi (ASHRAE)...");
+        connect(actCool, &QAction::triggered, this, &MainWindow::OnCoolingLoad);
+        auto* actPsy   = hvacMenu->addAction("Psikrometrik Hesap...");
+        connect(actPsy,  &QAction::triggered, this, &MainWindow::OnPsychrometric);
+        auto* actNoise = hvacMenu->addAction("Gurultu Analizi...");
+        connect(actNoise,&QAction::triggered, this, &MainWindow::OnDuctNoise);
+        auto* actEnergy= hvacMenu->addAction("Enerji Simulasyonu...");
+        connect(actEnergy,&QAction::triggered,this, &MainWindow::OnEnergySimulation);
+
+        auto* raporMenu = analyzeMenu->addMenu("Gelismis Raporlar");
+        auto* actCompl = raporMenu->addAction("Mevzuat Uyum Raporu...");
+        connect(actCompl,&QAction::triggered, this, &MainWindow::OnComplianceReport);
+        auto* actSpec  = raporMenu->addAction("Teknik Sartname (HTML)...");
+        connect(actSpec, &QAction::triggered, this, &MainWindow::OnTechnicalSpec);
+        auto* actChart = raporMenu->addAction("Grafik Raporlar (SVG)...");
+        connect(actChart,&QAction::triggered, this, &MainWindow::OnChartReport);
+        auto* actFP    = raporMenu->addAction("Kat Bazli Basinc Raporu...");
+        connect(actFP,   &QAction::triggered, this, &MainWindow::OnFloorPressure);
+        auto* actLayout= raporMenu->addAction("Otomatik Fixture Yerlesim...");
+        connect(actLayout,&QAction::triggered,this, &MainWindow::OnAutoFixtureLayout);
     }
     analyzeMenu->addSeparator();
     analyzeMenu->addAction(m_actGenerateSchedule);
@@ -4365,6 +4396,27 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         statusBar()->showMessage(m_orthoMode ? "Ortho AÇIK" : "Ortho KAPALI", 2000);
     } else if (c == "HAKKINDA" || c == "ABOUT" || c == "VERSION" || c == "VERSIYON") {
         OnAbout();
+    // Session 34 — yeni komut aliasları
+    } else if (c == "SOGUTMA" || c == "COOLING" || c == "CLTD") {
+        OnCoolingLoad();
+    } else if (c == "PSIKRO" || c == "PSIKROMETRIK" || c == "PSYCHRO") {
+        OnPsychrometric();
+    } else if (c == "GURULTU" || c == "NOISE" || c == "NC") {
+        OnDuctNoise();
+    } else if (c == "ENERJI" || c == "ENERGY" || c == "EUI") {
+        OnEnergySimulation();
+    } else if (c == "UYUM" || c == "COMPLIANCE" || c == "MEVZUAT") {
+        OnComplianceReport();
+    } else if (c == "SARTNAME" || c == "SPEC" || c == "TEKNIK-SARTNAME") {
+        OnTechnicalSpec();
+    } else if (c == "GRAFIK" || c == "CHART" || c == "DN-GRAFIK") {
+        OnChartReport();
+    } else if (c == "EXPORT-DWG" || c == "DWG-KAYDET" || c == "KAYDET-DWG") {
+        OnExportDWG();
+    } else if (c == "KAT-BASINC" || c == "FLOOR-PRESSURE" || c == "STATIK-BASINC") {
+        OnFloorPressure();
+    } else if (c == "FIXTURE-YERLESIM" || c == "AUTO-LAYOUT" || c == "YERLESIM") {
+        OnAutoFixtureLayout();
     } else {
         statusBar()->showMessage(QString("Bilinmeyen komut: %1  (HELP yazın)").arg(cmd));
         if (m_commandBar) m_commandBar->SetPrompt("Komut");

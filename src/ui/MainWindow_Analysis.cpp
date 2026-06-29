@@ -36,6 +36,10 @@
 #include "cad/Circle.hpp"
 #include "cad/Arc.hpp"
 #include "cad/DXFWriter.hpp"
+#include "cad/DWGWriter.hpp"
+#include "mep/SpecGenerator.hpp"
+#include "mep/ChartGenerator.hpp"
+#include "mep/ClashDetection.hpp"
 #include "cad/Dimension.hpp"
 #include "cad/Polyline.hpp"
 #include "core/Version.hpp"
@@ -3334,6 +3338,351 @@ void MainWindow::OnBirleskMod() {
         : "Birleşik Mod KAPALI";
     statusBar()->showMessage(msg);
     if (m_logList) m_logList->addItem(msg);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SESSION 34 — YENİ ÖZELLİK UI BAĞLANTILARI
+// ═══════════════════════════════════════════════════════════
+
+void MainWindow::OnCoolingLoad() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Sogutma Yuk Hesabi (ASHRAE CLTD)");
+    dlg.resize(500, 420);
+    auto* layout = new QFormLayout(&dlg);
+
+    auto* spArea    = new QDoubleSpinBox(&dlg); spArea->setRange(1, 10000); spArea->setValue(100); spArea->setSuffix(" m2");
+    auto* spWallU   = new QDoubleSpinBox(&dlg); spWallU->setRange(0.1, 5); spWallU->setValue(0.5); spWallU->setSuffix(" W/m2K");
+    auto* spRoofU   = new QDoubleSpinBox(&dlg); spRoofU->setRange(0.1, 3); spRoofU->setValue(0.4); spRoofU->setSuffix(" W/m2K");
+    auto* spGlass   = new QDoubleSpinBox(&dlg); spGlass->setRange(0, 500); spGlass->setValue(20); spGlass->setSuffix(" m2");
+    auto* spSHGC    = new QDoubleSpinBox(&dlg); spSHGC->setRange(0.1, 1.0); spSHGC->setValue(0.55); spSHGC->setDecimals(2);
+    auto* spPeople  = new QSpinBox(&dlg); spPeople->setRange(0, 500); spPeople->setValue(4);
+    auto* spEquip   = new QDoubleSpinBox(&dlg); spEquip->setRange(0, 50000); spEquip->setValue(500); spEquip->setSuffix(" W");
+    auto* spLight   = new QDoubleSpinBox(&dlg); spLight->setRange(0, 50); spLight->setValue(10); spLight->setSuffix(" W/m2");
+    auto* spOutT    = new QDoubleSpinBox(&dlg); spOutT->setRange(-20, 50); spOutT->setValue(35); spOutT->setSuffix(" C");
+    auto* spInT     = new QDoubleSpinBox(&dlg); spInT->setRange(15, 30); spInT->setValue(24); spInT->setSuffix(" C");
+
+    layout->addRow("Zemin Alani:", spArea);
+    layout->addRow("Duvar U degeri:", spWallU);
+    layout->addRow("Cati U degeri:", spRoofU);
+    layout->addRow("Cam Alani:", spGlass);
+    layout->addRow("SHGC:", spSHGC);
+    layout->addRow("Kisi Sayisi:", spPeople);
+    layout->addRow("Ekipman Gucu:", spEquip);
+    layout->addRow("Aydinlatma:", spLight);
+    layout->addRow("Dis Sicaklik:", spOutT);
+    layout->addRow("Ic Sicaklik:", spInT);
+
+    auto* resultLabel = new QLabel("", &dlg);
+    resultLabel->setTextFormat(Qt::RichText);
+    resultLabel->setWordWrap(true);
+    layout->addRow(resultLabel);
+
+    auto* btnCalc = new QPushButton("Hesapla", &dlg);
+    layout->addRow(btnCalc);
+
+    connect(btnCalc, &QPushButton::clicked, [&]() {
+        if (!m_document) return;
+        mep::HydraulicSolver solver(m_document->GetNetwork());
+        auto r = solver.CalculateCoolingLoad(spArea->value(), spWallU->value(), spRoofU->value(),
+            spGlass->value(), spSHGC->value(), spPeople->value(), spEquip->value(),
+            spLight->value(), spOutT->value(), spInT->value());
+        resultLabel->setText(QString(
+            "<b>Sonuclar:</b><br>"
+            "Duvar/Cati: %1 W<br>Cam: %2 W<br>Ic Yukler: %3 W<br>Havalandirma: %4 W<br>"
+            "<b>TOPLAM: <font color='red'>%5 W (%6 kW)</font></b>")
+            .arg(r.Q_wall_W, 0, 'f', 0).arg(r.Q_glass_W, 0, 'f', 0)
+            .arg(r.Q_internal_W, 0, 'f', 0).arg(r.Q_ventilation_W, 0, 'f', 0)
+            .arg(r.Q_total_W, 0, 'f', 0).arg(r.Q_total_W / 1000.0, 0, 'f', 2));
+        if (m_logList) m_logList->addItem(QString("Sogutma yuku: %1 kW").arg(r.Q_total_W / 1000.0, 0, 'f', 2));
+    });
+    dlg.exec();
+}
+
+void MainWindow::OnPsychrometric() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("Psikrometrik Hesap");
+    dlg.resize(400, 300);
+    auto* layout = new QFormLayout(&dlg);
+    auto* spT  = new QDoubleSpinBox(&dlg); spT->setRange(-20, 50); spT->setValue(25); spT->setSuffix(" C");
+    auto* spRH = new QDoubleSpinBox(&dlg); spRH->setRange(0, 100); spRH->setValue(50); spRH->setSuffix(" %");
+    layout->addRow("Kuru Termometre:", spT);
+    layout->addRow("Bagil Nem:", spRH);
+    auto* resultLabel = new QLabel("", &dlg);
+    resultLabel->setTextFormat(Qt::RichText);
+    layout->addRow(resultLabel);
+    auto* btn = new QPushButton("Hesapla", &dlg);
+    layout->addRow(btn);
+    connect(btn, &QPushButton::clicked, [&]() {
+        auto r = mep::HydraulicSolver::CalcPsychrometric(spT->value(), spRH->value() / 100.0);
+        resultLabel->setText(QString(
+            "<b>Nem Orani:</b> %1 g/kg<br><b>Entalpi:</b> %2 kJ/kg<br>"
+            "<b>Cig Noktasi:</b> %3 C<br><b>Yas Termometre:</b> %4 C<br>"
+            "<b>Ozgul Hacim:</b> %5 m3/kg")
+            .arg(r.W * 1000, 0, 'f', 2).arg(r.h, 0, 'f', 1)
+            .arg(r.T_dp, 0, 'f', 1).arg(r.T_wb, 0, 'f', 1).arg(r.v, 0, 'f', 3));
+    });
+    dlg.exec();
+}
+
+void MainWindow::OnDuctNoise() {
+    if (!m_document) return;
+    QDialog dlg(this);
+    dlg.setWindowTitle("HVAC Gurultu Analizi (ASHRAE Ch.48)");
+    dlg.resize(450, 320);
+    auto* layout = new QFormLayout(&dlg);
+    auto* spFlow = new QDoubleSpinBox(&dlg); spFlow->setRange(10, 10000); spFlow->setValue(500); spFlow->setSuffix(" L/s");
+    auto* spVel  = new QDoubleSpinBox(&dlg); spVel->setRange(0.5, 20); spVel->setValue(5); spVel->setSuffix(" m/s");
+    auto* spArea = new QDoubleSpinBox(&dlg); spArea->setRange(0.01, 5); spArea->setValue(0.1); spArea->setSuffix(" m2"); spArea->setDecimals(3);
+    auto* spVol  = new QDoubleSpinBox(&dlg); spVol->setRange(5, 5000); spVol->setValue(75); spVol->setSuffix(" m3");
+    layout->addRow("Hava Debisi:", spFlow);
+    layout->addRow("Kanal Hizi:", spVel);
+    layout->addRow("Kanal Kesiti:", spArea);
+    layout->addRow("Oda Hacmi:", spVol);
+    auto* resultLabel = new QLabel("", &dlg); resultLabel->setTextFormat(Qt::RichText);
+    layout->addRow(resultLabel);
+    auto* btn = new QPushButton("Hesapla", &dlg);
+    layout->addRow(btn);
+    connect(btn, &QPushButton::clicked, [&]() {
+        mep::HydraulicSolver solver(m_document->GetNetwork());
+        auto r = solver.CalculateDuctNoise(spFlow->value(), spVel->value(), spArea->value(), spVol->value());
+        resultLabel->setText(QString(
+            "<b>Ses Gucu Lw:</b> %1 dB<br><b>Oda Ses Basinci Lp:</b> %2 dB<br>"
+            "<b>NC Derecesi:</b> %3<br><b>Degerlendirme:</b> %4")
+            .arg(r.Lw_dB, 0, 'f', 1).arg(r.Lp_room_dB, 0, 'f', 1)
+            .arg(r.NC_rating, 0, 'f', 0).arg(QString::fromStdString(r.assessment)));
+    });
+    dlg.exec();
+}
+
+void MainWindow::OnEnergySimulation() {
+    if (!m_document) return;
+    QDialog dlg(this);
+    dlg.setWindowTitle("Yillik Enerji Simulasyonu (Bin-Method)");
+    dlg.resize(600, 450);
+    auto* layout = new QFormLayout(&dlg);
+    auto* spArea = new QDoubleSpinBox(&dlg); spArea->setRange(10, 100000); spArea->setValue(150); spArea->setSuffix(" m2");
+    auto* spUA   = new QDoubleSpinBox(&dlg); spUA->setRange(10, 5000); spUA->setValue(120); spUA->setSuffix(" W/K");
+    auto* spVent = new QDoubleSpinBox(&dlg); spVent->setRange(0, 5000); spVent->setValue(80); spVent->setSuffix(" L/s");
+    auto* spOcc  = new QSpinBox(&dlg); spOcc->setRange(1, 500); spOcc->setValue(4);
+    layout->addRow("Zemin Alani:", spArea);
+    layout->addRow("Zarf UA:", spUA);
+    layout->addRow("Havalandirma:", spVent);
+    layout->addRow("Kisi:", spOcc);
+    auto* resultLabel = new QLabel("", &dlg); resultLabel->setTextFormat(Qt::RichText); resultLabel->setWordWrap(true);
+    layout->addRow(resultLabel);
+    auto* btn = new QPushButton("Simule Et", &dlg);
+    layout->addRow(btn);
+    connect(btn, &QPushButton::clicked, [&]() {
+        mep::HydraulicSolver solver(m_document->GetNetwork());
+        auto r = solver.CalculateAnnualEnergy(spArea->value(), spUA->value(), spVent->value(), spOcc->value());
+        resultLabel->setText(QString(
+            "<b>Yillik Isitma:</b> %1 kWh<br><b>Yillik Sogutma:</b> %2 kWh<br>"
+            "<b>Yillik Toplam:</b> %3 kWh<br><b>EUI:</b> %4 kWh/m2/yil")
+            .arg(r.annualHeating_kWh, 0, 'f', 0).arg(r.annualCooling_kWh, 0, 'f', 0)
+            .arg(r.annualTotal_kWh, 0, 'f', 0).arg(r.EUI_kWh_m2, 0, 'f', 1));
+        if (m_logList) m_logList->addItem(QString("Enerji: EUI=%1 kWh/m2").arg(r.EUI_kWh_m2, 0, 'f', 1));
+    });
+    dlg.exec();
+}
+
+void MainWindow::OnComplianceReport() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+    if (network.GetEdgeMap().empty()) {
+        QMessageBox::information(this, "Mevzuat Uyum", "Once tesisat sebekesi cizin.");
+        return;
+    }
+    mep::HydraulicSolver solver(network);
+    solver.Solve();
+    solver.SolveDrainage();
+    auto checks = solver.CheckCompliance();
+
+    QString html = "<h3>Mevzuat Uyum Raporu</h3><table border='1' cellpadding='4' cellspacing='0'>"
+                   "<tr style='background:#2a3a4a'><th>Standart</th><th>Gereklilik</th><th>Durum</th><th>Detay</th></tr>";
+    for (const auto& c : checks) {
+        QString color = c.passed ? "#2a4a2a" : "#4a2a2a";
+        QString icon  = c.passed ? "OK" : "BASARISIZ";
+        html += QString("<tr style='background:%1'><td>%2</td><td>%3</td><td><b>%4</b></td><td>%5</td></tr>")
+            .arg(color).arg(QString::fromStdString(c.standard))
+            .arg(QString::fromStdString(c.requirement)).arg(icon)
+            .arg(QString::fromStdString(c.detail));
+    }
+    html += "</table>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Mevzuat Uyum Raporu");
+    dlg.resize(700, 400);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(html);
+    layout->addWidget(browser);
+    auto* btnClose = new QPushButton("Kapat", &dlg);
+    layout->addWidget(btnClose);
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
+}
+
+void MainWindow::OnTechnicalSpec() {
+    if (!m_document) return;
+    mep::SpecGenerator gen(m_document->GetNetwork());
+    std::string html = gen.GenerateHTML();
+
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject() ? QString::fromStdString(pm.GetRaporFolder()) : "";
+    QString path = QFileDialog::getSaveFileName(this, "Teknik Sartname Kaydet", startDir, "HTML (*.html);;HTM (*.htm)");
+    if (path.isEmpty()) return;
+
+    std::ofstream f(path.toStdString());
+    if (f.is_open()) {
+        f << html;
+        statusBar()->showMessage("Teknik sartname kaydedildi: " + path, 3000);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+    }
+}
+
+void MainWindow::OnChartReport() {
+    if (!m_document) return;
+    auto& network = m_document->GetNetwork();
+
+    // DN dağılımı bar chart
+    std::map<int, double> dnLengths;
+    std::map<std::string, double> matLengths;
+    for (const auto& [eid, edge] : network.GetEdgeMap()) {
+        int dn = static_cast<int>(std::round(edge.diameter_mm));
+        dnLengths[dn] += edge.length_m;
+        matLengths[edge.material] += edge.length_m;
+    }
+
+    std::string barSVG = mep::ChartGenerator::BarChartSVG(dnLengths, "DN Dagilimi (m)");
+    std::string pieSVG = mep::ChartGenerator::PieChartSVG(matLengths, "Malzeme Dagilimi");
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Grafik Raporlar");
+    dlg.resize(800, 500);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(QString("<html><body style='background:#1a1a2e;padding:10px;'>%1<hr>%2</body></html>")
+        .arg(QString::fromStdString(barSVG)).arg(QString::fromStdString(pieSVG)));
+    layout->addWidget(browser);
+
+    auto* btnRow = new QHBoxLayout();
+    auto* btnSave = new QPushButton("SVG Kaydet...", &dlg);
+    auto* btnClose = new QPushButton("Kapat", &dlg);
+    btnRow->addWidget(btnSave); btnRow->addStretch(); btnRow->addWidget(btnClose);
+    layout->addLayout(btnRow);
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    connect(btnSave, &QPushButton::clicked, [&]() {
+        QString path = QFileDialog::getSaveFileName(&dlg, "Grafik Kaydet", "", "SVG (*.svg)");
+        if (path.isEmpty()) return;
+        std::ofstream f(path.toStdString());
+        if (f.is_open()) { f << barSVG << "\n" << pieSVG; }
+        statusBar()->showMessage("Grafik kaydedildi: " + path, 3000);
+    });
+    dlg.exec();
+}
+
+void MainWindow::OnExportDWG() {
+    if (!m_document) return;
+    auto& pm = core::ProjectManager::Instance();
+    QString startDir = pm.HasActiveProject() ? QString::fromStdString(pm.GetCiktiFolder()) : "";
+    QString path = QFileDialog::getSaveFileName(this, "DWG Olarak Kaydet", startDir,
+        "DWG Dosyasi (*.dwg);;DXF Dosyasi (*.dxf)");
+    if (path.isEmpty()) return;
+
+    // unordered_map → map dönüşümü (DWGWriter std::map bekliyor)
+    std::map<std::string, cad::Layer> layerMap(
+        m_document->GetLayers().begin(), m_document->GetLayers().end());
+    bool ok = cad::DWGWriter::Write(path.toStdString(),
+        m_document->GetCADEntities(), layerMap,
+        &m_document->GetBlockRegistry());
+
+    if (ok) {
+        statusBar()->showMessage("DWG kaydedildi: " + path, 3000);
+        if (m_logList) m_logList->addItem("DWG export: " + path);
+    } else {
+        QMessageBox::critical(this, "Hata", "DWG dosyasi yazilamadi!");
+    }
+}
+
+void MainWindow::OnFloorPressure() {
+    if (!m_document) return;
+    mep::HydraulicSolver solver(m_document->GetNetwork());
+    solver.Solve();
+    auto results = solver.CalculateFloorPressures(m_floorManager);
+    if (results.empty()) {
+        QMessageBox::information(this, "Kat Basinc", "Kat bilgisi bulunamadi.");
+        return;
+    }
+
+    QString html = "<h3>Kat Bazli Statik Basinc Raporu</h3>"
+                   "<table border='1' cellpadding='4' cellspacing='0'>"
+                   "<tr style='background:#2a3a4a'><th>Kat</th><th>Kot (m)</th>"
+                   "<th>Statik (mSS)</th><th>Surtunme (mSS)</th><th>Gerekli (mSS)</th>"
+                   "<th>Node</th><th>Edge</th></tr>";
+    for (const auto& r : results) {
+        html += QString("<tr><td>%1</td><td>%2</td><td>%3</td><td>%4</td>"
+                        "<td><b>%5</b></td><td>%6</td><td>%7</td></tr>")
+            .arg(QString::fromStdString(r.floorName))
+            .arg(r.elevation_m, 0, 'f', 2).arg(r.staticPressure_mSS, 0, 'f', 2)
+            .arg(r.frictionLoss_mSS, 0, 'f', 2).arg(r.requiredPressure_mSS, 0, 'f', 2)
+            .arg(r.nodeCount).arg(r.edgeCount);
+    }
+    html += "</table>";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle("Kat Bazli Statik Basinc");
+    dlg.resize(650, 350);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(html);
+    layout->addWidget(browser);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    layout->addWidget(btn);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
+}
+
+void MainWindow::OnAutoFixtureLayout() {
+    if (!m_document || !m_spaceManager) return;
+    auto spaces = m_spaceManager->GetAllSpaces();
+    if (spaces.empty()) {
+        QMessageBox::information(this, "Fixture Yerlesim", "Once mahal tespiti yapin.");
+        return;
+    }
+
+    QString report;
+    int totalFixtures = 0;
+    for (auto* space : spaces) {
+        auto placements = m_spaceManager->SuggestFixtureLayout(space);
+        if (placements.empty()) continue;
+        report += QString("<b>%1</b> (%2 m2):<br>").arg(QString::fromStdString(space->GetName()))
+            .arg(space->GetArea(), 0, 'f', 1);
+        for (const auto& fp : placements) {
+            report += QString("  - %1 (LU=%2) @ (%3, %4)<br>")
+                .arg(QString::fromStdString(fp.fixtureType))
+                .arg(fp.loadUnit, 0, 'f', 1)
+                .arg(fp.position.x, 0, 'f', 0).arg(fp.position.y, 0, 'f', 0);
+            totalFixtures++;
+        }
+        report += "<br>";
+    }
+
+    if (totalFixtures == 0) {
+        QMessageBox::information(this, "Fixture Yerlesim", "Islak hacim mahali bulunamadi.");
+        return;
+    }
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(QString("Otomatik Fixture Yerlesim Onerisi (%1 cihaz)").arg(totalFixtures));
+    dlg.resize(500, 400);
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* browser = new QTextBrowser(&dlg);
+    browser->setHtml(report);
+    layout->addWidget(browser);
+    auto* btn = new QPushButton("Kapat", &dlg);
+    layout->addWidget(btn);
+    connect(btn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
 }
 
 }} // namespace vkt::ui
