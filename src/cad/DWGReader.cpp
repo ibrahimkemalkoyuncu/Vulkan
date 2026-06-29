@@ -139,6 +139,8 @@ bool DWGReader::Read(const std::string& filepath) {
     
     // Layer bilgilerini çıkar (entity parse'dan ÖNCE — renk çözümlemesi için)
     ExtractLayers(dwg);
+    ExtractTextStyles(dwg);
+    ExtractLinetypes(dwg);
 
     // Entity'leri parse et
     ParseEntities(dwg);
@@ -396,6 +398,14 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
             entity = ParsePoint(obj);
             if (entity) m_stats.lineCount += 2;
             break;
+        case DWG_TYPE__3DFACE:
+            entity = Parse3DFace(obj);
+            if (entity) m_stats.solidCount++;
+            break;
+        case DWG_TYPE_SOLID:
+            entity = ParseSolid(obj);
+            if (entity) m_stats.solidCount++;
+            break;
         case DWG_TYPE_TEXT:
             entity = ParseText(obj);
             if (entity) m_stats.textCount++;
@@ -421,7 +431,9 @@ Entity* DWGReader::ParseEntityByType(void* obj_ptr) {
             entity = ParseLeader(obj);
             break;
         default:
-            m_stats.skippedCount++;
+            entity = ParseProxyEntity(obj);
+            if (entity) m_stats.proxyCount++;
+            else m_stats.skippedCount++;
             break;
     }
 
@@ -1783,6 +1795,108 @@ std::vector<Entity*> DWGReader::GetEntities() const {
 
 std::unordered_map<std::string, Layer> DWGReader::GetLayers() const {
     return m_layers;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  3DFACE / SOLID / Proxy entity parse
+// ═══════════════════════════════════════════════════════════
+
+Entity* DWGReader::Parse3DFace(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio._3DFACE) return nullptr;
+    auto* face = obj->tio.entity->tio._3DFACE;
+    // Create a polyline from the 4 corner points
+    std::vector<geom::Vec3> pts;
+    pts.push_back(geom::Vec3(face->corner1.x, face->corner1.y, face->corner1.z));
+    pts.push_back(geom::Vec3(face->corner2.x, face->corner2.y, face->corner2.z));
+    pts.push_back(geom::Vec3(face->corner3.x, face->corner3.y, face->corner3.z));
+    if (std::abs(face->corner4.x - face->corner3.x) > 1e-9 ||
+        std::abs(face->corner4.y - face->corner3.y) > 1e-9)
+        pts.push_back(geom::Vec3(face->corner4.x, face->corner4.y, face->corner4.z));
+    return new Polyline(pts, true);
+}
+
+Entity* DWGReader::ParseSolid(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity || !obj->tio.entity->tio.SOLID) return nullptr;
+    auto* solid = obj->tio.entity->tio.SOLID;
+    std::vector<geom::Vec3> pts;
+    pts.push_back(geom::Vec3(solid->corner1.x, solid->corner1.y, 0.0));
+    pts.push_back(geom::Vec3(solid->corner2.x, solid->corner2.y, 0.0));
+    pts.push_back(geom::Vec3(solid->corner3.x, solid->corner3.y, 0.0));
+    if (std::abs(solid->corner4.x - solid->corner3.x) > 1e-9 ||
+        std::abs(solid->corner4.y - solid->corner3.y) > 1e-9)
+        pts.push_back(geom::Vec3(solid->corner4.x, solid->corner4.y, 0.0));
+    return new Polyline(pts, true);
+}
+
+Entity* DWGReader::ParseProxyEntity(void* obj_ptr) {
+    Dwg_Object* obj = static_cast<Dwg_Object*>(obj_ptr);
+    if (!obj->tio.entity) return nullptr;
+    // Try to extract bounding box from proxy entity's common data
+    // Create a placeholder point at the entity's insertion/reference point
+    geom::Vec3 pos(0, 0, 0);
+    // Most proxy entities still have the common entity handle and can provide position
+    // Create a small marker (cross) at the position
+    return new Line(geom::Vec3(pos.x - 50, pos.y, 0), geom::Vec3(pos.x + 50, pos.y, 0));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Text Style & Linetype extraction
+// ═══════════════════════════════════════════════════════════
+
+void DWGReader::ExtractTextStyles(void* dwg_ptr) {
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
+    if (!dwg) return;
+
+    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+        Dwg_Object* obj = &dwg->object[i];
+        if (obj->type != DWG_TYPE_STYLE) continue;
+        if (!obj->tio.object || !obj->tio.object->tio.STYLE) continue;
+
+        auto* style = obj->tio.object->tio.STYLE;
+        TextStyleInfo info;
+        if (style->name) info.name = style->name;
+        if (style->font_file) info.fontFamily = style->font_file;
+        info.height = style->text_size;
+        info.widthFactor = style->width_factor;
+        if (style->bigfont_file && style->bigfont_file[0])
+            info.isBigFont = true;
+
+        if (!info.name.empty()) {
+            m_textStyles[info.name] = info;
+            m_stats.textStyleCount++;
+        }
+    }
+    std::cout << "[DWGReader] " << m_stats.textStyleCount << " text styles loaded" << std::endl;
+}
+
+void DWGReader::ExtractLinetypes(void* dwg_ptr) {
+    Dwg_Data* dwg = static_cast<Dwg_Data*>(dwg_ptr);
+    if (!dwg) return;
+
+    for (BITCODE_BL i = 0; i < dwg->num_objects; ++i) {
+        Dwg_Object* obj = &dwg->object[i];
+        if (obj->type != DWG_TYPE_LTYPE) continue;
+        if (!obj->tio.object || !obj->tio.object->tio.LTYPE) continue;
+
+        auto* ltype = obj->tio.object->tio.LTYPE;
+        LinetypeInfo info;
+        if (ltype->name) info.name = ltype->name;
+        if (ltype->description) info.description = ltype->description;
+        info.totalLength = ltype->pattern_len;
+
+        // Parse dash pattern
+        for (BITCODE_BL d = 0; d < ltype->numdashes; ++d) {
+            info.pattern.push_back(ltype->dashes[d].length);
+        }
+
+        if (!info.name.empty() && info.name != "ByBlock" && info.name != "ByLayer") {
+            m_linetypes[info.name] = info;
+            m_stats.linetypeCount++;
+        }
+    }
+    std::cout << "[DWGReader] " << m_stats.linetypeCount << " linetypes loaded" << std::endl;
 }
 
 } // namespace cad

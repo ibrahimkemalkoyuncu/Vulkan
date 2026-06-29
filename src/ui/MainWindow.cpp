@@ -705,6 +705,12 @@ void MainWindow::CreateMenus() {
     viewMenu->addSeparator();
     viewMenu->addAction(m_actSnapIntersection);
     viewMenu->addSeparator();
+    auto* actGrid = viewMenu->addAction("Izgara Gorunumu");
+    actGrid->setCheckable(true);
+    actGrid->setChecked(m_gridVisible);
+    actGrid->setShortcut(QKeySequence("G"));
+    connect(actGrid, &QAction::toggled, this, &MainWindow::OnToggleGrid);
+    viewMenu->addSeparator();
     auto* actDarkMode = viewMenu->addAction("Koyu Tema");
     actDarkMode->setCheckable(true);
     actDarkMode->setChecked(m_darkMode);
@@ -1844,6 +1850,17 @@ void MainWindow::OnIsometricView() {
         m_vulkanWindow->GetRenderer()->SetViewMode(render::ViewMode::Isometric);
     }
     statusBar()->showMessage("Izometrik Gorunum (3D)");
+}
+
+void MainWindow::OnToggleGrid() {
+    m_gridVisible = !m_gridVisible;
+    // Enable/disable grid snap based on visibility
+    if (m_gridVisible)
+        m_snapManager.EnableSnap(cad::SnapType::Grid);
+    else
+        m_snapManager.DisableSnap(cad::SnapType::Grid);
+    if (m_vulkanWindow) m_vulkanWindow->requestUpdate();
+    statusBar()->showMessage(m_gridVisible ? "Izgara ACIK" : "Izgara KAPALI", 2000);
 }
 
 void MainWindow::OnZoomExtents() {
@@ -4417,6 +4434,8 @@ void MainWindow::OnCommandEntered(const QString& cmd) {
         OnFloorPressure();
     } else if (c == "FIXTURE-YERLESIM" || c == "AUTO-LAYOUT" || c == "YERLESIM") {
         OnAutoFixtureLayout();
+    } else if (c == "GRID" || c == "IZGARA") {
+        OnToggleGrid();
     } else {
         statusBar()->showMessage(QString("Bilinmeyen komut: %1  (HELP yazın)").arg(cmd));
         if (m_commandBar) m_commandBar->SetPrompt("Komut");

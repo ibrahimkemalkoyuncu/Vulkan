@@ -9,6 +9,7 @@
 #include "mep/Database.hpp"
 #include "mep/SpecGenerator.hpp"
 #include "cad/SpaceManager.hpp"
+#include "cad/DWGReader.hpp"
 #include "core/FloorManager.hpp"
 
 using namespace vkt::mep;
@@ -1437,4 +1438,12 @@ TEST_CASE("SpaceManager - GetRoomTypeForSpace", "[space]") {
     REQUIRE(banyo != nullptr);
     auto* unknown = SpaceManager::GetRoomTypeForSpace(SpaceType::Void);
     REQUIRE(unknown == nullptr);
+}
+
+TEST_CASE("DWGStatistics has 3D and proxy fields", "[dwg]") {
+    vkt::cad::DWGStatistics stats;
+    REQUIRE(stats.solidCount == 0);
+    REQUIRE(stats.proxyCount == 0);
+    REQUIRE(stats.linetypeCount == 0);
+    REQUIRE(stats.textStyleCount == 0);
 }

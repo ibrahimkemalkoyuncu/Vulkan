@@ -62,6 +62,10 @@ struct DWGStatistics {
     size_t dimensionCount = 0;
     size_t leaderCount = 0;
     size_t insertExpanded = 0;
+    size_t solidCount = 0;         ///< 3DFACE/SOLID entity sayısı
+    size_t proxyCount = 0;         ///< Proxy/custom entity (basitleştirilmiş parse)
+    size_t linetypeCount = 0;      ///< Okunan linetype pattern sayısı
+    size_t textStyleCount = 0;     ///< Okunan text style sayısı
     size_t skippedCount = 0;       ///< Desteklenmeyen entity tipi — atlandı
     size_t failedCount = 0;        ///< Parse edilen ama NULL dönen entity
     double readTimeMs = 0.0;
@@ -175,22 +179,47 @@ private:
     Entity* ParsePoint(void* ent);
     Entity* ParseDimension(void* ent);
     Entity* ParseLeader(void* ent);
+    Entity* Parse3DFace(void* ent);
+    Entity* ParseSolid(void* ent);
+    Entity* ParseProxyEntity(void* ent);
     void ExpandMInsert(void* obj_ptr, void* dwg_ptr);
     void ExpandMInsertNested(void* obj_ptr, void* dwg_ptr, void* parentChain, int depth);
-    
+
     // Layer ve renk management
     void ExtractLayers(void* dwg_data);
     void ExtractEntityColorAndLayer(void* obj_ptr, Entity* entity);
+
+    // Text style ve linetype parsing
+    void ExtractTextStyles(void* dwg_data);
+    void ExtractLinetypes(void* dwg_data);
     bool PassesLayerFilter(const std::string& layerName) const;
     
     // Xref resolution: load external DWG referenced by INSERT
     void ExpandXref(const std::string& xrefPath,
                     std::vector<struct InsertTransform>& transformChain, int depth);
 
+    // Text style veritabanı
+    struct TextStyleInfo {
+        std::string name;
+        std::string fontFamily;  // "Arial", "Romans", "Simplex" vb.
+        double height = 0;
+        double widthFactor = 1.0;
+        bool isBigFont = false;
+    };
+    // Linetype pattern
+    struct LinetypeInfo {
+        std::string name;           // "DASHED", "CENTER" vb.
+        std::string description;
+        std::vector<double> pattern; // +dash, -gap, +dash ... (mm)
+        double totalLength = 0;
+    };
+
     // Data
     std::vector<std::unique_ptr<Entity>> m_entities;
     std::unordered_map<std::string, Layer> m_layers;
     std::unordered_set<std::string> m_layerFilter;
+    std::unordered_map<std::string, TextStyleInfo> m_textStyles;
+    std::unordered_map<std::string, LinetypeInfo>  m_linetypes;
     DWGStatistics m_stats;
     std::string m_errorMessage;
     std::string m_filePath; ///< Path to the current DWG file (for xref resolution)

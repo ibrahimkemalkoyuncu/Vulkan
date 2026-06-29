@@ -608,6 +608,10 @@ private:
     void OnTabCloseRequested(int index);
     void AddDocumentTab(core::Document* doc, const QString& title);
 
+    // Grid visibility
+    bool m_gridVisible = true;
+    void OnToggleGrid();
+
     // Dark mode
     bool m_darkMode = true;
 
