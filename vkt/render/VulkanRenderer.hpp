@@ -169,6 +169,9 @@ public:
         m_cadDirty = true; // vertex buffer'ı yeniden oluştur
     }
 
+    void SetShowGrid(bool show) { m_showGrid = show; }
+    bool GetShowGrid() const { return m_showGrid; }
+
     /** MEP katman görünürlük filtreleri — tüm disiplinler bağımsız gizle/göster */
     void SetLayerVisibility(bool showTemizSu, bool showSicakSu, bool showPisSu) {
         m_showTemizSu = showTemizSu;
@@ -387,6 +390,8 @@ private:
     bool m_showFire     = true;
     bool m_showElectric = true;
     bool m_showDuct     = true;
+
+    bool m_showGrid     = true;
 
     // Kritik devre vurgulama: bu edge ID'leri farklı renkte çizilir
     std::unordered_set<uint32_t> m_criticalPathEdges;

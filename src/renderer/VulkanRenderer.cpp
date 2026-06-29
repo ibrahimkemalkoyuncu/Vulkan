@@ -402,10 +402,10 @@ void VulkanRenderer::Render(const mep::NetworkGraph& network) {
     }
 
     if (useSSAO) {
-        DrawGridGBuffer(cmd);
+        if (m_showGrid) DrawGridGBuffer(cmd);
         DrawNetworkGBuffer(cmd);
     } else {
-        DrawGrid(cmd);
+        if (m_showGrid) DrawGrid(cmd);
         DrawNetwork(cmd, network);
     }
 

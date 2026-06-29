@@ -1854,11 +1854,12 @@ void MainWindow::OnIsometricView() {
 
 void MainWindow::OnToggleGrid() {
     m_gridVisible = !m_gridVisible;
-    // Enable/disable grid snap based on visibility
     if (m_gridVisible)
         m_snapManager.EnableSnap(cad::SnapType::Grid);
     else
         m_snapManager.DisableSnap(cad::SnapType::Grid);
+    if (m_vulkanWindow && m_vulkanWindow->GetRenderer())
+        m_vulkanWindow->GetRenderer()->SetShowGrid(m_gridVisible);
     if (m_vulkanWindow) m_vulkanWindow->requestUpdate();
     statusBar()->showMessage(m_gridVisible ? "Izgara ACIK" : "Izgara KAPALI", 2000);
 }
