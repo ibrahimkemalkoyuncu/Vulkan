@@ -10,6 +10,8 @@
 #include "mep/SpecGenerator.hpp"
 #include "cad/SpaceManager.hpp"
 #include "cad/DWGReader.hpp"
+#include "cad/Text.hpp"
+#include "cad/Line.hpp"
 #include "core/FloorManager.hpp"
 
 using namespace vkt::mep;
@@ -1446,4 +1448,27 @@ TEST_CASE("DWGStatistics has 3D and proxy fields", "[dwg]") {
     REQUIRE(stats.proxyCount == 0);
     REQUIRE(stats.linetypeCount == 0);
     REQUIRE(stats.textStyleCount == 0);
+}
+
+TEST_CASE("Text entity has font/style fields", "[dwg][text]") {
+    vkt::cad::Text txt;
+    REQUIRE(txt.GetFontName().empty());
+    REQUIRE(txt.GetStyleName().empty());
+    REQUIRE(txt.GetWidthFactor() == 1.0);
+    txt.SetFontName("Arial");
+    txt.SetStyleName("Standard");
+    txt.SetWidthFactor(0.8);
+    REQUIRE(txt.GetFontName() == "Arial");
+    REQUIRE(txt.GetStyleName() == "Standard");
+    REQUIRE_THAT(txt.GetWidthFactor(), Catch::Matchers::WithinAbs(0.8, 0.001));
+}
+
+TEST_CASE("Entity linetype default is CONTINUOUS", "[dwg][linetype]") {
+    vkt::cad::Line line(vkt::geom::Vec3(0,0,0), vkt::geom::Vec3(1,0,0));
+    REQUIRE(line.GetLinetype() == "CONTINUOUS");
+    line.SetLinetype("DASHED");
+    REQUIRE(line.GetLinetype() == "DASHED");
+    REQUIRE_THAT(line.GetLinetypeScale(), Catch::Matchers::WithinAbs(1.0, 0.001));
+    line.SetLinetypeScale(2.5);
+    REQUIRE_THAT(line.GetLinetypeScale(), Catch::Matchers::WithinAbs(2.5, 0.001));
 }

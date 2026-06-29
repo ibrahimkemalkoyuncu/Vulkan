@@ -1023,14 +1023,25 @@ Entity* DWGReader::ParseText(void* obj_ptr) {
 
     // Hizalamalı text'lerde asıl konum align_pt — insertPt anchor ile değil
     if (hAlign != 0 || vAlign != 0) {
-        // alignment_pt: dataflags & 2 set ise geçerli (DXF 11)
         geom::Vec3 alignPt(txt->alignment_pt.x, txt->alignment_pt.y, 0.0);
         if (alignPt.x != 0.0 || alignPt.y != 0.0)
             t->SetAlignPoint(alignPt);
         else {
-            // alignment_pt yoksa hAlign/vAlign'i sıfırla — insertPt'yi kullan
             t->SetHAlign(0);
             t->SetVAlign(0);
+        }
+    }
+
+    // Text style → font bilgisi uygula (m_textStyles map'inden)
+    if (!m_textStyles.empty()) {
+        // İlk style'ı default olarak uygula (style referansı handle ile resolve edilemiyor)
+        // Eğer "Standard" varsa onu kullan
+        auto it = m_textStyles.find("Standard");
+        if (it == m_textStyles.end()) it = m_textStyles.begin();
+        if (it != m_textStyles.end()) {
+            t->SetStyleName(it->second.name);
+            if (!it->second.fontFamily.empty()) t->SetFontName(it->second.fontFamily);
+            if (it->second.widthFactor > 0) t->SetWidthFactor(it->second.widthFactor);
         }
     }
 
@@ -1097,6 +1108,17 @@ Entity* DWGReader::ParseMText(void* obj_ptr) {
 
     if (mtext->rect_width > 0.0) txt->SetRectWidth(mtext->rect_width);
 
+    // Text style → font bilgisi uygula (m_textStyles map'inden)
+    if (!m_textStyles.empty()) {
+        auto it = m_textStyles.find("Standard");
+        if (it == m_textStyles.end()) it = m_textStyles.begin();
+        if (it != m_textStyles.end()) {
+            txt->SetStyleName(it->second.name);
+            if (!it->second.fontFamily.empty()) txt->SetFontName(it->second.fontFamily);
+            if (it->second.widthFactor > 0) txt->SetWidthFactor(it->second.widthFactor);
+        }
+    }
+
     return txt;
 }
 
@@ -1149,7 +1171,7 @@ Entity* DWGReader::ParseHatch(void* obj_ptr) {
                     if (!seg.is_ccw) sweep = -sweep;
                     if (sweep <= 0) sweep += 2.0 * M_PI;
                     int steps = std::max(8, (int)(sweep / (M_PI / 8)));
-                    for (int k = 0; k < steps; ++k) {
+                    for (int k = 0; k <= steps; ++k) {
                         double t = seg.start_angle + sweep * k / steps;
                         if (!seg.is_ccw) t = seg.start_angle - sweep * k / steps;
                         addPt(seg.center.x + seg.radius * std::cos(t),
@@ -1165,7 +1187,7 @@ Entity* DWGReader::ParseHatch(void* obj_ptr) {
                     double rotA = std::atan2(seg.endpoint.y, seg.endpoint.x);
                     double sweep = seg.end_angle - seg.start_angle;
                     if (sweep <= 0) sweep += 2.0 * M_PI;
-                    for (int k = 0; k < 16; ++k) {
+                    for (int k = 0; k <= 16; ++k) {
                         double t  = seg.start_angle + sweep * k / 16;
                         double lx = majorLen * std::cos(t);
                         double ly = minorLen * std::sin(t);

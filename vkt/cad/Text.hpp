@@ -53,6 +53,14 @@ public:
     double GetRectWidth() const                  { return m_rectWidth; }
     void   SetRectWidth(double w)                { m_rectWidth = w; }
 
+    // Font / Text Style
+    const std::string& GetFontName() const       { return m_fontName; }
+    void SetFontName(const std::string& f)       { m_fontName = f; }
+    double GetWidthFactor() const                { return m_widthFactor; }
+    void SetWidthFactor(double f)                { m_widthFactor = f; }
+    const std::string& GetStyleName() const      { return m_styleName; }
+    void SetStyleName(const std::string& s)      { m_styleName = s; }
+
     // Returns the effective anchor point in world space
     // (alignPoint when justification is set, insertPoint otherwise)
     const geom::Vec3& GetEffectiveInsertPoint() const {
@@ -74,6 +82,9 @@ private:
     int         m_hAlign      = 0;     ///< Horizontal justification (code 72)
     int         m_vAlign      = 0;     ///< Vertical justification (code 73)
     double      m_rectWidth   = 0.0;   ///< MTEXT column width in world units (0 = no wrap)
+    std::string m_fontName;             ///< Font family ("Arial", "Romans", "Simplex")
+    std::string m_styleName;            ///< DWG text style name ("Standard", "Custom1")
+    double      m_widthFactor = 1.0;    ///< Character width factor (DXF code 41)
 };
 
 } // namespace cad
